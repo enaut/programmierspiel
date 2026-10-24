@@ -1,4 +1,8 @@
-use crate::module_bindings::{Asteroid, BaseStation, Config, Ship, Vec2};
+use crate::module_bindings::{
+    BaseStation, Config, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, Ship,
+    UnidentifiedContact, Vec2,
+};
+use std::collections::HashMap;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
@@ -13,9 +17,13 @@ pub fn render_player_radar(
     center_pos: Vec2,
     color_hue: u16,
     config: Option<&Config>,
-    ships: &[Ship],
+    my_ships: &[Ship],
     my_base: Option<&BaseStation>,
-    asteroids: &[Asteroid],
+    visible_drones: &[PerceivedDrone],
+    visible_bases: &[PerceivedBase],
+    visible_asteroids: &[PerceivedAsteroid],
+    unidentified_objects: &[UnidentifiedContact],
+    players: &[Player],
     target_pos: Option<Vec2>,
     time: f64,
 ) {
@@ -32,22 +40,33 @@ pub fn render_player_radar(
         let _ = ctx.scale(dpr, dpr);
         let _ = ctx.translate(cx, cy);
 
-        // Radar range rings (relative to radar center)
-        ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.12)"));
-        ctx.set_line_width(1.0);
-        for r in [100.0, 200.0, 300.0, 450.0, 600.0] {
+        // Precompute player lookup (identity -> player)
+        let player_map: HashMap<_, _> = players.iter().map(|p| (p.identity, p)).collect();
+
+        // Radar sensor range rings: 150m (Drone ID), 300m (Base/Asteroid ID), 600m (Radar Horizon)
+        let rings = [
+            (150.0, "150m Drohnen-Scan", "rgba(0, 229, 255, 0.15)"),
+            (300.0, "300m Basen & Asteroiden", "rgba(0, 229, 255, 0.18)"),
+            (600.0, "600m Radar-Horizont", "rgba(0, 229, 255, 0.25)"),
+        ];
+
+        for (r, label, stroke_color) in rings {
             ctx.begin_path();
             let _ = ctx.arc(0.0, 0.0, r, 0.0, std::f64::consts::TAU);
+            ctx.set_stroke_style(&JsValue::from_str(stroke_color));
+            ctx.set_line_width(1.0);
             ctx.stroke();
 
-            // Ring distance labels
+            // Ring distance label
             ctx.set_font("10px monospace");
-            ctx.set_fill_style(&JsValue::from_str("rgba(0, 229, 255, 0.3)"));
+            ctx.set_fill_style(&JsValue::from_str("rgba(0, 229, 255, 0.45)"));
             ctx.set_text_align("left");
-            let _ = ctx.fill_text(&format!("{:.0}m", r), 4.0, -r + 12.0);
+            let _ = ctx.fill_text(label, 6.0, -r + 12.0);
         }
 
         // Radar crosshairs
+        ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.08)"));
+        ctx.set_line_width(1.0);
         ctx.begin_path();
         ctx.move_to(-canvas_w / 2.0, 0.0);
         ctx.line_to(canvas_w / 2.0, 0.0);
@@ -58,7 +77,7 @@ pub fn render_player_radar(
         let center_x = center_pos.x as f64;
         let center_y = center_pos.y as f64;
 
-        // 2. Draw Mega-Station
+        // 2. Draw Central Mega-Station (Permanent Beacon)
         let mega_world_x = config.map_or(1600.0, |c| c.megastation_pos.x as f64);
         let mega_world_y = config.map_or(1000.0, |c| c.megastation_pos.y as f64);
         let mega_x = mega_world_x - center_x;
@@ -85,12 +104,29 @@ pub fn render_player_radar(
         ctx.set_fill_style(&JsValue::from_str("#e0f7fa"));
         let _ = ctx.fill_text("MEGA-STATION", mega_x, mega_y + 44.0);
 
-        // 3. Draw Asteroids relative to center
-        for ast in asteroids {
+        // 3. Draw Unidentified Objects (Faint red radar blip with no text label)
+        for contact in unidentified_objects {
+            let ux = contact.position.x as f64 - center_x;
+            let uy = contact.position.y as f64 - center_y;
+
+            if ux.abs() < cx + 40.0 && uy.abs() < cy + 40.0 {
+                let pulse =
+                    ((time * 3.5 + (contact.contact_id as f64 * 0.7)).sin() * 0.25 + 0.75) * 4.5;
+                ctx.begin_path();
+                let _ = ctx.arc(ux, uy, pulse, 0.0, std::f64::consts::TAU);
+                ctx.set_fill_style(&JsValue::from_str("rgba(239, 68, 68, 0.75)"));
+                ctx.fill();
+                ctx.set_stroke_style(&JsValue::from_str("rgba(248, 113, 113, 0.9)"));
+                ctx.set_line_width(1.0);
+                ctx.stroke();
+            }
+        }
+
+        // 4. Draw Identified Asteroids
+        for ast in visible_asteroids {
             let ax = ast.position.x as f64 - center_x;
             let ay = ast.position.y as f64 - center_y;
 
-            // Only draw if within radar viewport
             if ax.abs() < cx + 60.0 && ay.abs() < cy + 60.0 {
                 let color = match ast.resource_type {
                     3 => "#a855f7", // Titanium (purple)
@@ -121,12 +157,51 @@ pub fn render_player_radar(
             }
         }
 
-        // 4. Draw Base Station if deployed
+        // 5. Draw Bases
+        // 5A. Other identified bases in sensor range (from visible_bases)
+        for base in visible_bases {
+            // Check if this base is our own base
+            let is_my_base = my_base.map_or(false, |b| b.base_id == base.base_id);
+            if !is_my_base {
+                let bx = base.position.x as f64 - center_x;
+                let by = base.position.y as f64 - center_y;
+                let b_hue = player_map.get(&base.owner).map_or(200, |p| p.color_hue);
+                let b_name = player_map
+                    .get(&base.owner)
+                    .map_or("Basis".to_string(), |p| format!("Basis ({})", p.name));
+
+                // Base structure icon
+                ctx.begin_path();
+                let _ = ctx.arc(bx, by, 18.0, 0.0, std::f64::consts::TAU);
+                ctx.set_fill_style(&JsValue::from_str("#0f172a"));
+                ctx.fill();
+                ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", b_hue)));
+                ctx.set_line_width(2.5);
+                ctx.stroke();
+
+                // Cross arms
+                ctx.set_stroke_style(&JsValue::from_str("#94a3b8"));
+                ctx.set_line_width(1.5);
+                ctx.begin_path();
+                ctx.move_to(bx - 24.0, by);
+                ctx.line_to(bx + 24.0, by);
+                ctx.move_to(bx, by - 24.0);
+                ctx.line_to(bx, by + 24.0);
+                ctx.stroke();
+
+                ctx.set_font("bold 11px sans-serif");
+                ctx.set_text_align("center");
+                ctx.set_fill_style(&JsValue::from_str("#e2e8f0"));
+                let _ = ctx.fill_text(&b_name, bx, by + 36.0);
+            }
+        }
+
+        // 5B. Draw Player's Own Home Base (if deployed)
         if let Some(base) = my_base {
             let bx = base.position.x as f64 - center_x;
             let by = base.position.y as f64 - center_y;
 
-            // Base signal range circle (pulsing border)
+            // Signal radius circle
             let sig_r = base.signal_radius as f64;
             ctx.begin_path();
             let _ = ctx.arc(bx, by, sig_r, 0.0, std::f64::consts::TAU);
@@ -169,15 +244,58 @@ pub fn render_player_radar(
             let _ = ctx.fill_text("HEIMATBASIS", bx, by + 46.0);
         }
 
-        // 5. Draw Ships & Drones
-        for s in ships {
+        // 6. Draw Other Identified Drones (from visible_drones)
+        for d in visible_drones {
+            let is_my_drone = my_ships.iter().any(|s| s.ship_id == d.ship_id);
+            if !is_my_drone {
+                let dx = d.position.x as f64 - center_x;
+                let dy = d.position.y as f64 - center_y;
+                let d_hue = player_map.get(&d.owner).map_or(180, |p| p.color_hue);
+                let p_name = player_map
+                    .get(&d.owner)
+                    .map_or("".to_string(), |p| p.name.clone());
+
+                let _ = ctx.save();
+                let _ = ctx.translate(dx, dy);
+                let _ = ctx.rotate(d.heading_rad as f64);
+
+                ctx.begin_path();
+                ctx.move_to(16.0, 0.0);
+                ctx.line_to(-12.0, -10.0);
+                ctx.line_to(-6.0, 0.0);
+                ctx.line_to(-12.0, 10.0);
+                ctx.close_path();
+
+                ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 85%, 50%)", d_hue)));
+                ctx.fill();
+                ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
+                ctx.set_line_width(1.5);
+                ctx.stroke();
+
+                let _ = ctx.restore();
+
+                // Label
+                ctx.set_font("10px monospace");
+                ctx.set_text_align("center");
+                ctx.set_fill_style(&JsValue::from_str("#cbd5e1"));
+                let label = if p_name.is_empty() {
+                    format!("Drohne #{}", d.ship_id)
+                } else {
+                    format!("{}: #{}", p_name, d.ship_id)
+                };
+                let _ = ctx.fill_text(&label, dx, dy - 18.0);
+            }
+        }
+
+        // 7. Draw Player's Own Ships & Drones (with full telemetry & movement paths)
+        for s in my_ships {
             let sx = s.position.x as f64 - center_x;
             let sy = s.position.y as f64 - center_y;
 
             // Mining laser beam if currently mining
             if s.is_mining {
                 if let Some(target_id) = s.target_asteroid_id {
-                    if let Some(ast) = asteroids.iter().find(|a| a.asteroid_id == target_id) {
+                    if let Some(ast) = visible_asteroids.iter().find(|a| a.asteroid_id == target_id) {
                         let ast_x = ast.position.x as f64 - center_x;
                         let ast_y = ast.position.y as f64 - center_y;
                         ctx.begin_path();
@@ -226,7 +344,7 @@ pub fn render_player_radar(
             }
 
             if s.ship_tier == 0 {
-                // Tier-0 Construction / Builder Ship (Larger, specialized)
+                // Tier-0 Construction / Builder Ship (Mothership)
                 ctx.begin_path();
                 ctx.move_to(22.0, 0.0);
                 ctx.line_to(-16.0, -14.0);
@@ -270,14 +388,14 @@ pub fn render_player_radar(
             ctx.set_text_align("center");
             ctx.set_fill_style(&JsValue::from_str("#cbd5e1"));
             let label = if s.ship_tier == 0 {
-                "Bauschiff".to_string()
+                "Bauschiff (Mutterschiff)".to_string()
             } else {
                 format!("Drohne #{}", s.ship_id)
             };
             let _ = ctx.fill_text(&label, sx, sy - 20.0);
         }
 
-        // 6. Draw Manual Target Marker if in Builder Mode
+        // 8. Draw Manual Target Marker if in Builder Mode
         if let Some(target) = target_pos {
             let tx = target.x as f64 - center_x;
             let ty = target.y as f64 - center_y;

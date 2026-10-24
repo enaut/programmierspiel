@@ -10,6 +10,7 @@ use super::vec_2_type::Vec2;
 #[sats(crate = __lib)]
 pub struct Asteroid {
     pub asteroid_id: u32,
+    pub universe: u8,
     pub position: Vec2,
     pub resource_type: u8,
     pub remaining_ore: u32,
@@ -25,6 +26,7 @@ impl __sdk::InModule for Asteroid {
 /// Provides typed access to columns for query building.
 pub struct AsteroidCols {
     pub asteroid_id: __sdk::__query_builder::Col<Asteroid, u32>,
+    pub universe: __sdk::__query_builder::Col<Asteroid, u8>,
     pub position: __sdk::__query_builder::Col<Asteroid, Vec2>,
     pub resource_type: __sdk::__query_builder::Col<Asteroid, u8>,
     pub remaining_ore: __sdk::__query_builder::Col<Asteroid, u32>,
@@ -36,6 +38,7 @@ impl __sdk::__query_builder::HasCols for Asteroid {
     fn cols(table_name: &'static str) -> Self::Cols {
         AsteroidCols {
             asteroid_id: __sdk::__query_builder::Col::new(table_name, "asteroid_id"),
+            universe: __sdk::__query_builder::Col::new(table_name, "universe"),
             position: __sdk::__query_builder::Col::new(table_name, "position"),
             resource_type: __sdk::__query_builder::Col::new(table_name, "resource_type"),
             remaining_ore: __sdk::__query_builder::Col::new(table_name, "remaining_ore"),
@@ -49,6 +52,7 @@ impl __sdk::__query_builder::HasCols for Asteroid {
 /// Provides typed access to indexed columns for query building.
 pub struct AsteroidIxCols {
     pub asteroid_id: __sdk::__query_builder::IxCol<Asteroid, u32>,
+    pub universe: __sdk::__query_builder::IxCol<Asteroid, u8>,
 }
 
 impl __sdk::__query_builder::HasIxCols for Asteroid {
@@ -56,6 +60,7 @@ impl __sdk::__query_builder::HasIxCols for Asteroid {
     fn ix_cols(table_name: &'static str) -> Self::IxCols {
         AsteroidIxCols {
             asteroid_id: __sdk::__query_builder::IxCol::new(table_name, "asteroid_id"),
+            universe: __sdk::__query_builder::IxCol::new(table_name, "universe"),
         }
     }
 }

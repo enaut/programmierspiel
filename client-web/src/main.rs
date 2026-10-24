@@ -70,9 +70,12 @@ fn App() -> Element {
     use_subscription(&[
         "SELECT * FROM config",
         "SELECT * FROM player",
-        "SELECT * FROM base_station",
-        "SELECT * FROM ship",
-        "SELECT * FROM asteroid",
+        "SELECT * FROM my_base",
+        "SELECT * FROM my_ships",
+        "SELECT * FROM visible_bases",
+        "SELECT * FROM visible_drones",
+        "SELECT * FROM visible_asteroids",
+        "SELECT * FROM unidentified_objects",
         "SELECT * FROM game_event",
     ]);
 
@@ -124,14 +127,12 @@ fn App() -> Element {
     };
 
     let players = (ctx.tables.player)();
-    let bases = (ctx.tables.base_station)();
-    let ships = (ctx.tables.ship)();
+    let my_bases = (ctx.tables.my_base)();
+    let my_ships_list = (ctx.tables.my_ships)();
 
     let my_player = my_identity.and_then(|id| players.iter().find(|p| p.identity == id).cloned());
-    let my_base = my_identity.and_then(|id| bases.iter().find(|b| b.owner == id).cloned());
-    let my_ships: Vec<Ship> = my_identity.map_or(Vec::new(), |id| {
-        ships.iter().filter(|s| s.owner == id).cloned().collect()
-    });
+    let my_base = my_bases.first().cloned();
+    let my_ships: Vec<Ship> = my_ships_list;
 
     let reg_err_msg = use_signal_sync(|| None::<String>);
     let reg_is_submitting = use_signal_sync(|| false);
@@ -570,9 +571,15 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                                         ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
                                     {
                                         let configs = (ctx.tables.config)();
-                                        let asteroids = (ctx.tables.asteroid)();
-                                        let ships = (ctx.tables.ship)();
-                                        let current_ship = ships
+                                        let players = (ctx.tables.player)();
+                                        let my_ships = (ctx.tables.my_ships)();
+                                        let visible_drones = (ctx.tables.visible_drones)();
+                                        let visible_bases = (ctx.tables.visible_bases)();
+                                        let visible_asteroids = (ctx.tables.visible_asteroids)();
+                                        let unidentified_objects =
+                                            (ctx.tables.unidentified_objects)();
+
+                                        let current_ship = my_ships
                                             .into_iter()
                                             .find(|s| s.owner == p_identity && s.ship_tier == 0);
 
@@ -589,7 +596,11 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                                                 configs.first(),
                                                 &ships_slice,
                                                 None,
-                                                &asteroids,
+                                                &visible_drones,
+                                                &visible_bases,
+                                                &visible_asteroids,
+                                                &unidentified_objects,
+                                                &players,
                                                 target_marker(),
                                                 time,
                                             );
@@ -802,17 +813,16 @@ fn BaseDashboardScreen(player: Player, base: BaseStation, ships: Vec<Ship>) -> E
                                         ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
                                     {
                                         let configs = (ctx.tables.config)();
-                                        let asteroids = (ctx.tables.asteroid)();
-                                        let bases = (ctx.tables.base_station)();
-                                        let current_ships = (ctx.tables.ship)();
+                                        let players = (ctx.tables.player)();
+                                        let my_current_bases = (ctx.tables.my_base)();
+                                        let my_current_ships = (ctx.tables.my_ships)();
+                                        let visible_drones = (ctx.tables.visible_drones)();
+                                        let visible_bases = (ctx.tables.visible_bases)();
+                                        let visible_asteroids = (ctx.tables.visible_asteroids)();
+                                        let unidentified_objects =
+                                            (ctx.tables.unidentified_objects)();
 
-                                        let my_current_base =
-                                            bases.iter().find(|b| b.owner == player.identity);
-                                        let my_current_ships: Vec<Ship> = current_ships
-                                            .into_iter()
-                                            .filter(|s| s.owner == player.identity)
-                                            .collect();
-
+                                        let my_current_base = my_current_bases.first();
                                         let time = js_sys::Date::now() / 1000.0;
 
                                         render_player_radar(
@@ -825,7 +835,11 @@ fn BaseDashboardScreen(player: Player, base: BaseStation, ships: Vec<Ship>) -> E
                                             configs.first(),
                                             &my_current_ships,
                                             my_current_base,
-                                            &asteroids,
+                                            &visible_drones,
+                                            &visible_bases,
+                                            &visible_asteroids,
+                                            &unidentified_objects,
+                                            &players,
                                             None,
                                             time,
                                         );

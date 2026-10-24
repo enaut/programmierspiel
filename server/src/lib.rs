@@ -96,6 +96,7 @@ pub fn register_player(ctx: &ReducerContext, name: String, color_hue: u16) -> Re
 
     ctx.db.ship().insert(Ship {
         ship_id: 0,
+        universe: 0,
         owner: sender,
         ship_tier: 0, // Builder ship
         position: spawn_pos,
@@ -168,6 +169,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
     // Deploy Base Station at ship position
     ctx.db.base_station().insert(BaseStation {
         base_id: 0,
+        universe: 0,
         owner: sender,
         position: ship.position,
         signal_radius: DEFAULT_SIGNAL_RADIUS,
@@ -181,6 +183,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
 
     ctx.db.ship().insert(Ship {
         ship_id: 0,
+        universe: 0,
         owner: sender,
         ship_tier: 1, // First programmable miner drone!
         position: ship.position + Vec2::new(30.0, 0.0),
@@ -243,6 +246,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
 
     ctx.db.ship().insert(Ship {
         ship_id: 0,
+        universe: 0,
         owner: sender,
         ship_tier: tier,
         position: base.position + Vec2::new(25.0, 25.0),
@@ -356,6 +360,22 @@ pub fn admin_set_phase(ctx: &ReducerContext, level: u8, paused: bool) -> Result<
         level,
         paused
     );
+    Ok(())
+}
+
+#[reducer]
+pub fn authenticate_admin(ctx: &ReducerContext, password: String) -> Result<(), String> {
+    if password.trim() != "admin" {
+        return Err("Invalid admin password".to_string());
+    }
+    let sender = ctx.sender();
+    if ctx.db.admin_user().identity().find(&sender).is_none() {
+        ctx.db.admin_user().insert(AdminUser {
+            identity: sender,
+            authenticated_at: ctx.timestamp,
+        });
+    }
+    log::info!("Admin authenticated successfully: {:?}", sender);
     Ok(())
 }
 
@@ -544,7 +564,181 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
         seed_asteroids(ctx, (25 - asteroid_count) as usize);
     }
 
+    // 250ms periodic sensor sweep (every 5 ticks of 50ms)
+    let is_sensor_tick = tick_count % 5 == 0;
+    if is_sensor_tick {
+        update_radar_sensors(ctx);
+    }
+
     Ok(())
+}
+
+fn update_radar_sensors(ctx: &ReducerContext) {
+    let all_bases: Vec<BaseStation> = ctx.db.base_station().iter().collect();
+    let all_ships: Vec<Ship> = ctx.db.ship().iter().collect();
+    let all_asteroids: Vec<Asteroid> = ctx.db.asteroid().iter().collect();
+
+    for player in ctx.db.player().iter() {
+        let p_id = player.identity;
+
+        // 1. Clear existing perceived rows for this viewer
+        let drone_ids: Vec<u64> = ctx
+            .db
+            .perceived_drone()
+            .viewer()
+            .filter(&p_id)
+            .map(|r| r.id)
+            .collect();
+        for id in drone_ids {
+            ctx.db.perceived_drone().id().delete(&id);
+        }
+
+        let base_ids: Vec<u64> = ctx
+            .db
+            .perceived_base()
+            .viewer()
+            .filter(&p_id)
+            .map(|r| r.id)
+            .collect();
+        for id in base_ids {
+            ctx.db.perceived_base().id().delete(&id);
+        }
+
+        let asteroid_ids: Vec<u64> = ctx
+            .db
+            .perceived_asteroid()
+            .viewer()
+            .filter(&p_id)
+            .map(|r| r.id)
+            .collect();
+        for id in asteroid_ids {
+            ctx.db.perceived_asteroid().id().delete(&id);
+        }
+
+        let contact_ids: Vec<u64> = ctx
+            .db
+            .unidentified_contact()
+            .viewer()
+            .filter(&p_id)
+            .map(|r| r.id)
+            .collect();
+        for id in contact_ids {
+            ctx.db.unidentified_contact().id().delete(&id);
+        }
+
+        // 2. Identify Primary Hub
+        let hub_pos = ctx
+            .db
+            .base_station()
+            .owner()
+            .find(&p_id)
+            .map(|b| b.position)
+            .or_else(|| {
+                all_ships
+                    .iter()
+                    .find(|s| s.owner == p_id && s.ship_tier == 0)
+                    .map(|s| s.position)
+            });
+
+        // 3. Identify Own Drones
+        let own_drones: Vec<&Ship> = all_ships.iter().filter(|s| s.owner == p_id).collect();
+
+        // If no sensors are available, skip
+        if hub_pos.is_none() && own_drones.is_empty() {
+            continue;
+        }
+
+        let get_dist_to_hub = |pos: &Vec2| hub_pos.as_ref().map(|h| pos.distance(h));
+        let get_dist_to_drones = |pos: &Vec2| {
+            own_drones
+                .iter()
+                .map(|d| pos.distance(&d.position))
+                .fold(f32::INFINITY, f32::min)
+        };
+
+        // A. Drones
+        for s in &all_ships {
+            let dist_hub = get_dist_to_hub(&s.position);
+            let dist_drone = get_dist_to_drones(&s.position);
+
+            let is_in_drone_id_range =
+                dist_hub.map_or(false, |d| d <= 150.0) || dist_drone <= 150.0;
+
+            if is_in_drone_id_range {
+                ctx.db.perceived_drone().insert(PerceivedDrone {
+                    id: 0,
+                    viewer: p_id,
+                    ship_id: s.ship_id,
+                    owner: s.owner,
+                    ship_tier: s.ship_tier,
+                    position: s.position,
+                    heading_rad: s.heading_rad,
+                    speed: s.speed,
+                    is_mining: s.is_mining,
+                });
+            } else if s.owner != p_id && dist_hub.map_or(false, |d| d <= 600.0) {
+                ctx.db.unidentified_contact().insert(UnidentifiedContact {
+                    id: 0,
+                    viewer: p_id,
+                    contact_id: s.ship_id,
+                    position: s.position,
+                });
+            }
+        }
+
+        // B. Bases
+        for b in &all_bases {
+            let dist_hub = get_dist_to_hub(&b.position);
+            let is_in_base_id_range = dist_hub.map_or(false, |d| d <= 300.0);
+
+            if is_in_base_id_range {
+                ctx.db.perceived_base().insert(PerceivedBase {
+                    id: 0,
+                    viewer: p_id,
+                    base_id: b.base_id,
+                    owner: b.owner,
+                    position: b.position,
+                    signal_radius: b.signal_radius,
+                    level: b.level,
+                });
+            } else if b.owner != p_id && dist_hub.map_or(false, |d| d <= 600.0) {
+                ctx.db.unidentified_contact().insert(UnidentifiedContact {
+                    id: 0,
+                    viewer: p_id,
+                    contact_id: 100_000 + b.base_id,
+                    position: b.position,
+                });
+            }
+        }
+
+        // C. Asteroids
+        for ast in &all_asteroids {
+            let dist_hub = get_dist_to_hub(&ast.position);
+            let dist_drone = get_dist_to_drones(&ast.position);
+
+            let is_in_asteroid_id_range =
+                dist_hub.map_or(false, |d| d <= 300.0) || dist_drone <= 150.0;
+
+            if is_in_asteroid_id_range {
+                ctx.db.perceived_asteroid().insert(PerceivedAsteroid {
+                    id: 0,
+                    viewer: p_id,
+                    asteroid_id: ast.asteroid_id,
+                    position: ast.position,
+                    resource_type: ast.resource_type,
+                    remaining_ore: ast.remaining_ore,
+                    radius: ast.radius,
+                });
+            } else if dist_hub.map_or(false, |d| d <= 600.0) {
+                ctx.db.unidentified_contact().insert(UnidentifiedContact {
+                    id: 0,
+                    viewer: p_id,
+                    contact_id: 200_000 + ast.asteroid_id,
+                    position: ast.position,
+                });
+            }
+        }
+    }
 }
 
 // ==========================================
@@ -571,6 +765,66 @@ pub fn my_ships(ctx: &ViewContext) -> Vec<Ship> {
 #[view(accessor = my_base, public)]
 pub fn my_base(ctx: &ViewContext) -> Option<BaseStation> {
     ctx.db.base_station().owner().find(&ctx.sender())
+}
+
+#[view(accessor = visible_drones, public)]
+pub fn visible_drones(ctx: &ViewContext) -> Vec<PerceivedDrone> {
+    ctx.db
+        .perceived_drone()
+        .viewer()
+        .filter(&ctx.sender())
+        .collect()
+}
+
+#[view(accessor = visible_bases, public)]
+pub fn visible_bases(ctx: &ViewContext) -> Vec<PerceivedBase> {
+    ctx.db
+        .perceived_base()
+        .viewer()
+        .filter(&ctx.sender())
+        .collect()
+}
+
+#[view(accessor = visible_asteroids, public)]
+pub fn visible_asteroids(ctx: &ViewContext) -> Vec<PerceivedAsteroid> {
+    ctx.db
+        .perceived_asteroid()
+        .viewer()
+        .filter(&ctx.sender())
+        .collect()
+}
+
+#[view(accessor = unidentified_objects, public)]
+pub fn unidentified_objects(ctx: &ViewContext) -> Vec<UnidentifiedContact> {
+    ctx.db
+        .unidentified_contact()
+        .viewer()
+        .filter(&ctx.sender())
+        .collect()
+}
+
+#[view(accessor = admin_all_ships, public)]
+pub fn admin_all_ships(ctx: &ViewContext) -> Vec<Ship> {
+    if ctx.db.admin_user().identity().find(&ctx.sender()).is_none() {
+        return Vec::new();
+    }
+    ctx.db.ship().universe().filter(&0u8).collect()
+}
+
+#[view(accessor = admin_all_bases, public)]
+pub fn admin_all_bases(ctx: &ViewContext) -> Vec<BaseStation> {
+    if ctx.db.admin_user().identity().find(&ctx.sender()).is_none() {
+        return Vec::new();
+    }
+    ctx.db.base_station().universe().filter(&0u8).collect()
+}
+
+#[view(accessor = admin_all_asteroids, public)]
+pub fn admin_all_asteroids(ctx: &ViewContext) -> Vec<Asteroid> {
+    if ctx.db.admin_user().identity().find(&ctx.sender()).is_none() {
+        return Vec::new();
+    }
+    ctx.db.asteroid().universe().filter(&0u8).collect()
 }
 
 // ==========================================
@@ -606,6 +860,7 @@ fn seed_asteroids(ctx: &ReducerContext, count: usize) {
 
         ctx.db.asteroid().insert(Asteroid {
             asteroid_id: 0,
+            universe: 0,
             position: pos,
             resource_type: res_type,
             remaining_ore: ore,

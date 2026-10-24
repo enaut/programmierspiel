@@ -41,7 +41,7 @@ pub struct Player {
     pub created_at: Timestamp,
 }
 
-#[table(accessor = base_station, public)]
+#[table(accessor = base_station)]
 #[derive(Debug, Clone)]
 pub struct BaseStation {
     #[primary_key]
@@ -49,6 +49,8 @@ pub struct BaseStation {
     #[auto_inc]
     #[unique]
     pub base_id: u32,
+    #[index(btree)]
+    pub universe: u8,
     pub position: Vec2,
     pub signal_radius: f32,
     pub stored_ore: u32,
@@ -56,12 +58,14 @@ pub struct BaseStation {
     pub level: u8,
 }
 
-#[table(accessor = ship, public)]
+#[table(accessor = ship)]
 #[derive(Debug, Clone)]
 pub struct Ship {
     #[primary_key]
     #[auto_inc]
     pub ship_id: u32,
+    #[index(btree)]
+    pub universe: u8,
     #[index(btree)]
     pub owner: Identity,
     pub ship_tier: u8, // 0: Builder, 1: Basic Miner/Drone, 2: Advanced Explorer/Hauler
@@ -81,16 +85,85 @@ pub struct Ship {
     pub signal_countdown: u16,
 }
 
-#[table(accessor = asteroid, public)]
+#[table(accessor = asteroid)]
 #[derive(Debug, Clone)]
 pub struct Asteroid {
     #[primary_key]
     #[auto_inc]
     pub asteroid_id: u32,
+    #[index(btree)]
+    pub universe: u8,
     pub position: Vec2,
     pub resource_type: u8,
     pub remaining_ore: u32,
     pub radius: f32,
+}
+
+#[table(accessor = admin_user)]
+#[derive(Debug, Clone)]
+pub struct AdminUser {
+    #[primary_key]
+    pub identity: Identity,
+    pub authenticated_at: Timestamp,
+}
+
+#[table(accessor = perceived_drone)]
+#[derive(Debug, Clone)]
+pub struct PerceivedDrone {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub viewer: Identity,
+    pub ship_id: u32,
+    pub owner: Identity,
+    pub ship_tier: u8,
+    pub position: Vec2,
+    pub heading_rad: f32,
+    pub speed: f32,
+    pub is_mining: bool,
+}
+
+#[table(accessor = perceived_base)]
+#[derive(Debug, Clone)]
+pub struct PerceivedBase {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub viewer: Identity,
+    pub base_id: u32,
+    pub owner: Identity,
+    pub position: Vec2,
+    pub signal_radius: f32,
+    pub level: u8,
+}
+
+#[table(accessor = perceived_asteroid)]
+#[derive(Debug, Clone)]
+pub struct PerceivedAsteroid {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub viewer: Identity,
+    pub asteroid_id: u32,
+    pub position: Vec2,
+    pub resource_type: u8,
+    pub remaining_ore: u32,
+    pub radius: f32,
+}
+
+#[table(accessor = unidentified_contact)]
+#[derive(Debug, Clone)]
+pub struct UnidentifiedContact {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub viewer: Identity,
+    pub contact_id: u32,
+    pub position: Vec2,
 }
 
 #[table(accessor = game_event, public)]

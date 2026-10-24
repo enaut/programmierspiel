@@ -11,6 +11,7 @@ use super::vec_2_type::Vec2;
 pub struct BaseStation {
     pub owner: __sdk::Identity,
     pub base_id: u32,
+    pub universe: u8,
     pub position: Vec2,
     pub signal_radius: f32,
     pub stored_ore: u32,
@@ -28,6 +29,7 @@ impl __sdk::InModule for BaseStation {
 pub struct BaseStationCols {
     pub owner: __sdk::__query_builder::Col<BaseStation, __sdk::Identity>,
     pub base_id: __sdk::__query_builder::Col<BaseStation, u32>,
+    pub universe: __sdk::__query_builder::Col<BaseStation, u8>,
     pub position: __sdk::__query_builder::Col<BaseStation, Vec2>,
     pub signal_radius: __sdk::__query_builder::Col<BaseStation, f32>,
     pub stored_ore: __sdk::__query_builder::Col<BaseStation, u32>,
@@ -41,6 +43,7 @@ impl __sdk::__query_builder::HasCols for BaseStation {
         BaseStationCols {
             owner: __sdk::__query_builder::Col::new(table_name, "owner"),
             base_id: __sdk::__query_builder::Col::new(table_name, "base_id"),
+            universe: __sdk::__query_builder::Col::new(table_name, "universe"),
             position: __sdk::__query_builder::Col::new(table_name, "position"),
             signal_radius: __sdk::__query_builder::Col::new(table_name, "signal_radius"),
             stored_ore: __sdk::__query_builder::Col::new(table_name, "stored_ore"),
@@ -56,6 +59,7 @@ impl __sdk::__query_builder::HasCols for BaseStation {
 pub struct BaseStationIxCols {
     pub base_id: __sdk::__query_builder::IxCol<BaseStation, u32>,
     pub owner: __sdk::__query_builder::IxCol<BaseStation, __sdk::Identity>,
+    pub universe: __sdk::__query_builder::IxCol<BaseStation, u8>,
 }
 
 impl __sdk::__query_builder::HasIxCols for BaseStation {
@@ -64,6 +68,7 @@ impl __sdk::__query_builder::HasIxCols for BaseStation {
         BaseStationIxCols {
             base_id: __sdk::__query_builder::IxCol::new(table_name, "base_id"),
             owner: __sdk::__query_builder::IxCol::new(table_name, "owner"),
+            universe: __sdk::__query_builder::IxCol::new(table_name, "universe"),
         }
     }
 }

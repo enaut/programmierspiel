@@ -6,6 +6,7 @@ use ::dioxus::prelude::*;
 use audio::SoundEffects;
 use canvas::render_space_scene;
 use module_bindings::admin_set_phase_reducer::admin_set_phase;
+use module_bindings::authenticate_admin_reducer::authenticate_admin;
 use module_bindings::dioxus::{
     ConnectionState, use_spacetimedb_context, use_spacetimedb_context_provider, use_subscription,
 };
@@ -27,15 +28,24 @@ fn App() -> Element {
     use_subscription(&[
         "SELECT * FROM config",
         "SELECT * FROM player",
-        "SELECT * FROM base_station",
-        "SELECT * FROM ship",
-        "SELECT * FROM asteroid",
+        "SELECT * FROM admin_all_bases",
+        "SELECT * FROM admin_all_ships",
+        "SELECT * FROM admin_all_asteroids",
         "SELECT * FROM game_event",
         "SELECT * FROM total_players",
     ]);
 
-    // Play sound effects when new game events occur
     let ctx = use_spacetimedb_context();
+
+    // Auto-authenticate as admin upon connecting
+    use_effect(move || {
+        let state = (ctx.state)();
+        if matches!(state, ConnectionState::Connected(_, _)) {
+            if let Some(conn) = (ctx.connection)() {
+                let _ = conn.reducers.authenticate_admin("admin".to_string());
+            }
+        }
+    });
     use_effect(move || {
         let events = (ctx.tables.game_event)();
         if let Some(last) = events.last() {
@@ -198,9 +208,9 @@ fn SpaceViewport() -> Element {
                                     {
                                         let configs = (ctx.tables.config)();
                                         let players = (ctx.tables.player)();
-                                        let base_stations = (ctx.tables.base_station)();
-                                        let asteroids = (ctx.tables.asteroid)();
-                                        let ships = (ctx.tables.ship)();
+                                        let base_stations = (ctx.tables.admin_all_bases)();
+                                        let asteroids = (ctx.tables.admin_all_asteroids)();
+                                        let ships = (ctx.tables.admin_all_ships)();
 
                                         let time = js_sys::Date::now() / 1000.0;
 
@@ -240,7 +250,7 @@ fn SpaceViewport() -> Element {
 fn SidebarOverlay() -> Element {
     let ctx = use_spacetimedb_context();
     let mut players = (ctx.tables.player)();
-    let _ships = (ctx.tables.ship)();
+    let _ships = (ctx.tables.admin_all_ships)();
     let mut events = (ctx.tables.game_event)();
 
     // Sort players by score descending

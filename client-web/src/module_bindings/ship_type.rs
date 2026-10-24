@@ -10,6 +10,7 @@ use super::vec_2_type::Vec2;
 #[sats(crate = __lib)]
 pub struct Ship {
     pub ship_id: u32,
+    pub universe: u8,
     pub owner: __sdk::Identity,
     pub ship_tier: u8,
     pub position: Vec2,
@@ -37,6 +38,7 @@ impl __sdk::InModule for Ship {
 /// Provides typed access to columns for query building.
 pub struct ShipCols {
     pub ship_id: __sdk::__query_builder::Col<Ship, u32>,
+    pub universe: __sdk::__query_builder::Col<Ship, u8>,
     pub owner: __sdk::__query_builder::Col<Ship, __sdk::Identity>,
     pub ship_tier: __sdk::__query_builder::Col<Ship, u8>,
     pub position: __sdk::__query_builder::Col<Ship, Vec2>,
@@ -60,6 +62,7 @@ impl __sdk::__query_builder::HasCols for Ship {
     fn cols(table_name: &'static str) -> Self::Cols {
         ShipCols {
             ship_id: __sdk::__query_builder::Col::new(table_name, "ship_id"),
+            universe: __sdk::__query_builder::Col::new(table_name, "universe"),
             owner: __sdk::__query_builder::Col::new(table_name, "owner"),
             ship_tier: __sdk::__query_builder::Col::new(table_name, "ship_tier"),
             position: __sdk::__query_builder::Col::new(table_name, "position"),
@@ -86,6 +89,7 @@ impl __sdk::__query_builder::HasCols for Ship {
 pub struct ShipIxCols {
     pub owner: __sdk::__query_builder::IxCol<Ship, __sdk::Identity>,
     pub ship_id: __sdk::__query_builder::IxCol<Ship, u32>,
+    pub universe: __sdk::__query_builder::IxCol<Ship, u8>,
 }
 
 impl __sdk::__query_builder::HasIxCols for Ship {
@@ -94,6 +98,7 @@ impl __sdk::__query_builder::HasIxCols for Ship {
         ShipIxCols {
             owner: __sdk::__query_builder::IxCol::new(table_name, "owner"),
             ship_id: __sdk::__query_builder::IxCol::new(table_name, "ship_id"),
+            universe: __sdk::__query_builder::IxCol::new(table_name, "universe"),
         }
     }
 }

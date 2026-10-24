@@ -8,10 +8,13 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 pub mod dioxus;
 
+pub mod admin_all_asteroids_table;
+pub mod admin_all_bases_table;
+pub mod admin_all_ships_table;
 pub mod admin_set_phase_reducer;
-pub mod asteroid_table;
+pub mod admin_user_type;
 pub mod asteroid_type;
-pub mod base_station_table;
+pub mod authenticate_admin_reducer;
 pub mod base_station_type;
 pub mod build_ship_reducer;
 pub mod command_ship_reducer;
@@ -23,20 +26,30 @@ pub mod game_event_table;
 pub mod game_event_type;
 pub mod my_base_table;
 pub mod my_ships_table;
+pub mod perceived_asteroid_type;
+pub mod perceived_base_type;
+pub mod perceived_drone_type;
 pub mod player_table;
 pub mod player_type;
 pub mod register_player_reducer;
 pub mod ship_command_type;
-pub mod ship_table;
 pub mod ship_type;
 pub mod tick_schedule_type;
 pub mod total_players_table;
+pub mod unidentified_contact_type;
+pub mod unidentified_objects_table;
 pub mod vec_2_type;
+pub mod visible_asteroids_table;
+pub mod visible_bases_table;
+pub mod visible_drones_table;
 
+pub use admin_all_asteroids_table::*;
+pub use admin_all_bases_table::*;
+pub use admin_all_ships_table::*;
 pub use admin_set_phase_reducer::admin_set_phase;
-pub use asteroid_table::*;
+pub use admin_user_type::AdminUser;
 pub use asteroid_type::Asteroid;
-pub use base_station_table::*;
+pub use authenticate_admin_reducer::authenticate_admin;
 pub use base_station_type::BaseStation;
 pub use build_ship_reducer::build_ship;
 pub use command_ship_reducer::command_ship;
@@ -48,15 +61,22 @@ pub use game_event_table::*;
 pub use game_event_type::GameEvent;
 pub use my_base_table::*;
 pub use my_ships_table::*;
+pub use perceived_asteroid_type::PerceivedAsteroid;
+pub use perceived_base_type::PerceivedBase;
+pub use perceived_drone_type::PerceivedDrone;
 pub use player_table::*;
 pub use player_type::Player;
 pub use register_player_reducer::register_player;
 pub use ship_command_type::ShipCommand;
-pub use ship_table::*;
 pub use ship_type::Ship;
 pub use tick_schedule_type::TickSchedule;
 pub use total_players_table::*;
+pub use unidentified_contact_type::UnidentifiedContact;
+pub use unidentified_objects_table::*;
 pub use vec_2_type::Vec2;
+pub use visible_asteroids_table::*;
+pub use visible_bases_table::*;
+pub use visible_drones_table::*;
 
 #[derive(Clone, PartialEq, Debug)]
 
@@ -67,6 +87,7 @@ pub use vec_2_type::Vec2;
 
 pub enum Reducer {
     AdminSetPhase { level: u8, paused: bool },
+    AuthenticateAdmin { password: String },
     BuildShip { tier: u8 },
     CommandShip { ship_id: u32, cmd: ShipCommand },
     DeployBaseStation { ship_id: u32 },
@@ -81,6 +102,7 @@ impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
             Reducer::AdminSetPhase { .. } => "admin_set_phase",
+            Reducer::AuthenticateAdmin { .. } => "authenticate_admin",
             Reducer::BuildShip { .. } => "build_ship",
             Reducer::CommandShip { .. } => "command_ship",
             Reducer::DeployBaseStation { .. } => "deploy_base_station",
@@ -95,6 +117,11 @@ impl __sdk::Reducer for Reducer {
                 __sats::bsatn::to_vec(&admin_set_phase_reducer::AdminSetPhaseArgs {
                     level: level.clone(),
                     paused: paused.clone(),
+                })
+            }
+            Reducer::AuthenticateAdmin { password } => {
+                __sats::bsatn::to_vec(&authenticate_admin_reducer::AuthenticateAdminArgs {
+                    password: password.clone(),
                 })
             }
             Reducer::BuildShip { tier } => {
@@ -126,15 +153,19 @@ impl __sdk::Reducer for Reducer {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct DbUpdate {
-    asteroid: __sdk::TableUpdate<Asteroid>,
-    base_station: __sdk::TableUpdate<BaseStation>,
+    admin_all_asteroids: __sdk::TableUpdate<Asteroid>,
+    admin_all_bases: __sdk::TableUpdate<BaseStation>,
+    admin_all_ships: __sdk::TableUpdate<Ship>,
     config: __sdk::TableUpdate<Config>,
     game_event: __sdk::TableUpdate<GameEvent>,
     my_base: __sdk::TableUpdate<BaseStation>,
     my_ships: __sdk::TableUpdate<Ship>,
     player: __sdk::TableUpdate<Player>,
-    ship: __sdk::TableUpdate<Ship>,
     total_players: __sdk::TableUpdate<CountRow>,
+    unidentified_objects: __sdk::TableUpdate<UnidentifiedContact>,
+    visible_asteroids: __sdk::TableUpdate<PerceivedAsteroid>,
+    visible_bases: __sdk::TableUpdate<PerceivedBase>,
+    visible_drones: __sdk::TableUpdate<PerceivedDrone>,
 }
 
 impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
@@ -143,12 +174,15 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_update in __sdk::transaction_update_iter_table_updates(raw) {
             match &table_update.table_name[..] {
-                "asteroid" => db_update
-                    .asteroid
-                    .append(asteroid_table::parse_table_update(table_update)?),
-                "base_station" => db_update
-                    .base_station
-                    .append(base_station_table::parse_table_update(table_update)?),
+                "admin_all_asteroids" => db_update
+                    .admin_all_asteroids
+                    .append(admin_all_asteroids_table::parse_table_update(table_update)?),
+                "admin_all_bases" => db_update
+                    .admin_all_bases
+                    .append(admin_all_bases_table::parse_table_update(table_update)?),
+                "admin_all_ships" => db_update
+                    .admin_all_ships
+                    .append(admin_all_ships_table::parse_table_update(table_update)?),
                 "config" => db_update
                     .config
                     .append(config_table::parse_table_update(table_update)?),
@@ -164,12 +198,21 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "player" => db_update
                     .player
                     .append(player_table::parse_table_update(table_update)?),
-                "ship" => db_update
-                    .ship
-                    .append(ship_table::parse_table_update(table_update)?),
                 "total_players" => db_update
                     .total_players
                     .append(total_players_table::parse_table_update(table_update)?),
+                "unidentified_objects" => db_update.unidentified_objects.append(
+                    unidentified_objects_table::parse_table_update(table_update)?,
+                ),
+                "visible_asteroids" => db_update
+                    .visible_asteroids
+                    .append(visible_asteroids_table::parse_table_update(table_update)?),
+                "visible_bases" => db_update
+                    .visible_bases
+                    .append(visible_bases_table::parse_table_update(table_update)?),
+                "visible_drones" => db_update
+                    .visible_drones
+                    .append(visible_drones_table::parse_table_update(table_update)?),
 
                 unknown => {
                     return Err(__sdk::InternalError::unknown_name(
@@ -196,12 +239,6 @@ impl __sdk::DbUpdate for DbUpdate {
     ) -> AppliedDiff<'_> {
         let mut diff = AppliedDiff::default();
 
-        diff.asteroid = cache
-            .apply_diff_to_table::<Asteroid>("asteroid", &self.asteroid)
-            .with_updates_by_pk(|row| &row.asteroid_id);
-        diff.base_station = cache
-            .apply_diff_to_table::<BaseStation>("base_station", &self.base_station)
-            .with_updates_by_pk(|row| &row.owner);
         diff.config = cache
             .apply_diff_to_table::<Config>("config", &self.config)
             .with_updates_by_pk(|row| &row.id);
@@ -211,13 +248,26 @@ impl __sdk::DbUpdate for DbUpdate {
         diff.player = cache
             .apply_diff_to_table::<Player>("player", &self.player)
             .with_updates_by_pk(|row| &row.identity);
-        diff.ship = cache
-            .apply_diff_to_table::<Ship>("ship", &self.ship)
-            .with_updates_by_pk(|row| &row.ship_id);
+        diff.admin_all_asteroids =
+            cache.apply_diff_to_table::<Asteroid>("admin_all_asteroids", &self.admin_all_asteroids);
+        diff.admin_all_bases =
+            cache.apply_diff_to_table::<BaseStation>("admin_all_bases", &self.admin_all_bases);
+        diff.admin_all_ships =
+            cache.apply_diff_to_table::<Ship>("admin_all_ships", &self.admin_all_ships);
         diff.my_base = cache.apply_diff_to_table::<BaseStation>("my_base", &self.my_base);
         diff.my_ships = cache.apply_diff_to_table::<Ship>("my_ships", &self.my_ships);
         diff.total_players =
             cache.apply_diff_to_table::<CountRow>("total_players", &self.total_players);
+        diff.unidentified_objects = cache.apply_diff_to_table::<UnidentifiedContact>(
+            "unidentified_objects",
+            &self.unidentified_objects,
+        );
+        diff.visible_asteroids = cache
+            .apply_diff_to_table::<PerceivedAsteroid>("visible_asteroids", &self.visible_asteroids);
+        diff.visible_bases =
+            cache.apply_diff_to_table::<PerceivedBase>("visible_bases", &self.visible_bases);
+        diff.visible_drones =
+            cache.apply_diff_to_table::<PerceivedDrone>("visible_drones", &self.visible_drones);
 
         diff
     }
@@ -225,11 +275,14 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
-                "asteroid" => db_update
-                    .asteroid
+                "admin_all_asteroids" => db_update
+                    .admin_all_asteroids
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
-                "base_station" => db_update
-                    .base_station
+                "admin_all_bases" => db_update
+                    .admin_all_bases
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "admin_all_ships" => db_update
+                    .admin_all_ships
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "config" => db_update
                     .config
@@ -246,11 +299,20 @@ impl __sdk::DbUpdate for DbUpdate {
                 "player" => db_update
                     .player
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
-                "ship" => db_update
-                    .ship
-                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "total_players" => db_update
                     .total_players
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "unidentified_objects" => db_update
+                    .unidentified_objects
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "visible_asteroids" => db_update
+                    .visible_asteroids
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "visible_bases" => db_update
+                    .visible_bases
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "visible_drones" => db_update
+                    .visible_drones
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 unknown => {
                     return Err(
@@ -265,11 +327,14 @@ impl __sdk::DbUpdate for DbUpdate {
         let mut db_update = DbUpdate::default();
         for table_rows in raw.tables {
             match &table_rows.table[..] {
-                "asteroid" => db_update
-                    .asteroid
+                "admin_all_asteroids" => db_update
+                    .admin_all_asteroids
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
-                "base_station" => db_update
-                    .base_station
+                "admin_all_bases" => db_update
+                    .admin_all_bases
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "admin_all_ships" => db_update
+                    .admin_all_ships
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "config" => db_update
                     .config
@@ -286,11 +351,20 @@ impl __sdk::DbUpdate for DbUpdate {
                 "player" => db_update
                     .player
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
-                "ship" => db_update
-                    .ship
-                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "total_players" => db_update
                     .total_players
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "unidentified_objects" => db_update
+                    .unidentified_objects
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "visible_asteroids" => db_update
+                    .visible_asteroids
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "visible_bases" => db_update
+                    .visible_bases
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "visible_drones" => db_update
+                    .visible_drones
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 unknown => {
                     return Err(
@@ -307,15 +381,19 @@ impl __sdk::DbUpdate for DbUpdate {
 #[allow(non_snake_case)]
 #[doc(hidden)]
 pub struct AppliedDiff<'r> {
-    asteroid: __sdk::TableAppliedDiff<'r, Asteroid>,
-    base_station: __sdk::TableAppliedDiff<'r, BaseStation>,
+    admin_all_asteroids: __sdk::TableAppliedDiff<'r, Asteroid>,
+    admin_all_bases: __sdk::TableAppliedDiff<'r, BaseStation>,
+    admin_all_ships: __sdk::TableAppliedDiff<'r, Ship>,
     config: __sdk::TableAppliedDiff<'r, Config>,
     game_event: __sdk::TableAppliedDiff<'r, GameEvent>,
     my_base: __sdk::TableAppliedDiff<'r, BaseStation>,
     my_ships: __sdk::TableAppliedDiff<'r, Ship>,
     player: __sdk::TableAppliedDiff<'r, Player>,
-    ship: __sdk::TableAppliedDiff<'r, Ship>,
     total_players: __sdk::TableAppliedDiff<'r, CountRow>,
+    unidentified_objects: __sdk::TableAppliedDiff<'r, UnidentifiedContact>,
+    visible_asteroids: __sdk::TableAppliedDiff<'r, PerceivedAsteroid>,
+    visible_bases: __sdk::TableAppliedDiff<'r, PerceivedBase>,
+    visible_drones: __sdk::TableAppliedDiff<'r, PerceivedDrone>,
     __unused: std::marker::PhantomData<&'r ()>,
 }
 
@@ -329,10 +407,19 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         event: &EventContext,
         callbacks: &mut __sdk::DbCallbacks<RemoteModule>,
     ) {
-        callbacks.invoke_table_row_callbacks::<Asteroid>("asteroid", &self.asteroid, event);
+        callbacks.invoke_table_row_callbacks::<Asteroid>(
+            "admin_all_asteroids",
+            &self.admin_all_asteroids,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<BaseStation>(
-            "base_station",
-            &self.base_station,
+            "admin_all_bases",
+            &self.admin_all_bases,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<Ship>(
+            "admin_all_ships",
+            &self.admin_all_ships,
             event,
         );
         callbacks.invoke_table_row_callbacks::<Config>("config", &self.config, event);
@@ -340,10 +427,29 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         callbacks.invoke_table_row_callbacks::<BaseStation>("my_base", &self.my_base, event);
         callbacks.invoke_table_row_callbacks::<Ship>("my_ships", &self.my_ships, event);
         callbacks.invoke_table_row_callbacks::<Player>("player", &self.player, event);
-        callbacks.invoke_table_row_callbacks::<Ship>("ship", &self.ship, event);
         callbacks.invoke_table_row_callbacks::<CountRow>(
             "total_players",
             &self.total_players,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<UnidentifiedContact>(
+            "unidentified_objects",
+            &self.unidentified_objects,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<PerceivedAsteroid>(
+            "visible_asteroids",
+            &self.visible_asteroids,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<PerceivedBase>(
+            "visible_bases",
+            &self.visible_bases,
+            event,
+        );
+        callbacks.invoke_table_row_callbacks::<PerceivedDrone>(
+            "visible_drones",
+            &self.visible_drones,
             event,
         );
     }
@@ -1006,25 +1112,33 @@ impl __sdk::SpacetimeModule for RemoteModule {
     type QueryBuilder = __sdk::QueryBuilder;
 
     fn register_tables(client_cache: &mut __sdk::ClientCache<Self>) {
-        asteroid_table::register_table(client_cache);
-        base_station_table::register_table(client_cache);
+        admin_all_asteroids_table::register_table(client_cache);
+        admin_all_bases_table::register_table(client_cache);
+        admin_all_ships_table::register_table(client_cache);
         config_table::register_table(client_cache);
         game_event_table::register_table(client_cache);
         my_base_table::register_table(client_cache);
         my_ships_table::register_table(client_cache);
         player_table::register_table(client_cache);
-        ship_table::register_table(client_cache);
         total_players_table::register_table(client_cache);
+        unidentified_objects_table::register_table(client_cache);
+        visible_asteroids_table::register_table(client_cache);
+        visible_bases_table::register_table(client_cache);
+        visible_drones_table::register_table(client_cache);
     }
     const ALL_TABLE_NAMES: &'static [&'static str] = &[
-        "asteroid",
-        "base_station",
+        "admin_all_asteroids",
+        "admin_all_bases",
+        "admin_all_ships",
         "config",
         "game_event",
         "my_base",
         "my_ships",
         "player",
-        "ship",
         "total_players",
+        "unidentified_objects",
+        "visible_asteroids",
+        "visible_bases",
+        "visible_drones",
     ];
 }

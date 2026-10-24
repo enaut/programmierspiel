@@ -20,15 +20,19 @@ pub type SharedConnection = Arc<DbConnection>;
 /// Container for all table signals, created at root level.
 #[derive(Clone)]
 pub struct TableSignals {
-    pub asteroid: SyncSignal<Vec<Asteroid>>,
-    pub base_station: SyncSignal<Vec<BaseStation>>,
+    pub admin_all_asteroids: SyncSignal<Vec<Asteroid>>,
+    pub admin_all_bases: SyncSignal<Vec<BaseStation>>,
+    pub admin_all_ships: SyncSignal<Vec<Ship>>,
     pub config: SyncSignal<Vec<Config>>,
     pub game_event: SyncSignal<Vec<GameEvent>>,
     pub my_base: SyncSignal<Vec<BaseStation>>,
     pub my_ships: SyncSignal<Vec<Ship>>,
     pub player: SyncSignal<Vec<Player>>,
-    pub ship: SyncSignal<Vec<Ship>>,
     pub total_players: SyncSignal<Vec<CountRow>>,
+    pub unidentified_objects: SyncSignal<Vec<UnidentifiedContact>>,
+    pub visible_asteroids: SyncSignal<Vec<PerceivedAsteroid>>,
+    pub visible_bases: SyncSignal<Vec<PerceivedBase>>,
+    pub visible_drones: SyncSignal<Vec<PerceivedDrone>>,
 }
 
 /// Internal state for managing the SpacetimeDB connection.
@@ -204,15 +208,19 @@ pub fn use_spacetimedb_context_provider(
     let error: SyncSignal<Option<String>> = use_signal_sync(|| None);
 
     let mut table_signals = TableSignals {
-        asteroid: use_signal_sync(Vec::new),
-        base_station: use_signal_sync(Vec::new),
+        admin_all_asteroids: use_signal_sync(Vec::new),
+        admin_all_bases: use_signal_sync(Vec::new),
+        admin_all_ships: use_signal_sync(Vec::new),
         config: use_signal_sync(Vec::new),
         game_event: use_signal_sync(Vec::new),
         my_base: use_signal_sync(Vec::new),
         my_ships: use_signal_sync(Vec::new),
         player: use_signal_sync(Vec::new),
-        ship: use_signal_sync(Vec::new),
         total_players: use_signal_sync(Vec::new),
+        unidentified_objects: use_signal_sync(Vec::new),
+        visible_asteroids: use_signal_sync(Vec::new),
+        visible_bases: use_signal_sync(Vec::new),
+        visible_drones: use_signal_sync(Vec::new),
     };
 
     let ctx = SpacetimeDbContext {
@@ -266,39 +274,48 @@ pub fn use_spacetimedb_context_provider(
                     .with_database_name(&module_name)
                     .with_token(token_for_build.clone())
                     .on_connect(move |conn, identity, token| {
-                        // Populate initial rows for asteroid
-                        let current: Vec<Asteroid> = conn.db.asteroid().iter().collect();
-                        table_signals_on_connect.asteroid.set(current);
+                        // Populate initial rows for admin_all_asteroids
+                        let current: Vec<Asteroid> = conn.db.admin_all_asteroids().iter().collect();
+                        table_signals_on_connect.admin_all_asteroids.set(current);
 
                         // Keep signal in sync on changes
-                        conn.db.asteroid().on_insert(move |ctx, _row| {
-                            let updated: Vec<Asteroid> = ctx.db.asteroid().iter().collect();
-                            table_signals_on_connect.asteroid.set(updated);
+                        conn.db.admin_all_asteroids().on_insert(move |ctx, _row| {
+                            let updated: Vec<Asteroid> =
+                                ctx.db.admin_all_asteroids().iter().collect();
+                            table_signals_on_connect.admin_all_asteroids.set(updated);
                         });
-                        conn.db.asteroid().on_update(move |ctx, _old, _new| {
-                            let updated: Vec<Asteroid> = ctx.db.asteroid().iter().collect();
-                            table_signals_on_connect.asteroid.set(updated);
+                        conn.db.admin_all_asteroids().on_delete(move |ctx, _row| {
+                            let updated: Vec<Asteroid> =
+                                ctx.db.admin_all_asteroids().iter().collect();
+                            table_signals_on_connect.admin_all_asteroids.set(updated);
                         });
-                        conn.db.asteroid().on_delete(move |ctx, _row| {
-                            let updated: Vec<Asteroid> = ctx.db.asteroid().iter().collect();
-                            table_signals_on_connect.asteroid.set(updated);
-                        });
-                        // Populate initial rows for base_station
-                        let current: Vec<BaseStation> = conn.db.base_station().iter().collect();
-                        table_signals_on_connect.base_station.set(current);
+                        // Populate initial rows for admin_all_bases
+                        let current: Vec<BaseStation> = conn.db.admin_all_bases().iter().collect();
+                        table_signals_on_connect.admin_all_bases.set(current);
 
                         // Keep signal in sync on changes
-                        conn.db.base_station().on_insert(move |ctx, _row| {
-                            let updated: Vec<BaseStation> = ctx.db.base_station().iter().collect();
-                            table_signals_on_connect.base_station.set(updated);
+                        conn.db.admin_all_bases().on_insert(move |ctx, _row| {
+                            let updated: Vec<BaseStation> =
+                                ctx.db.admin_all_bases().iter().collect();
+                            table_signals_on_connect.admin_all_bases.set(updated);
                         });
-                        conn.db.base_station().on_update(move |ctx, _old, _new| {
-                            let updated: Vec<BaseStation> = ctx.db.base_station().iter().collect();
-                            table_signals_on_connect.base_station.set(updated);
+                        conn.db.admin_all_bases().on_delete(move |ctx, _row| {
+                            let updated: Vec<BaseStation> =
+                                ctx.db.admin_all_bases().iter().collect();
+                            table_signals_on_connect.admin_all_bases.set(updated);
                         });
-                        conn.db.base_station().on_delete(move |ctx, _row| {
-                            let updated: Vec<BaseStation> = ctx.db.base_station().iter().collect();
-                            table_signals_on_connect.base_station.set(updated);
+                        // Populate initial rows for admin_all_ships
+                        let current: Vec<Ship> = conn.db.admin_all_ships().iter().collect();
+                        table_signals_on_connect.admin_all_ships.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.admin_all_ships().on_insert(move |ctx, _row| {
+                            let updated: Vec<Ship> = ctx.db.admin_all_ships().iter().collect();
+                            table_signals_on_connect.admin_all_ships.set(updated);
+                        });
+                        conn.db.admin_all_ships().on_delete(move |ctx, _row| {
+                            let updated: Vec<Ship> = ctx.db.admin_all_ships().iter().collect();
+                            table_signals_on_connect.admin_all_ships.set(updated);
                         });
                         // Populate initial rows for config
                         let current: Vec<Config> = conn.db.config().iter().collect();
@@ -377,23 +394,6 @@ pub fn use_spacetimedb_context_provider(
                             let updated: Vec<Player> = ctx.db.player().iter().collect();
                             table_signals_on_connect.player.set(updated);
                         });
-                        // Populate initial rows for ship
-                        let current: Vec<Ship> = conn.db.ship().iter().collect();
-                        table_signals_on_connect.ship.set(current);
-
-                        // Keep signal in sync on changes
-                        conn.db.ship().on_insert(move |ctx, _row| {
-                            let updated: Vec<Ship> = ctx.db.ship().iter().collect();
-                            table_signals_on_connect.ship.set(updated);
-                        });
-                        conn.db.ship().on_update(move |ctx, _old, _new| {
-                            let updated: Vec<Ship> = ctx.db.ship().iter().collect();
-                            table_signals_on_connect.ship.set(updated);
-                        });
-                        conn.db.ship().on_delete(move |ctx, _row| {
-                            let updated: Vec<Ship> = ctx.db.ship().iter().collect();
-                            table_signals_on_connect.ship.set(updated);
-                        });
                         // Populate initial rows for total_players
                         let current: Vec<CountRow> = conn.db.total_players().iter().collect();
                         table_signals_on_connect.total_players.set(current);
@@ -406,6 +406,69 @@ pub fn use_spacetimedb_context_provider(
                         conn.db.total_players().on_delete(move |ctx, _row| {
                             let updated: Vec<CountRow> = ctx.db.total_players().iter().collect();
                             table_signals_on_connect.total_players.set(updated);
+                        });
+                        // Populate initial rows for unidentified_objects
+                        let current: Vec<UnidentifiedContact> =
+                            conn.db.unidentified_objects().iter().collect();
+                        table_signals_on_connect.unidentified_objects.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.unidentified_objects().on_insert(move |ctx, _row| {
+                            let updated: Vec<UnidentifiedContact> =
+                                ctx.db.unidentified_objects().iter().collect();
+                            table_signals_on_connect.unidentified_objects.set(updated);
+                        });
+                        conn.db.unidentified_objects().on_delete(move |ctx, _row| {
+                            let updated: Vec<UnidentifiedContact> =
+                                ctx.db.unidentified_objects().iter().collect();
+                            table_signals_on_connect.unidentified_objects.set(updated);
+                        });
+                        // Populate initial rows for visible_asteroids
+                        let current: Vec<PerceivedAsteroid> =
+                            conn.db.visible_asteroids().iter().collect();
+                        table_signals_on_connect.visible_asteroids.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.visible_asteroids().on_insert(move |ctx, _row| {
+                            let updated: Vec<PerceivedAsteroid> =
+                                ctx.db.visible_asteroids().iter().collect();
+                            table_signals_on_connect.visible_asteroids.set(updated);
+                        });
+                        conn.db.visible_asteroids().on_delete(move |ctx, _row| {
+                            let updated: Vec<PerceivedAsteroid> =
+                                ctx.db.visible_asteroids().iter().collect();
+                            table_signals_on_connect.visible_asteroids.set(updated);
+                        });
+                        // Populate initial rows for visible_bases
+                        let current: Vec<PerceivedBase> = conn.db.visible_bases().iter().collect();
+                        table_signals_on_connect.visible_bases.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.visible_bases().on_insert(move |ctx, _row| {
+                            let updated: Vec<PerceivedBase> =
+                                ctx.db.visible_bases().iter().collect();
+                            table_signals_on_connect.visible_bases.set(updated);
+                        });
+                        conn.db.visible_bases().on_delete(move |ctx, _row| {
+                            let updated: Vec<PerceivedBase> =
+                                ctx.db.visible_bases().iter().collect();
+                            table_signals_on_connect.visible_bases.set(updated);
+                        });
+                        // Populate initial rows for visible_drones
+                        let current: Vec<PerceivedDrone> =
+                            conn.db.visible_drones().iter().collect();
+                        table_signals_on_connect.visible_drones.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.visible_drones().on_insert(move |ctx, _row| {
+                            let updated: Vec<PerceivedDrone> =
+                                ctx.db.visible_drones().iter().collect();
+                            table_signals_on_connect.visible_drones.set(updated);
+                        });
+                        conn.db.visible_drones().on_delete(move |ctx, _row| {
+                            let updated: Vec<PerceivedDrone> =
+                                ctx.db.visible_drones().iter().collect();
+                            table_signals_on_connect.visible_drones.set(updated);
                         });
                         if !had_user_token {
                             if let Ok(mut token_store) = active_token_on_connect.lock() {
@@ -599,18 +662,25 @@ pub fn use_subscription(queries: &[&str]) {
 
 // --- Table hooks ---
 
-/// Get a reactive signal containing all rows of the `asteroid` table.
+/// Get a reactive signal containing all rows of the `admin_all_asteroids` table.
 #[must_use]
-pub fn use_table_asteroid() -> SyncSignal<Vec<Asteroid>> {
+pub fn use_table_admin_all_asteroids() -> SyncSignal<Vec<Asteroid>> {
     let ctx = use_spacetimedb_context();
-    ctx.tables.asteroid
+    ctx.tables.admin_all_asteroids
 }
 
-/// Get a reactive signal containing all rows of the `base_station` table.
+/// Get a reactive signal containing all rows of the `admin_all_bases` table.
 #[must_use]
-pub fn use_table_base_station() -> SyncSignal<Vec<BaseStation>> {
+pub fn use_table_admin_all_bases() -> SyncSignal<Vec<BaseStation>> {
     let ctx = use_spacetimedb_context();
-    ctx.tables.base_station
+    ctx.tables.admin_all_bases
+}
+
+/// Get a reactive signal containing all rows of the `admin_all_ships` table.
+#[must_use]
+pub fn use_table_admin_all_ships() -> SyncSignal<Vec<Ship>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.admin_all_ships
 }
 
 /// Get a reactive signal containing all rows of the `config` table.
@@ -648,18 +718,39 @@ pub fn use_table_player() -> SyncSignal<Vec<Player>> {
     ctx.tables.player
 }
 
-/// Get a reactive signal containing all rows of the `ship` table.
-#[must_use]
-pub fn use_table_ship() -> SyncSignal<Vec<Ship>> {
-    let ctx = use_spacetimedb_context();
-    ctx.tables.ship
-}
-
 /// Get a reactive signal containing all rows of the `total_players` table.
 #[must_use]
 pub fn use_table_total_players() -> SyncSignal<Vec<CountRow>> {
     let ctx = use_spacetimedb_context();
     ctx.tables.total_players
+}
+
+/// Get a reactive signal containing all rows of the `unidentified_objects` table.
+#[must_use]
+pub fn use_table_unidentified_objects() -> SyncSignal<Vec<UnidentifiedContact>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.unidentified_objects
+}
+
+/// Get a reactive signal containing all rows of the `visible_asteroids` table.
+#[must_use]
+pub fn use_table_visible_asteroids() -> SyncSignal<Vec<PerceivedAsteroid>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.visible_asteroids
+}
+
+/// Get a reactive signal containing all rows of the `visible_bases` table.
+#[must_use]
+pub fn use_table_visible_bases() -> SyncSignal<Vec<PerceivedBase>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.visible_bases
+}
+
+/// Get a reactive signal containing all rows of the `visible_drones` table.
+#[must_use]
+pub fn use_table_visible_drones() -> SyncSignal<Vec<PerceivedDrone>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.visible_drones
 }
 
 // --- Reducer hooks ---
@@ -749,6 +840,98 @@ pub fn use_reducer_admin_set_phase_async()
                     let _ = tx.send(res);
                 })
             {
+                return Err(e.to_string());
+            }
+            match rx.await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(err))) => Err(err),
+                Ok(Err(sdk_err)) => Err(sdk_err.to_string()),
+                Err(_) => Err("Request cancelled".to_string()),
+            }
+        })
+    }
+}
+
+/// Get a callback to invoke the `authenticate_admin` reducer.
+#[must_use]
+pub fn use_reducer_authenticate_admin()
+-> impl Fn(String) -> spacetimedb_sdk::Result<()> + Clone + 'static {
+    let conn_signal = use_connection();
+
+    move |password: String| {
+        if let Some(conn) = conn_signal().as_ref() {
+            conn.reducers.authenticate_admin(password)
+        } else {
+            Err(spacetimedb_sdk::Error::Disconnected)
+        }
+    }
+}
+
+/// Invoke the `authenticate_admin` reducer and get a reactive signal for its completion status.
+///
+/// Returns `(invoke, result)`. Calling `invoke(...)` sends the reducer invocation to the server.
+/// The `result` signal is updated to `Some(Ok(()))` on success or `Some(Err(message))`
+/// on failure once the server notifies completion.
+#[must_use]
+pub fn use_reducer_authenticate_admin_then() -> (
+    impl Fn(String) + Clone + 'static,
+    SyncSignal<Option<Result<(), String>>>,
+) {
+    let conn_signal = use_connection();
+    let mut result: SyncSignal<Option<Result<(), String>>> = use_signal_sync(|| None);
+
+    let invoke = move |password: String| {
+        let mut result = result;
+        result.set(None);
+        if let Some(conn) = conn_signal().as_ref() {
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn
+                .reducers
+                .authenticate_admin_then(password, move |_ctx, res| {
+                    let _ = tx.send(res);
+                })
+            {
+                result.set(Some(Err(e.to_string())));
+                return;
+            }
+            spawn(async move {
+                if let Ok(res) = rx.await {
+                    let flattened = match res {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(module_err)) => Err(module_err),
+                        Err(sdk_err) => Err(sdk_err.to_string()),
+                    };
+                    result.set(Some(flattened));
+                }
+            });
+        } else {
+            result.set(Some(Err("Disconnected from SpacetimeDB".to_string())));
+        }
+    };
+
+    (invoke, result)
+}
+
+/// Invoke the `authenticate_admin` reducer asynchronously and await its completion.
+///
+/// Returns a closure that can be called to invoke the reducer and `await` its completion directly.
+#[must_use]
+pub fn use_reducer_authenticate_admin_async()
+-> impl Fn(String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>
++ Clone
++ 'static {
+    let conn_signal = use_connection();
+
+    move |password: String| -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> {
+        let conn = conn_signal();
+        Box::pin(async move {
+            let Some(conn) = conn.as_ref() else {
+                return Err("Disconnected from SpacetimeDB".to_string());
+            };
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.authenticate_admin_then(password, move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
                 return Err(e.to_string());
             }
             match rx.await {
