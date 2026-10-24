@@ -7,7 +7,7 @@ use audio::SoundEffects;
 use canvas::render_space_scene;
 use module_bindings::admin_set_phase_reducer::admin_set_phase;
 use module_bindings::dioxus::{
-    ConnectionState, use_spacetimedb_context, use_spacetimedb_context_provider,
+    ConnectionState, use_spacetimedb_context, use_spacetimedb_context_provider, use_subscription,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -23,7 +23,16 @@ fn main() {
 fn App() -> Element {
     // 1. Initialize SpacetimeDB connection to local server module
     let _stdb_ctx =
-        use_spacetimedb_context_provider("ws://localhost:3000", "server", None::<String>);
+        use_spacetimedb_context_provider("ws://127.0.0.1:3000", "server", None::<String>);
+    use_subscription(&[
+        "SELECT * FROM config",
+        "SELECT * FROM player",
+        "SELECT * FROM base_station",
+        "SELECT * FROM ship",
+        "SELECT * FROM asteroid",
+        "SELECT * FROM game_event",
+        "SELECT * FROM total_players",
+    ]);
 
     // Play sound effects when new game events occur
     let ctx = use_spacetimedb_context();
@@ -145,37 +154,68 @@ fn HeaderBar() -> Element {
 #[component]
 fn SpaceViewport() -> Element {
     let ctx = use_spacetimedb_context();
-    let anim_tick = use_signal(|| 0.0f64);
+    let mut resize_trigger = use_signal(|| 0u32);
 
-    // Trigger canvas re-render on periodic timer or data updates
     use_effect(move || {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(w) = web_sys::window() {
+                let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+                    resize_trigger += 1;
+                });
+                let _ =
+                    w.add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref());
+                closure.forget();
+            }
+        }
+    });
+
+    // Trigger canvas re-render on periodic timer, resize, or data updates
+    use_effect(move || {
+        let _ = resize_trigger();
         #[cfg(target_arch = "wasm32")]
         {
             if let Some(window) = web_sys::window() {
                 if let Some(document) = window.document() {
                     if let Some(canvas_el) = document.get_element_by_id("space-canvas") {
                         if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
-                            if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
-                                if let Ok(ctx_2d) =
-                                    ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
-                                {
-                                    let configs = (ctx.tables.config)();
-                                    let players = (ctx.tables.player)();
-                                    let base_stations = (ctx.tables.base_station)();
-                                    let asteroids = (ctx.tables.asteroid)();
-                                    let ships = (ctx.tables.ship)();
+                            let rect = canvas.get_bounding_client_rect();
+                            let css_w = rect.width();
+                            let css_h = rect.height();
+                            if css_w > 0.0 && css_h > 0.0 {
+                                let dpr = window.device_pixel_ratio().max(1.0);
+                                let target_w = (css_w * dpr).round() as u32;
+                                let target_h = (css_h * dpr).round() as u32;
 
-                                    render_space_scene(
-                                        &ctx_2d,
-                                        canvas.width() as f64,
-                                        canvas.height() as f64,
-                                        configs.first(),
-                                        &players,
-                                        &base_stations,
-                                        &asteroids,
-                                        &ships,
-                                        anim_tick(),
-                                    );
+                                if canvas.width() != target_w || canvas.height() != target_h {
+                                    canvas.set_width(target_w);
+                                    canvas.set_height(target_h);
+                                }
+
+                                if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
+                                    if let Ok(ctx_2d) =
+                                        ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
+                                    {
+                                        let configs = (ctx.tables.config)();
+                                        let players = (ctx.tables.player)();
+                                        let base_stations = (ctx.tables.base_station)();
+                                        let asteroids = (ctx.tables.asteroid)();
+                                        let ships = (ctx.tables.ship)();
+
+                                        let time = js_sys::Date::now() / 1000.0;
+
+                                        render_space_scene(
+                                            &ctx_2d,
+                                            canvas.width() as f64,
+                                            canvas.height() as f64,
+                                            configs.first(),
+                                            &players,
+                                            &base_stations,
+                                            &asteroids,
+                                            &ships,
+                                            time,
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -187,12 +227,10 @@ fn SpaceViewport() -> Element {
 
     rsx! {
         div {
-            style: "flex: 1; height: 100%; position: relative; background: #070b19; display: flex; align-items: center; justify-content: center;",
+            style: "flex: 1; height: 100%; position: relative; background: #070b19; display: flex; align-items: center; justify-content: center; overflow: hidden;",
             canvas {
                 id: "space-canvas",
-                width: "1920",
-                height: "1080",
-                style: "width: 100%; height: 100%; object-fit: contain;",
+                style: "width: 100%; height: 100%; display: block;",
             }
         }
     }

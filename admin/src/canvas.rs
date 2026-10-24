@@ -41,7 +41,7 @@ pub fn render_space_scene(
         let _ = ctx.scale(scale, scale);
 
         // 2. Faint Grid Lines
-        draw_grid(ctx, world_w, world_h);
+        draw_grid(ctx, world_w, world_h, scale);
 
         // 3. Draw Central Mega-Station
         let mega_x = config.map_or(1600.0, |c| c.megastation_pos.x as f64);
@@ -82,9 +82,9 @@ pub fn render_space_scene(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn draw_grid(ctx: &CanvasRenderingContext2d, w: f64, h: f64) {
-    ctx.set_stroke_style(&JsValue::from_str("rgba(255, 255, 255, 0.03)"));
-    ctx.set_line_width(1.0);
+fn draw_grid(ctx: &CanvasRenderingContext2d, w: f64, h: f64, scale: f64) {
+    ctx.set_stroke_style(&JsValue::from_str("rgba(255, 255, 255, 0.04)"));
+    ctx.set_line_width(1.0 / scale);
 
     let step = 200.0;
     let mut x = 0.0;

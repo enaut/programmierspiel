@@ -12,7 +12,7 @@ use std::time::Duration;
 const DEFAULT_WORLD_WIDTH: f32 = 3200.0;
 const DEFAULT_WORLD_HEIGHT: f32 = 2000.0;
 const DEFAULT_MEGASTATION_POS: Vec2 = Vec2::new(1600.0, 1000.0);
-const DEFAULT_TICK_INTERVAL_MS: u32 = 300; // ~3.33 Ticks/s
+const DEFAULT_TICK_INTERVAL_MS: u32 = 50; // 20 Ticks/s (50ms interval)
 const DEFAULT_SIGNAL_RADIUS: f32 = 1200.0;
 const MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY: f32 = 250.0;
 
@@ -39,7 +39,7 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
     // 2. Spawn initial Asteroids
     seed_asteroids(ctx, 30);
 
-    // 3. Schedule periodic Game Tick (every 300ms)
+    // 3. Schedule periodic Game Tick (every 50ms / 20 Ticks/s)
     ctx.db.tick_schedule().insert(TickSchedule {
         scheduled_id: 0,
         scheduled_at: ScheduleAt::Interval(
@@ -47,7 +47,7 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
         ),
     });
 
-    log::info!("Game Server Initialized with 30 asteroids and 300ms tick loop.");
+    log::info!("Game Server Initialized with 30 asteroids and 50ms tick loop.");
     Ok(())
 }
 
@@ -111,7 +111,7 @@ pub fn register_player(ctx: &ReducerContext, name: String, color_hue: u16) -> Re
         target_asteroid_id: None,
         is_mining: false,
         is_stranded: false,
-        signal_countdown: 100,
+        signal_countdown: 30, // 30 seconds buffer
     });
 
     // 3. Emit Event
@@ -196,7 +196,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         target_asteroid_id: None,
         is_mining: false,
         is_stranded: false,
-        signal_countdown: 50,
+        signal_countdown: 20, // 20 seconds buffer
     });
 
     ctx.db.game_event().insert(GameEvent {
@@ -258,7 +258,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         target_asteroid_id: None,
         is_mining: false,
         is_stranded: false,
-        signal_countdown: 50,
+        signal_countdown: 20, // 20 seconds buffer
     });
 
     ctx.db.game_event().insert(GameEvent {
@@ -365,16 +365,40 @@ pub fn admin_set_phase(ctx: &ReducerContext, level: u8, paused: bool) -> Result<
 
 #[reducer]
 pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), String> {
-    let config = match ctx.db.config().id().find(&0) {
+    let mut config = match ctx.db.config().id().find(&0) {
         Some(c) => c,
         None => return Ok(()),
     };
+
+    // Auto-migrate config to 50ms tick interval if still set to 300ms
+    if config.tick_interval_ms != DEFAULT_TICK_INTERVAL_MS {
+        config.tick_interval_ms = DEFAULT_TICK_INTERVAL_MS;
+        ctx.db.config().id().update(config.clone());
+    }
+
+    // Auto-migrate tick schedule interval if it doesn't match config
+    let target_interval =
+        ScheduleAt::Interval(Duration::from_millis(config.tick_interval_ms as u64).into());
+    if _schedule.scheduled_at != target_interval {
+        ctx.db
+            .tick_schedule()
+            .scheduled_id()
+            .delete(&_schedule.scheduled_id);
+        ctx.db.tick_schedule().insert(TickSchedule {
+            scheduled_id: 0,
+            scheduled_at: target_interval,
+        });
+        log::info!("Upgraded tick schedule to 50ms interval");
+    }
 
     if config.paused {
         return Ok(());
     }
 
     let dt = (config.tick_interval_ms as f32) / 1000.0;
+    let tick_interval_micros = (config.tick_interval_ms as i64 * 1000).max(1);
+    let tick_count = ctx.timestamp.to_micros_since_unix_epoch() / tick_interval_micros;
+    let ticks_per_sec = (1000 / config.tick_interval_ms).max(1) as i64;
 
     // 1. Update Ships
     let mut ships_to_update = Vec::new();
@@ -438,12 +462,13 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
             }
         }
 
-        // Mining logic
-        if ship.is_mining && ship.cargo_ore < ship.max_cargo {
+        // Mining logic (mines 1 ore every 200ms = 4 ticks, approx 5 ore/sec)
+        let is_mining_tick = tick_count % 4 == 0;
+        if is_mining_tick && ship.is_mining && ship.cargo_ore < ship.max_cargo {
             if let Some(ast_id) = ship.target_asteroid_id {
                 if let Some(mut asteroid) = ctx.db.asteroid().asteroid_id().find(&ast_id) {
                     if ship.position.distance(&asteroid.position) <= asteroid.radius + 35.0 {
-                        let amount = 2.min(asteroid.remaining_ore);
+                        let amount = 1.min(asteroid.remaining_ore);
                         if amount > 0 && ship.cargo_ore + amount <= ship.max_cargo {
                             ship.cargo_ore += amount;
                             asteroid.remaining_ore = asteroid.remaining_ore.saturating_sub(amount);
@@ -461,28 +486,31 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
             }
         }
 
-        // Signal range check
+        // Signal range check (countdown decrements once per second)
         if let Some(base) = ctx.db.base_station().owner().find(&ship.owner) {
             let dist_to_base = ship.position.distance(&base.position);
             if dist_to_base > base.signal_radius {
                 // Outside signal!
                 if ship.ship_tier <= 1 {
-                    if ship.signal_countdown > 0 {
-                        ship.signal_countdown -= 1;
-                    } else {
-                        // Tier 0/1 ship destroyed
-                        ships_to_delete.push(ship.ship_id);
-                        ctx.db.game_event().insert(GameEvent {
-                            event_id: 0,
-                            player: ship.owner,
-                            event_type: "SHIP_LOST".to_string(),
-                            message: format!(
-                                "Ship #{} was lost outside signal range",
-                                ship.ship_id
-                            ),
-                            timestamp: ctx.timestamp,
-                        });
-                        continue;
+                    let is_second_tick = tick_count % ticks_per_sec == 0;
+                    if is_second_tick {
+                        if ship.signal_countdown > 0 {
+                            ship.signal_countdown -= 1;
+                        } else {
+                            // Tier 0/1 ship destroyed
+                            ships_to_delete.push(ship.ship_id);
+                            ctx.db.game_event().insert(GameEvent {
+                                event_id: 0,
+                                player: ship.owner,
+                                event_type: "SHIP_LOST".to_string(),
+                                message: format!(
+                                    "Ship #{} was lost outside signal range",
+                                    ship.ship_id
+                                ),
+                                timestamp: ctx.timestamp,
+                            });
+                            continue;
+                        }
                     }
                 } else {
                     // Tier 2+ becomes stranded (rescueable)
@@ -494,7 +522,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
             } else {
                 // Inside signal: reset countdown if healthy
                 if !ship.is_stranded {
-                    ship.signal_countdown = 50;
+                    ship.signal_countdown = if ship.ship_tier == 0 { 30 } else { 20 };
                 }
             }
         }
