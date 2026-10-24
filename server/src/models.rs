@@ -93,12 +93,16 @@ pub struct Asteroid {
     pub radius: f32,
 }
 
-#[table(accessor = game_event, public, event)]
+#[table(accessor = game_event, public)]
 #[derive(Debug, Clone)]
 pub struct GameEvent {
+    #[primary_key]
+    #[auto_inc]
+    pub event_id: u64,
     pub player: Identity,
     pub event_type: String,
     pub message: String,
+    pub timestamp: Timestamp,
 }
 
 #[table(accessor = tick_schedule, scheduled(game_tick))]

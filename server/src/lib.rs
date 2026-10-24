@@ -116,9 +116,11 @@ pub fn register_player(ctx: &ReducerContext, name: String, color_hue: u16) -> Re
 
     // 3. Emit Event
     ctx.db.game_event().insert(GameEvent {
+        event_id: 0,
         player: sender,
         event_type: "PLAYER_REGISTERED".to_string(),
         message: format!("Player '{}' entered the sector at Mega-Station", clean_name),
+        timestamp: ctx.timestamp,
     });
 
     log::info!(
@@ -198,9 +200,11 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
     });
 
     ctx.db.game_event().insert(GameEvent {
+        event_id: 0,
         player: sender,
         event_type: "BASE_DEPLOYED".to_string(),
         message: "Home Base Station established! Programmable Drone Online.".to_string(),
+        timestamp: ctx.timestamp,
     });
 
     log::info!(
@@ -258,9 +262,11 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
     });
 
     ctx.db.game_event().insert(GameEvent {
+        event_id: 0,
         player: sender,
         event_type: "SHIP_BUILT".to_string(),
         message: format!("Built Tier-{} ship", tier),
+        timestamp: ctx.timestamp,
     });
 
     Ok(())
@@ -467,12 +473,14 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                         // Tier 0/1 ship destroyed
                         ships_to_delete.push(ship.ship_id);
                         ctx.db.game_event().insert(GameEvent {
+                            event_id: 0,
                             player: ship.owner,
                             event_type: "SHIP_LOST".to_string(),
                             message: format!(
                                 "Ship #{} was lost outside signal range",
                                 ship.ship_id
                             ),
+                            timestamp: ctx.timestamp,
                         });
                         continue;
                     }
