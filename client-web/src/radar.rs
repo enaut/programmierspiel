@@ -10,6 +10,15 @@ use wasm_bindgen::JsValue;
 #[cfg(target_arch = "wasm32")]
 use web_sys::CanvasRenderingContext2d;
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum SelectedEntity {
+    Heimatbasis,
+    Asteroid(u32),
+    MyShip(u32),
+    ForeignDrone(u32),
+    ForeignBase(u32),
+}
+
 #[derive(Default, Clone)]
 struct PerceivedAsteroidInterpState {
     last_server_pos: (f32, f32),
@@ -21,7 +30,7 @@ thread_local! {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn get_interpolated_perceived_asteroid_pos(
+pub fn get_interpolated_asteroid_pos(
     ast: &PerceivedAsteroid,
     time: f64,
     world_w: f32,
@@ -79,6 +88,51 @@ fn get_interpolated_perceived_asteroid_pos(
     })
 }
 
+#[cfg(target_arch = "wasm32")]
+fn draw_target_reticle(
+    ctx: &CanvasRenderingContext2d,
+    x: f64,
+    y: f64,
+    radius: f64,
+    time: f64,
+    color: &str,
+) {
+    let pulse = (time * 6.0).sin() * 2.0;
+    let r = radius + 8.0 + pulse;
+    let arm = 7.0;
+
+    ctx.set_stroke_style(&JsValue::from_str(color));
+    ctx.set_line_width(2.0);
+
+    // Top-left corner
+    ctx.begin_path();
+    ctx.move_to(x - r, y - r + arm);
+    ctx.line_to(x - r, y - r);
+    ctx.line_to(x - r + arm, y - r);
+    ctx.stroke();
+
+    // Top-right corner
+    ctx.begin_path();
+    ctx.move_to(x + r - arm, y - r);
+    ctx.line_to(x + r, y - r);
+    ctx.line_to(x + r, y - r + arm);
+    ctx.stroke();
+
+    // Bottom-right corner
+    ctx.begin_path();
+    ctx.move_to(x + r, y + r - arm);
+    ctx.line_to(x + r, y + r);
+    ctx.line_to(x + r - arm, y + r);
+    ctx.stroke();
+
+    // Bottom-left corner
+    ctx.begin_path();
+    ctx.move_to(x - r + arm, y + r);
+    ctx.line_to(x - r, y + r);
+    ctx.line_to(x - r, y + r - arm);
+    ctx.stroke();
+}
+
 pub fn render_player_radar(
     #[cfg(target_arch = "wasm32")] ctx: &CanvasRenderingContext2d,
     canvas_w: f64,
@@ -95,6 +149,7 @@ pub fn render_player_radar(
     unidentified_objects: &[UnidentifiedContact],
     players: &[Player],
     target_pos: Option<Vec2>,
+    selected_entity: Option<SelectedEntity>,
     time: f64,
 ) {
     #[cfg(target_arch = "wasm32")]
@@ -225,7 +280,7 @@ pub fn render_player_radar(
         let mut asteroid_pos_map = HashMap::new();
 
         for ast in visible_asteroids {
-            let (ix, iy) = get_interpolated_perceived_asteroid_pos(ast, time, world_w, world_h);
+            let (ix, iy) = get_interpolated_asteroid_pos(ast, time, world_w, world_h);
             asteroid_pos_map.insert(ast.asteroid_id, (ix, iy));
 
             let ax = ix - center_x;
@@ -258,6 +313,10 @@ pub fn render_player_radar(
                 ctx.set_stroke_style(&JsValue::from_str(border));
                 ctx.set_line_width(1.0);
                 ctx.stroke();
+
+                if selected_entity == Some(SelectedEntity::Asteroid(ast.asteroid_id)) {
+                    draw_target_reticle(ctx, ax, ay, (ast.radius as f64) * 0.75, time, "#00e5ff");
+                }
             }
         }
 
@@ -306,6 +365,10 @@ pub fn render_player_radar(
                 ctx.set_text_align("center");
                 ctx.set_fill_style(&JsValue::from_str("#e2e8f0"));
                 let _ = ctx.fill_text(&b_name, bx, by + 36.0);
+
+                if selected_entity == Some(SelectedEntity::ForeignBase(base.base_id)) {
+                    draw_target_reticle(ctx, bx, by, 22.0, time, "#f59e0b");
+                }
             }
         }
 
@@ -355,6 +418,10 @@ pub fn render_player_radar(
             ctx.set_text_align("center");
             ctx.set_fill_style(&JsValue::from_str("#ffffff"));
             let _ = ctx.fill_text("HEIMATBASIS", bx, by + 46.0);
+
+            if selected_entity == Some(SelectedEntity::Heimatbasis) {
+                draw_target_reticle(ctx, bx, by, 26.0, time, "#00e5ff");
+            }
         }
 
         // 6. Draw Other Identified Drones (from visible_drones)
@@ -397,6 +464,10 @@ pub fn render_player_radar(
                     format!("{}: #{}", p_name, d.ship_id)
                 };
                 let _ = ctx.fill_text(&label, dx, dy - 18.0);
+
+                if selected_entity == Some(SelectedEntity::ForeignDrone(d.ship_id)) {
+                    draw_target_reticle(ctx, dx, dy, 18.0, time, "#f59e0b");
+                }
             }
         }
 
@@ -513,6 +584,11 @@ pub fn render_player_radar(
                 format!("Drohne #{}", s.ship_id)
             };
             let _ = ctx.fill_text(&label, sx, sy - 20.0);
+
+            if selected_entity == Some(SelectedEntity::MyShip(s.ship_id)) {
+                let r = if s.ship_tier == 0 { 24.0 } else { 20.0 };
+                draw_target_reticle(ctx, sx, sy, r, time, "#00e5ff");
+            }
         }
 
         // 8. Draw Manual Target Marker if in Builder Mode

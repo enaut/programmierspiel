@@ -11,8 +11,11 @@ use module_bindings::dioxus::{
     ConnectionState, use_spacetimedb_context, use_spacetimedb_context_provider, use_subscription,
 };
 use module_bindings::register_player_reducer::register_player;
-use module_bindings::{BaseStation, Player, PlayerAchievement, Ship, ShipCommand, Vec2};
-use radar::render_player_radar;
+use module_bindings::{
+    BaseStation, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, PlayerAchievement,
+    PublicRiddle, Ship, ShipCommand, Vec2,
+};
+use radar::{SelectedEntity, get_interpolated_asteroid_pos, render_player_radar};
 use spacetimedb_sdk::Identity;
 
 #[cfg(target_arch = "wasm32")]
@@ -496,11 +499,20 @@ fn CockpitApp() -> Element {
         _ => None,
     };
 
+    let token = match state {
+        ConnectionState::Connected(_, ref t) => t.clone(),
+        _ => "".to_string(),
+    };
+
     let players = (ctx.tables.player)();
     let my_bases = (ctx.tables.my_base)();
     let my_ships_list = (ctx.tables.my_ships)();
     let achievements = (ctx.tables.player_achievement)();
+    let active_riddles = (ctx.tables.my_active_riddle)();
+    let current_riddle = active_riddles.first().cloned();
+
     let mut show_scoreboard = use_signal(|| false);
+    let mut show_heimatbasis_modal = use_signal(|| false);
 
     let my_player = my_identity.and_then(|id| players.iter().find(|p| p.identity == id).cloned());
     let my_base = my_bases.first().cloned();
@@ -536,9 +548,20 @@ fn CockpitApp() -> Element {
                         style: "margin: 0; font-size: 17px; font-weight: 700; color: #00e5ff; letter-spacing: 0.5px;",
                         "SCHÜLER-COCKPIT"
                     }
-                    span {
-                        style: "font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(0, 229, 255, 0.1); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.25);",
-                        "MEGA-STATION"
+                    if let Some(ref base) = my_base {
+                        button {
+                            style: "background: rgba(0, 229, 255, 0.1); hover:background: rgba(0, 229, 255, 0.2); border: 1px solid rgba(0, 229, 255, 0.35); color: #00e5ff; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;",
+                            onclick: move |_| show_heimatbasis_modal.set(!show_heimatbasis_modal()),
+                            title: "Heimatbasis & Sensor-Forschungszentrum öffnen",
+                            span { style: "color: #ffd700;", "⛏️ {base.stored_ore} Erz" }
+                            span { style: "color: #64748b;", "|" }
+                            span { style: "color: #00e5ff;", "⚡ {base.stored_energy} Energie" }
+                        }
+                    } else {
+                        span {
+                            style: "font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(0, 229, 255, 0.1); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.25);",
+                            "MEGA-STATION"
+                        }
                     }
                 }
                 div {
@@ -635,15 +658,16 @@ fn CockpitApp() -> Element {
                     }
                 } else if my_base.is_none() {
                     BuilderNavigationScreen {
-                        player: my_player.unwrap(),
+                        player: my_player.clone().unwrap(),
                         builder_ship: my_ships.into_iter().find(|s| s.ship_tier == 0),
                     }
                 } else {
                     BaseDashboardScreen {
-                        player: my_player.unwrap(),
-                        base: my_base.unwrap(),
+                        player: my_player.clone().unwrap(),
+                        base: my_base.clone().unwrap(),
                         ships: my_ships,
                         achievements: achievements.clone(),
+                        on_open_heimatbasis: move |_| show_heimatbasis_modal.set(true),
                     }
                 }
             }
@@ -655,6 +679,21 @@ fn CockpitApp() -> Element {
                     players: players.clone(),
                     achievements: achievements.clone(),
                     on_close: move |_| show_scoreboard.set(false),
+                }
+            }
+
+            // Heimatbasis & Sensor-Forschungszentrum Modal Overlay
+            if show_heimatbasis_modal() {
+                if let Some(ref b) = my_base {
+                    if let Some(ref p) = my_player {
+                        HeimatbasisModal {
+                            player: p.clone(),
+                            base: b.clone(),
+                            token: token.clone(),
+                            current_riddle: current_riddle.clone(),
+                            on_close: move |_| show_heimatbasis_modal.set(false),
+                        }
+                    }
                 }
             }
         }
@@ -1032,6 +1071,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                                                     &unidentified_objects,
                                                     &players,
                                                     target_marker(),
+                                                    None,
                                                     time,
                                                 );
                                             }
@@ -1215,11 +1255,12 @@ fn BaseDashboardScreen(
     base: BaseStation,
     ships: Vec<Ship>,
     achievements: Vec<PlayerAchievement>,
+    on_open_heimatbasis: EventHandler<()>,
 ) -> Element {
     let ctx = use_spacetimedb_context();
     let state = (ctx.state)();
     let mut copied = use_signal(|| false);
-    let mut show_token = use_signal(|| false);
+    let mut selected_target = use_signal(|| None::<SelectedEntity>);
 
     // Periodic tick to refresh elapsed time reactively (for 30s API active window)
     let mut time_tick = use_signal(|| 0u32);
@@ -1240,7 +1281,7 @@ fn BaseDashboardScreen(
     });
 
     let _ = time_tick();
-    let is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
+    let _is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
         let ts_sec = (ts.to_micros_since_unix_epoch() / 1_000_000) as f64;
         let now_sec = js_sys::Date::now() / 1000.0;
         (now_sec - ts_sec) <= 30.0
@@ -1282,6 +1323,87 @@ fn BaseDashboardScreen(
         format!("Kosten: {} Erz", cost_t3)
     };
 
+    // Determine current research target (active riddle track, or highest progress unmaxed track)
+    let (
+        target_track_name,
+        target_track_icon,
+        target_level,
+        target_progress,
+        target_cost_text,
+        target_color,
+    ) = if let Some(ref r) = current_riddle {
+        match r.track {
+            1 => (
+                "Drohnen-Scan (Sortieren)",
+                "🛸",
+                base.drone_scanner_level,
+                base.drone_scanner_progress,
+                cost_t1_text.clone(),
+                "linear-gradient(90deg, #0284c7, #00e5ff)",
+            ),
+            2 => (
+                "Basen & Asteroiden",
+                "☄️",
+                base.base_scanner_level,
+                base.base_scanner_progress,
+                cost_t2_text.clone(),
+                "linear-gradient(90deg, #0369a1, #38bdf8)",
+            ),
+            _ => (
+                "Radar-Horizont",
+                "📡",
+                base.radar_horizon_level,
+                base.radar_horizon_progress,
+                cost_t3_text.clone(),
+                "linear-gradient(90deg, #7e22ce, #c084fc)",
+            ),
+        }
+    } else {
+        let p1 = if base.drone_scanner_level < 5 {
+            base.drone_scanner_progress
+        } else {
+            0
+        };
+        let p2 = if base.base_scanner_level < 5 {
+            base.base_scanner_progress
+        } else {
+            0
+        };
+        let p3 = if base.radar_horizon_level < 5 {
+            base.radar_horizon_progress
+        } else {
+            0
+        };
+        if p3 > p2 && p3 > p1 {
+            (
+                "Radar-Horizont",
+                "📡",
+                base.radar_horizon_level,
+                base.radar_horizon_progress,
+                cost_t3_text.clone(),
+                "linear-gradient(90deg, #7e22ce, #c084fc)",
+            )
+        } else if p2 > p1 {
+            (
+                "Basen & Asteroiden",
+                "☄️",
+                base.base_scanner_level,
+                base.base_scanner_progress,
+                cost_t2_text.clone(),
+                "linear-gradient(90deg, #0369a1, #38bdf8)",
+            )
+        } else {
+            (
+                "Drohnen-Scan (Sortieren)",
+                "🛸",
+                base.drone_scanner_level,
+                base.drone_scanner_progress,
+                cost_t1_text.clone(),
+                "linear-gradient(90deg, #0284c7, #00e5ff)",
+            )
+        }
+    };
+
     let mut resize_trigger = use_signal(|| 0u32);
 
     use_effect(move || {
@@ -1298,9 +1420,10 @@ fn BaseDashboardScreen(
         }
     });
 
+    let b_center_pos = base_pos.clone();
     // Continuously render local base radar via request_animation_frame with interpolation
     use_effect(move || {
-        let b_center = base_pos.clone();
+        let b_center = b_center_pos.clone();
         #[cfg(target_arch = "wasm32")]
         {
             use std::cell::RefCell;
@@ -1367,6 +1490,7 @@ fn BaseDashboardScreen(
                                                     &unidentified_objects,
                                                     &players,
                                                     None,
+                                                    selected_target(),
                                                     time,
                                                 );
                                             }
@@ -1418,6 +1542,140 @@ fn BaseDashboardScreen(
         }
     };
 
+    let on_canvas_click = move |evt: ::dioxus::prelude::MouseEvent| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(w) = web_sys::window() {
+                if let Some(doc) = w.document() {
+                    if let Some(canvas_el) = doc.get_element_by_id("base-radar-canvas") {
+                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
+                            let rect = canvas.get_bounding_client_rect();
+                            if rect.width() > 0.0 && rect.height() > 0.0 {
+                                let coords = evt.client_coordinates();
+                                let css_x = coords.x - rect.left();
+                                let css_y = coords.y - rect.top();
+
+                                let rel_x = css_x - (rect.width() / 2.0);
+                                let rel_y = css_y - (rect.height() / 2.0);
+
+                                let my_current_bases = (ctx.tables.my_base)();
+                                let my_current_ships = (ctx.tables.my_ships)();
+                                let visible_drones = (ctx.tables.visible_drones)();
+                                let visible_bases = (ctx.tables.visible_bases)();
+                                let visible_asteroids = (ctx.tables.visible_asteroids)();
+                                let configs = (ctx.tables.config)();
+
+                                let time = js_sys::Date::now() / 1000.0;
+                                let world_w = configs.first().map_or(3200.0, |c| c.world_size.x);
+                                let world_h = configs.first().map_or(2000.0, |c| c.world_size.y);
+
+                                let b_pos = my_current_bases
+                                    .first()
+                                    .map(|b| b.position.clone())
+                                    .unwrap_or(base_pos.clone());
+
+                                let mut best_candidate: Option<(f64, SelectedEntity)> = None;
+
+                                // 1. Heimatbasis
+                                let dist_home = (rel_x * rel_x + rel_y * rel_y).sqrt();
+                                if dist_home <= 34.0 {
+                                    best_candidate = Some((dist_home, SelectedEntity::Heimatbasis));
+                                }
+
+                                // 2. My ships
+                                for s in &my_current_ships {
+                                    let sx = s.position.x as f64 - b_pos.x as f64;
+                                    let sy = s.position.y as f64 - b_pos.y as f64;
+                                    let dist = ((rel_x - sx).powi(2) + (rel_y - sy).powi(2)).sqrt();
+                                    if dist <= 28.0 {
+                                        if best_candidate.as_ref().map_or(true, |(d, _)| dist < *d)
+                                        {
+                                            best_candidate =
+                                                Some((dist, SelectedEntity::MyShip(s.ship_id)));
+                                        }
+                                    }
+                                }
+
+                                // 3. Foreign drones
+                                for d in &visible_drones {
+                                    if !my_current_ships.iter().any(|s| s.ship_id == d.ship_id) {
+                                        let dx = d.position.x as f64 - b_pos.x as f64;
+                                        let dy = d.position.y as f64 - b_pos.y as f64;
+                                        let dist =
+                                            ((rel_x - dx).powi(2) + (rel_y - dy).powi(2)).sqrt();
+                                        if dist <= 28.0 {
+                                            if best_candidate
+                                                .as_ref()
+                                                .map_or(true, |(d, _)| dist < *d)
+                                            {
+                                                best_candidate = Some((
+                                                    dist,
+                                                    SelectedEntity::ForeignDrone(d.ship_id),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 4. Asteroids
+                                for ast in &visible_asteroids {
+                                    let (ix, iy) =
+                                        get_interpolated_asteroid_pos(ast, time, world_w, world_h);
+                                    let ax = ix - b_pos.x as f64;
+                                    let ay = iy - b_pos.y as f64;
+                                    let tolerance = ((ast.radius as f64) * 0.75).max(12.0) + 16.0;
+                                    let dist = ((rel_x - ax).powi(2) + (rel_y - ay).powi(2)).sqrt();
+                                    if dist <= tolerance {
+                                        if best_candidate.as_ref().map_or(true, |(d, _)| dist < *d)
+                                        {
+                                            best_candidate = Some((
+                                                dist,
+                                                SelectedEntity::Asteroid(ast.asteroid_id),
+                                            ));
+                                        }
+                                    }
+                                }
+
+                                // 5. Foreign bases
+                                for fb in &visible_bases {
+                                    if my_current_bases
+                                        .first()
+                                        .map_or(true, |b| b.base_id != fb.base_id)
+                                    {
+                                        let bx = fb.position.x as f64 - b_pos.x as f64;
+                                        let by = fb.position.y as f64 - b_pos.y as f64;
+                                        let dist =
+                                            ((rel_x - bx).powi(2) + (rel_y - by).powi(2)).sqrt();
+                                        if dist <= 32.0 {
+                                            if best_candidate
+                                                .as_ref()
+                                                .map_or(true, |(d, _)| dist < *d)
+                                            {
+                                                best_candidate = Some((
+                                                    dist,
+                                                    SelectedEntity::ForeignBase(fb.base_id),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if let Some((_, entity)) = best_candidate {
+                                    if entity == SelectedEntity::Heimatbasis {
+                                        on_open_heimatbasis.call(());
+                                    }
+                                    selected_target.set(Some(entity));
+                                } else {
+                                    selected_target.set(None);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
     rsx! {
         div {
             style: "flex: 1; display: flex; flex-direction: row; height: 100%; overflow: hidden; background: #070d1d;",
@@ -1427,7 +1685,8 @@ fn BaseDashboardScreen(
                 style: "flex: 1; height: 100%; position: relative; background: #050a16; display: flex; align-items: center; justify-content: center; overflow: hidden;",
                 canvas {
                     id: "base-radar-canvas",
-                    style: "width: 100%; height: 100%; display: block;",
+                    style: "width: 100%; height: 100%; display: block; cursor: crosshair;",
+                    onclick: on_canvas_click,
                 }
                 div {
                     style: "position: absolute; top: 16px; left: 20px; display: flex; gap: 10px;",
@@ -1440,392 +1699,154 @@ fn BaseDashboardScreen(
                 }
                 div {
                     style: "position: absolute; bottom: 16px; left: 20px; background: rgba(10, 16, 32, 0.85); padding: 8px 14px; border-radius: 6px; font-size: 12px; color: #94a3b8; border: 1px solid rgba(80, 120, 200, 0.2);",
-                    "ℹ️ Drohnenflotte wird über die SpacetimeDB-API per Rust-Code in Zed gesteuert."
+                    "ℹ️ Klicke auf Asteroiden, Schiffe oder deine Heimatbasis für Telemetrie-Details."
+                }
+
+                // Floating Target Inspector HUD
+                if let Some(target) = selected_target() {
+                    TargetInspectorHud {
+                        target,
+                        base_pos: base.position.clone(),
+                        ships: ships.clone(),
+                        visible_asteroids: (ctx.tables.visible_asteroids)(),
+                        visible_drones: (ctx.tables.visible_drones)(),
+                        visible_bases: (ctx.tables.visible_bases)(),
+                        players: (ctx.tables.player)(),
+                        on_open_heimatbasis: move |_| on_open_heimatbasis.call(()),
+                        on_close: move |_| selected_target.set(None),
+                    }
                 }
             }
 
-            // Right Column: Controls, Token Export & Fleet Status
+            // Right Column: Controls, Current Research Target & Fleet Status
             aside {
-                style: "width: 440px; height: 100%; background: #0a1020; border-left: 1px solid rgba(80, 120, 200, 0.2); padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px; overflow-y: auto;",
+                style: "width: 340px; height: 100%; background: #0a1020; border-left: 1px solid rgba(80, 120, 200, 0.2); padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;",
 
-                // Header Notification: Hidden as long as in the last 30 sec something was connected via api
-                if !is_api_recently_active {
+                // Notification if API not connected yet
+                if !player.has_api_connected {
                     div {
-                        style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.3); border-radius: 12px; padding: 20px;",
+                        style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.3); border-radius: 12px; padding: 16px;",
                         div {
-                            style: "display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; background: rgba(0, 230, 118, 0.15); border: 1px solid rgba(0, 230, 118, 0.3); font-size: 11px; font-weight: 700; color: #00e676; letter-spacing: 0.5px; margin-bottom: 10px;",
+                            style: "display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: rgba(0, 230, 118, 0.15); border: 1px solid rgba(0, 230, 118, 0.3); font-size: 11px; font-weight: 700; color: #00e676; letter-spacing: 0.5px; margin-bottom: 8px;",
                             "✔ BASIS ETABLIERT"
                         }
                         h2 {
-                            style: "margin: 0 0 8px 0; font-size: 18px; font-weight: 700; color: #ffd700;",
+                            style: "margin: 0 0 6px 0; font-size: 16px; font-weight: 700; color: #ffd700;",
                             "🎉 Heimatbasis aktiv!"
                         }
                         p {
-                            style: "margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.4;",
-                            "Die manuelle Maussteuerung ist beendet. Steuere deine Flotte ab jetzt über "
+                            style: "margin: 0; font-size: 12px; color: #94a3b8; line-height: 1.4;",
+                            "Steuere deine Flotte ab jetzt über "
                             strong { style: "color: #00e5ff;", "Rust-Code im Zed-Editor" }
                             " via SpacetimeDB!"
                         }
                     }
-                }
 
-                // Token Box: Hidden once API has connected, with a toggle button to reveal it
-                if player.has_api_connected && !show_token() {
+                    // Token Box: Shown until API connects
                     div {
-                        style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;",
+                        style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px;",
                         div {
-                            style: "display: flex; align-items: center; gap: 8px;",
-                            span { style: "color: #00e676; font-size: 14px;", "●" }
-                            span { style: "font-size: 12px; font-weight: 600; color: #cbd5e1;", "API-Client verbunden" }
-                            if is_api_recently_active {
-                                span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); font-weight: 600;", "Aktiv (<30s)" }
-                            } else {
-                                span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); font-weight: 600;", "Inaktiv (>30s)" }
-                            }
-                        }
-                        button {
-                            style: "background: rgba(255, 255, 255, 0.08); hover:background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.2); color: #cbd5e1; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;",
-                            onclick: move |_| show_token.set(true),
-                            "📋 Token anzeigen"
-                        }
-                    }
-                } else {
-                    div {
-                        style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 18px;",
-                        div {
-                            style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
-                            label {
-                                style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px;",
-                                "DEIN PERSÖNLICHER API-IDENTITÄTS-TOKEN:"
-                            }
-                            if player.has_api_connected {
-                                button {
-                                    style: "background: transparent; border: none; color: #94a3b8; font-size: 11px; cursor: pointer; padding: 0 4px;",
-                                    onclick: move |_| show_token.set(false),
-                                    "Ausblenden ✕"
-                                }
-                            }
+                            style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px; margin-bottom: 8px;",
+                            "DEIN PERSÖNLICHER API-TOKEN:"
                         }
                         div {
                             style: "display: flex; gap: 8px;",
                             input {
                                 readonly: true,
-                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none;",
+                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; outline: none; min-width: 0;",
                                 value: "{token}",
                             }
                             button {
                                 style: if copied() {
-                                    "background: #059669; color: #fff; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;"
+                                    "background: #059669; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
                                 } else {
-                                    "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;"
+                                    "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
                                 },
                                 onclick: copy_token,
-                                if copied() { "✔ Kopiert!" } else { "📋 Kopieren" }
+                                if copied() { "✔" } else { "📋" }
                             }
                         }
                         div {
-                            style: "font-size: 11px; color: #64748b; margin-top: 8px;",
-                            "Füge diesen Token in die " code { style: "color: #38bdf8;", "config.toml" } " deines Zed-Bot-Projekts ein."
+                            style: "font-size: 11px; color: #64748b; margin-top: 6px;",
+                            "In " code { style: "color: #38bdf8;", "config.toml" } " deines Zed-Projekts einfügen."
                         }
                     }
                 }
 
-                // Station Stats Card
+                // Current Research Target Card
                 div {
-                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
-                    h3 { style: "margin: 0 0 14px 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🏠 Stationsstatus" }
+                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; padding: 16px; box-shadow: 0 4px 16px rgba(0, 229, 255, 0.08); display: flex; flex-direction: column; gap: 10px;",
                     div {
-                        style: "display: grid; grid-template-columns: 1fr 1fr; gap: 10px;",
+                        style: "display: flex; justify-content: space-between; align-items: center;",
                         div {
-                            style: "padding: 10px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
-                            div { style: "font-size: 11px; color: #8da2c0;", "GELAGERTES ERZ" }
-                            div { style: "font-size: 20px; font-weight: 700; color: #ffd700;", "{base.stored_ore}" }
+                            style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px;",
+                            "FORSCHUNGSZIEL"
                         }
-                        div {
-                            style: "padding: 10px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
-                            div { style: "font-size: 11px; color: #8da2c0;", "ENERGIE" }
-                            div { style: "font-size: 20px; font-weight: 700; color: #00e5ff;", "{base.stored_energy}" }
-                        }
-                        div {
-                            style: "padding: 10px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
-                            div { style: "font-size: 11px; color: #8da2c0;", "FUNK-REICHWEITE" }
-                            div { style: "font-size: 18px; font-weight: 700; color: #38bdf8;", "{base.signal_radius as u32} px" }
-                        }
-                        div {
-                            style: "padding: 10px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
-                            div { style: "font-size: 11px; color: #8da2c0;", "GESAMTPUNKTE" }
-                            div { style: "font-size: 18px; font-weight: 700; color: #00e676;", "{player.score}" }
-                        }
-                    }
-                    div {
-                        style: "margin-top: 10px; font-size: 11px; color: #64748b; text-align: right;",
-                        "Position: ({base.position.x as i32}, {base.position.y as i32}) • Level {base.level}"
-                    }
-                }
-
-                // Research & Sensor Upgrades Card
-                div {
-                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; padding: 18px; box-shadow: 0 4px 20px rgba(0, 229, 255, 0.08);",
-                    div {
-                        style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;",
-                        h3 { style: "margin: 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🧪 Sensor-Forschungszentrum" }
                         span {
-                            style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);",
-                            "⚠️ 50% Reset-Risiko"
+                            style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.15); color: #00e5ff;",
+                            "Stufe {target_level}/5"
                         }
                     }
-                    p {
-                        style: "margin: 0 0 14px 0; font-size: 11px; color: #94a3b8; line-height: 1.3;",
-                        "100 Rätsel pro Stufe • Steigende Erzkosten • Falsche Antworten bergen 50% Durchbrenn-Risiko!"
-                    }
-
-                    // Track 1: Drone Scanner
                     div {
-                        style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                        style: "display: flex; align-items: center; gap: 8px;",
+                        span { style: "font-size: 18px;", "{target_track_icon}" }
                         div {
-                            style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
-                            span { style: "color: #cbd5e1; font-weight: 600;", "🛸 Drohnen-Scan (Sortieren)" }
-                            span { style: "color: #00e5ff; font-weight: 700;", "Stufe {base.drone_scanner_level}/5 ({150 + (base.drone_scanner_level.saturating_sub(1) as u32 * 50)} px)" }
-                        }
-                        div {
-                            style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
-                            div {
-                                style: "height: 100%; width: {base.drone_scanner_progress}%; background: linear-gradient(90deg, #0284c7, #00e5ff); border-radius: 4px; transition: width 0.3s;"
-                            }
-                        }
-                        div {
-                            style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                            span { "Fortschritt: {base.drone_scanner_progress}%" }
-                            span { "{cost_t1_text}" }
+                            style: "font-weight: 700; font-size: 13px; color: #f1f5f9;",
+                            "{target_track_name}"
                         }
                     }
-
-                    // Track 2: Base & Asteroid Range
                     div {
-                        style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                        style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
                         div {
-                            style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
-                            span { style: "color: #cbd5e1; font-weight: 600;", "☄️ Basen- & Asteroiden (Distanz)" }
-                            span { style: "color: #38bdf8; font-weight: 700;", "Stufe {base.base_scanner_level}/5 ({300 + (base.base_scanner_level.saturating_sub(1) as u32 * 100)} px)" }
-                        }
-                        div {
-                            style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
-                            div {
-                                style: "height: 100%; width: {base.base_scanner_progress}%; background: linear-gradient(90deg, #0369a1, #38bdf8); border-radius: 4px; transition: width 0.3s;"
-                            }
-                        }
-                        div {
-                            style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                            span { "Fortschritt: {base.base_scanner_progress}%" }
-                            span { "{cost_t2_text}" }
+                            style: "height: 100%; width: {target_progress}%; background: {target_color}; border-radius: 4px; transition: width 0.3s;"
                         }
                     }
-
-                    // Track 3: Radar Horizon
                     div {
-                        style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
-                        div {
-                            style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
-                            span { style: "color: #cbd5e1; font-weight: 600;", "📡 Radar-Horizont (Denoise)" }
-                            span { style: "color: #a855f7; font-weight: 700;", "Stufe {base.radar_horizon_level}/5 ({600 + (base.radar_horizon_level.saturating_sub(1) as u32 * 150)} px)" }
-                        }
-                        div {
-                            style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
-                            div {
-                                style: "height: 100%; width: {base.radar_horizon_progress}%; background: linear-gradient(90deg, #7e22ce, #c084fc); border-radius: 4px; transition: width 0.3s;"
-                            }
-                        }
-                        div {
-                            style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                            span { "Fortschritt: {base.radar_horizon_progress}%" }
-                            span { "{cost_t3_text}" }
-                        }
+                        style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b;",
+                        span { "Fortschritt: {target_progress}%" }
+                        span { "{target_cost_text}" }
                     }
-
-                    // Active Riddle Status
                     if let Some(ref r) = current_riddle {
                         div {
-                            style: "padding: 8px 12px; background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; font-size: 11px; color: #fef08a;",
-                            "⏳ Aktives Rätsel: Track {r.track} (Ziel-Stufe {r.target_level}) • Wird in Zed gelöst."
+                            style: "padding: 6px 10px; background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; font-size: 11px; color: #fef08a;",
+                            "⏳ Rätsel aktiv: Stufe {r.target_level} • In Zed lösen"
                         }
                     }
-                }
-
-                // Dynamic Guided Next Steps
-                {
-                    struct StepInfo {
-                        title: &'static str,
-                        desc: &'static str,
-                        cmd: Option<&'static str>,
-                        is_done: bool,
-                    }
-
-                    let has_api = player.has_api_connected;
-                    let has_ore = base.stored_ore > 0
-                        || ships.iter().any(|s| s.cargo_ore > 0 || s.is_mining)
-                        || achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "FIRST_ORE");
-                    let has_research = achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "FIRST_RESEARCH")
-                        || base.drone_scanner_progress > 0
-                        || base.base_scanner_progress > 0
-                        || base.radar_horizon_progress > 0
-                        || base.drone_scanner_level > 1
-                        || base.base_scanner_level > 1
-                        || base.radar_horizon_level > 1;
-                    let has_scanner_upgrade = base.drone_scanner_level >= 2
-                        || base.base_scanner_level >= 2
-                        || base.radar_horizon_level >= 2
-                        || achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "SCANNER_UPGRADE");
-                    let has_fleet_expanded = ships.len() >= 2
-                        || achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "FLEET_EXPANDED");
-
-                    let steps = [
-                        StepInfo {
-                            title: "Heimatbasis etablieren",
-                            desc: "Bauschiff aus der Mega-Station navigiert und Basis errichtet.",
-                            cmd: None,
-                            is_done: true,
-                        },
-                        StepInfo {
-                            title: "Bot-Verbindung aufbauen",
-                            desc: "Kopiere deinen Token und trage ihn in die config.toml deines Zed-Projekts ein.",
-                            cmd: None,
-                            is_done: has_api,
-                        },
-                        StepInfo {
-                            title: "Drohnen-Bergbau starten",
-                            desc: "Starte die Flotten-KI und baue Asteroiden ab, um Erz zu gewinnen.",
-                            cmd: Some("cargo run -p command_center --bin drones"),
-                            is_done: has_ore,
-                        },
-                        StepInfo {
-                            title: "Basis-Forschung aktivieren",
-                            desc: "Starte die Stationsforschung und löse Telemetrie-Puzzles per Rust-Code.",
-                            cmd: Some("cargo run -p command_center --bin base"),
-                            is_done: has_research,
-                        },
-                        StepInfo {
-                            title: "Sensoren auf Stufe 2 ausbauen",
-                            desc: "Löse 100 Rätsel in einem Upgrade-Zweig für verbesserte Radarreichweite.",
-                            cmd: None,
-                            is_done: has_scanner_upgrade,
-                        },
-                        StepInfo {
-                            title: "Flotte erweitern",
-                            desc: "Sammle 50 Erz und baue eine zusätzliche Drohne per API.",
-                            cmd: None,
-                            is_done: has_fleet_expanded,
-                        },
-                    ];
-
-                    let current_idx = steps.iter().position(|s| !s.is_done).unwrap_or(steps.len());
-                    let done_count = steps.iter().filter(|s| s.is_done).count();
-
-                    rsx! {
-                        div {
-                            style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
-                            div {
-                                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
-                                h3 { style: "margin: 0; font-size: 14px; font-weight: 700; color: #00e5ff;", "🚀 Missions-Leitfaden (Nächste Schritte):" }
-                                span {
-                                    style: "font-size: 11px; color: #94a3b8; font-weight: 600;",
-                                    "{done_count} / {steps.len()} erledigt"
-                                }
-                            }
-                            div {
-                                style: "display: flex; flex-direction: column; gap: 8px;",
-                                for (idx, step) in steps.iter().enumerate() {
-                                    {
-                                        let is_current = idx == current_idx;
-                                        rsx! {
-                                            div {
-                                                key: "{step.title}",
-                                                style: if step.is_done {
-                                                    "background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 10px 12px;"
-                                                } else if is_current {
-                                                    "background: rgba(0, 229, 255, 0.08); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 8px; padding: 12px; box-shadow: 0 0 12px rgba(0, 229, 255, 0.08);"
-                                                } else {
-                                                    "background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 12px; opacity: 0.5;"
-                                                },
-                                                div {
-                                                    style: "display: flex; align-items: center; justify-content: space-between;",
-                                                    div {
-                                                        style: "display: flex; align-items: center; gap: 8px;",
-                                                        span {
-                                                            style: if step.is_done {
-                                                                "color: #00e676; font-size: 13px; font-weight: 700;"
-                                                            } else if is_current {
-                                                                "color: #00e5ff; font-size: 13px; font-weight: 700;"
-                                                            } else {
-                                                                "color: #64748b; font-size: 13px;"
-                                                            },
-                                                            if step.is_done { "✔" } else if is_current { "👉" } else { "○" }
-                                                        }
-                                                        span {
-                                                            style: if step.is_done {
-                                                                "font-size: 13px; font-weight: 600; color: #a7f3d0; text-decoration: line-through;"
-                                                            } else if is_current {
-                                                                "font-size: 13px; font-weight: 700; color: #00e5ff;"
-                                                            } else {
-                                                                "font-size: 13px; color: #94a3b8;"
-                                                            },
-                                                            "{step.title}"
-                                                        }
-                                                    }
-                                                    if is_current {
-                                                        span {
-                                                            style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.2); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.4);",
-                                                            "AKTUELL"
-                                                        }
-                                                    }
-                                                }
-                                                div {
-                                                    style: "font-size: 12px; color: if is_current { \"#cbd5e1\" } else { \"#64748b\" }; margin-top: 4px; margin-left: 21px; line-height: 1.4;",
-                                                    "{step.desc}"
-                                                }
-                                                if is_current {
-                                                    if let Some(cmd) = step.cmd {
-                                                        div {
-                                                            style: "margin-top: 8px; margin-left: 21px; background: #020617; border: 1px solid #1e293b; border-radius: 6px; padding: 6px 10px; font-family: monospace; font-size: 11px; color: #38bdf8;",
-                                                            "{cmd}"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    button {
+                        style: "margin-top: 4px; background: rgba(0, 229, 255, 0.1); hover:background: rgba(0, 229, 255, 0.2); border: 1px solid rgba(0, 229, 255, 0.3); color: #00e5ff; padding: 8px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;",
+                        onclick: move |_| on_open_heimatbasis.call(()),
+                        span { "🏛️" }
+                        span { "Forschungszentrum öffnen" }
                     }
                 }
 
                 // Active Ships Fleet List & Emergency Rebuild
                 div {
-                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
+                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px;",
                     div {
-                        style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
-                        h3 { style: "margin: 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🚀 Deine Flotte ({ships.len()} Schiffe)" }
+                        style: "display: flex; justify-content: space-between; align-items: center;",
+                        h3 { style: "margin: 0; font-size: 14px; font-weight: 700; color: #00e5ff;", "🚀 Deine Flotte ({ships.len()} Schiffe)" }
                     }
                     if ships.is_empty() {
                         div {
-                            style: "background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 10px; padding: 16px; text-align: center; display: flex; flex-direction: column; gap: 10px;",
+                            style: "background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 10px; padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 8px;",
                             div {
-                                style: "display: flex; align-items: center; justify-content: center; gap: 8px; color: #fca5a5; font-size: 14px; font-weight: 700;",
+                                style: "display: flex; align-items: center; justify-content: center; gap: 6px; color: #fca5a5; font-size: 13px; font-weight: 700;",
                                 span { "🚨" }
-                                span { "Alle Drohnen verloren!" }
+                                span { "Keine Drohnen aktiv!" }
                             }
                             p {
-                                style: "margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.4;",
-                                "Du besitzt aktuell keine einsatzbereiten Schiffe mehr im All. Deine Heimatbasis stellt dir sofort eine kostenlose Notfall-Drohne bereit."
+                                style: "margin: 0; font-size: 11px; color: #cbd5e1; line-height: 1.4;",
+                                "Deine Heimatbasis stellt sofort eine kostenlose Notfall-Drohne bereit."
                             }
                             button {
-                                style: "background: #dc2626; hover:background: #b91c1c; color: #fff; border: none; padding: 12px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);",
+                                style: "background: #dc2626; hover:background: #b91c1c; color: #fff; border: none; padding: 10px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);",
                                 onclick: move |_| {
                                     if let Some(conn) = (ctx.connection)() {
                                         let _ = conn.reducers.build_ship(1);
                                     }
                                 },
-                                "🛸 Notfall-Drohne anfordern (Kostenlos)"
+                                "🛸 Notfall-Drohne (Kostenlos)"
                             }
                         }
                     } else {
@@ -1834,10 +1855,14 @@ fn BaseDashboardScreen(
                             for s in ships {
                                 div {
                                     key: "{s.ship_id}",
-                                    style: "padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; border-left: 3px solid #00e5ff;",
+                                    style: "padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; border-left: 3px solid #00e5ff; cursor: pointer;",
+                                    onclick: {
+                                        let sid = s.ship_id;
+                                        move |_| selected_target.set(Some(SelectedEntity::MyShip(sid)))
+                                    },
                                     div {
                                         style: "display: flex; justify-content: space-between; margin-bottom: 4px;",
-                                        span { style: "font-weight: 700; font-size: 13px;", "Drohne #{s.ship_id} (Tier {s.ship_tier})" }
+                                        span { style: "font-weight: 700; font-size: 12px;", "Drohne #{s.ship_id} (Tier {s.ship_tier})" }
                                         span {
                                             style: if s.is_stranded {
                                                 "color: #ef4444; font-weight: 700; font-size: 11px;"
@@ -1861,6 +1886,483 @@ fn BaseDashboardScreen(
                                         span { "Energie: {s.energy as u32}/{s.max_energy as u32}" }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// Floating Target Inspector HUD
+// ==========================================
+
+#[component]
+fn TargetInspectorHud(
+    target: SelectedEntity,
+    base_pos: Vec2,
+    ships: Vec<Ship>,
+    visible_asteroids: Vec<PerceivedAsteroid>,
+    visible_drones: Vec<PerceivedDrone>,
+    visible_bases: Vec<PerceivedBase>,
+    players: Vec<Player>,
+    on_open_heimatbasis: EventHandler<()>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let player_map: std::collections::HashMap<_, _> =
+        players.iter().map(|p| (p.identity, p)).collect();
+
+    rsx! {
+        div {
+            style: "position: absolute; bottom: 56px; left: 20px; width: 280px; background: rgba(10, 16, 32, 0.94); backdrop-filter: blur(10px); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 12px; padding: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.7); z-index: 5; display: flex; flex-direction: column; gap: 10px;",
+            // Title Bar
+            div {
+                style: "display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(80, 120, 200, 0.2); padding-bottom: 8px;",
+                div {
+                    style: "font-size: 11px; font-weight: 700; color: #00e5ff; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px;",
+                    span { "🎯" }
+                    span { "RADAR-INSPEKTOR" }
+                }
+                button {
+                    style: "background: transparent; border: none; color: #94a3b8; hover:color: #fff; font-size: 13px; cursor: pointer; padding: 0 4px;",
+                    onclick: move |_| on_close.call(()),
+                    "✕"
+                }
+            }
+
+            match target {
+                SelectedEntity::Asteroid(id) => {
+                    let ast = visible_asteroids.iter().find(|a| a.asteroid_id == id);
+                    if let Some(ast) = ast {
+                        let (res_name, res_color) = match ast.resource_type {
+                            3 => ("Titan", "#a855f7"),
+                            2 => ("Eis", "#06b6d4"),
+                            1 => ("Eisen", "#94a3b8"),
+                            _ => ("Erz", "#78716c"),
+                        };
+                        let dist = distance(&ast.position, &base_pos);
+                        let vel = (ast.velocity.x * ast.velocity.x + ast.velocity.y * ast.velocity.y).sqrt();
+                        rsx! {
+                            div {
+                                style: "display: flex; justify-content: space-between; align-items: center;",
+                                span { style: "font-weight: 700; font-size: 14px; color: #f1f5f9;", "☄️ Asteroid #{ast.asteroid_id}" }
+                                span { style: "font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); color: {res_color}; border: 1px solid {res_color};", "{res_name}" }
+                            }
+                            div {
+                                style: "display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px; margin-top: 4px;",
+                                div {
+                                    style: "padding: 8px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                    div { style: "color: #8da2c0;", "VERBL. ERZ" }
+                                    div { style: "font-size: 14px; font-weight: 700; color: #ffd700;", "{ast.remaining_ore}" }
+                                }
+                                div {
+                                    style: "padding: 8px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                    div { style: "color: #8da2c0;", "RADIUS" }
+                                    div { style: "font-size: 14px; font-weight: 700; color: #f1f5f9;", "{ast.radius as u32} m" }
+                                }
+                                div {
+                                    style: "padding: 8px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                    div { style: "color: #8da2c0;", "BASIS-DISTANZ" }
+                                    div { style: "font-size: 13px; font-weight: 700; color: #38bdf8;", "{dist as u32} px" }
+                                }
+                                div {
+                                    style: "padding: 8px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                    div { style: "color: #8da2c0;", "DRIFT" }
+                                    div { style: "font-size: 13px; font-weight: 700; color: #94a3b8;", "{vel as u32} px/s" }
+                                }
+                            }
+                        }
+                    } else {
+                        rsx! {
+                            div { style: "padding: 8px; font-size: 12px; color: #fca5a5;", "⚠️ Asteroid #{id} nicht mehr in Sensorreichweite." }
+                        }
+                    }
+                }
+                SelectedEntity::MyShip(id) => {
+                    let s = ships.iter().find(|s| s.ship_id == id);
+                    if let Some(s) = s {
+                        let status_text = if s.is_stranded {
+                            ("🚨 GESTRANDET", "#ef4444")
+                        } else if s.is_mining {
+                            ("⛏️ BAUT AB", "#00e5ff")
+                        } else {
+                            ("● BEREIT", "#00e676")
+                        };
+                        rsx! {
+                            div {
+                                style: "display: flex; justify-content: space-between; align-items: center;",
+                                span { style: "font-weight: 700; font-size: 14px; color: #f1f5f9;", "🛸 Drohne #{s.ship_id} (Tier {s.ship_tier})" }
+                                span { style: "font-size: 10px; font-weight: 700; color: {status_text.1};", "{status_text.0}" }
+                            }
+                            div {
+                                style: "display: flex; flex-direction: column; gap: 6px; font-size: 11px; margin-top: 4px;",
+                                div {
+                                    div { style: "display: flex; justify-content: space-between; margin-bottom: 2px;",
+                                        span { style: "color: #8da2c0;", "Frachtladung" }
+                                        span { style: "color: #ffd700; font-weight: 600;", "{s.cargo_ore} / {s.max_cargo} Erz" }
+                                    }
+                                    div { style: "width: 100%; height: 5px; background: #0f172a; border-radius: 3px; overflow: hidden;",
+                                        div { style: "height: 100%; width: {((s.cargo_ore as f32 / s.max_cargo.max(1) as f32) * 100.0) as u32}%; background: #ffd700;" }
+                                    }
+                                }
+                                div {
+                                    div { style: "display: flex; justify-content: space-between; margin-bottom: 2px;",
+                                        span { style: "color: #8da2c0;", "Energie" }
+                                        span { style: "color: #00e5ff; font-weight: 600;", "{s.energy as u32} / {s.max_energy as u32}" }
+                                    }
+                                    div { style: "width: 100%; height: 5px; background: #0f172a; border-radius: 3px; overflow: hidden;",
+                                        div { style: "height: 100%; width: {((s.energy / s.max_energy.max(1.0)) * 100.0) as u32}%; background: #00e5ff;" }
+                                    }
+                                }
+                                div {
+                                    style: "display: flex; justify-content: space-between; color: #94a3b8; margin-top: 4px;",
+                                    span { "Geschwindigkeit: {s.speed as u32} px/s" }
+                                    span { "Kurs: {((s.heading_rad.to_degrees() as i32 + 360) % 360)}°" }
+                                }
+                                div {
+                                    style: "color: #64748b; font-size: 10px;",
+                                    "Position: ({s.position.x as i32}, {s.position.y as i32})"
+                                }
+                            }
+                        }
+                    } else {
+                        rsx! {
+                            div { style: "padding: 8px; font-size: 12px; color: #fca5a5;", "⚠️ Drohne #{id} nicht gefunden." }
+                        }
+                    }
+                }
+                SelectedEntity::ForeignDrone(id) => {
+                    let d = visible_drones.iter().find(|d| d.ship_id == id);
+                    if let Some(d) = d {
+                        let pilot = player_map.get(&d.owner);
+                        let p_name = pilot.map_or("Unbekannt".to_string(), |p| p.name.clone());
+                        let p_hue = pilot.map_or(180, |p| p.color_hue);
+                        let dist = distance(&d.position, &base_pos);
+                        rsx! {
+                            div {
+                                style: "display: flex; justify-content: space-between; align-items: center;",
+                                span { style: "font-weight: 700; font-size: 14px; color: #f1f5f9;", "🛸 Drohne #{d.ship_id}" }
+                                span { style: "font-size: 11px; color: #38bdf8;", "Tier {d.ship_tier}" }
+                            }
+                            div {
+                                style: "display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 4px;",
+                                span { style: "width: 8px; height: 8px; border-radius: 50%; background: hsl({p_hue}, 90%, 55%);" }
+                                span { style: "color: #cbd5e1; font-weight: 600;", "{p_name}" }
+                            }
+                            div {
+                                style: "display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-top: 6px;",
+                                span { if d.is_mining { "Status: ⛏️ Baut Erz ab" } else { "Status: Im Flug" } }
+                                span { "{d.speed as u32} px/s" }
+                            }
+                            div {
+                                style: "font-size: 11px; color: #64748b; margin-top: 2px;",
+                                "Distanz zu dir: {dist as u32} px"
+                            }
+                        }
+                    } else {
+                        rsx! {
+                            div { style: "padding: 8px; font-size: 12px; color: #fca5a5;", "⚠️ Fremde Drohne #{id} außer Reichweite." }
+                        }
+                    }
+                }
+                SelectedEntity::ForeignBase(id) => {
+                    let b = visible_bases.iter().find(|b| b.base_id == id);
+                    if let Some(b) = b {
+                        let pilot = player_map.get(&b.owner);
+                        let p_name = pilot.map_or("Fremde Basis".to_string(), |p| format!("Basis ({})", p.name));
+                        let p_hue = pilot.map_or(200, |p| p.color_hue);
+                        let dist = distance(&b.position, &base_pos);
+                        rsx! {
+                            div {
+                                style: "display: flex; align-items: center; gap: 8px;",
+                                span { style: "font-size: 16px;", "🏛️" }
+                                span { style: "font-weight: 700; font-size: 14px; color: hsl({p_hue}, 90%, 65%);", "{p_name}" }
+                            }
+                            div {
+                                style: "font-size: 11px; color: #94a3b8; margin-top: 4px;",
+                                "Position: ({b.position.x as i32}, {b.position.y as i32})"
+                            }
+                            div {
+                                style: "font-size: 11px; color: #38bdf8; margin-top: 2px;",
+                                "Distanz zu deiner Basis: {dist as u32} px"
+                            }
+                        }
+                    } else {
+                        rsx! {
+                            div { style: "padding: 8px; font-size: 12px; color: #fca5a5;", "⚠️ Basis #{id} außer Reichweite." }
+                        }
+                    }
+                }
+                SelectedEntity::Heimatbasis => {
+                    rsx! {
+                        div {
+                            style: "display: flex; flex-direction: column; gap: 8px;",
+                            div {
+                                style: "display: flex; align-items: center; gap: 8px;",
+                                span { style: "font-size: 18px;", "🏛️" }
+                                div {
+                                    div { style: "font-weight: 700; font-size: 14px; color: #00e5ff;", "Deine Heimatbasis" }
+                                    div { style: "font-size: 10px; color: #94a3b8;", "Sektor-Zentrale" }
+                                }
+                            }
+                            button {
+                                style: "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s; margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 6px;",
+                                onclick: move |_| on_open_heimatbasis.call(()),
+                                span { "🔍" }
+                                span { "Station & Forschung öffnen" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// Heimatbasis & Sensor-Forschungszentrum Modal
+// ==========================================
+
+#[component]
+fn HeimatbasisModal(
+    player: Player,
+    base: BaseStation,
+    token: String,
+    current_riddle: Option<PublicRiddle>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let mut copied = use_signal(|| false);
+
+    let is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
+        let ts_sec = (ts.to_micros_since_unix_epoch() / 1_000_000) as f64;
+        let now_sec = js_sys::Date::now() / 1000.0;
+        (now_sec - ts_sec) <= 30.0
+    });
+
+    let copy_token = {
+        let t = token.clone();
+        move |_| {
+            #[cfg(target_arch = "wasm32")]
+            {
+                if let Some(w) = web_sys::window() {
+                    let nav = w.navigator();
+                    let clipboard = nav.clipboard();
+                    let _ = clipboard.write_text(&t);
+                    copied.set(true);
+                }
+            }
+        }
+    };
+
+    let cost_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
+        + base.drone_scanner_progress as u32
+        + 1;
+    let cost_t2 = (base.base_scanner_level.saturating_sub(1) as u32) * 100
+        + base.base_scanner_progress as u32
+        + 1;
+    let cost_t3 = (base.radar_horizon_level.saturating_sub(1) as u32) * 100
+        + base.radar_horizon_progress as u32
+        + 1;
+
+    let cost_t1_text = if base.drone_scanner_level >= 5 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t1)
+    };
+    let cost_t2_text = if base.base_scanner_level >= 5 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t2)
+    };
+    let cost_t3_text = if base.radar_horizon_level >= 5 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t3)
+    };
+
+    rsx! {
+        div {
+            style: "position: fixed; inset: 0; background: rgba(3, 7, 18, 0.85); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;",
+            onclick: move |_| on_close.call(()),
+            div {
+                style: "background: #0b1329; border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 16px; width: 100%; max-width: 760px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.8); display: flex; flex-direction: column;",
+                onclick: move |e| e.stop_propagation(),
+
+                // Header
+                div {
+                    style: "padding: 20px 24px; border-bottom: 1px solid rgba(80, 120, 200, 0.2); display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6);",
+                    div {
+                        style: "display: flex; align-items: center; gap: 12px;",
+                        span { style: "font-size: 24px;", "🏛️" }
+                        div {
+                            h2 { style: "margin: 0; font-size: 18px; font-weight: 700; color: #00e5ff;", "Heimatbasis & Sensor-Forschungszentrum" }
+                            div { style: "font-size: 11px; color: #94a3b8; margin-top: 2px;", "Stufe {base.level} • Sektor-Position: ({base.position.x as i32}, {base.position.y as i32})" }
+                        }
+                    }
+                    button {
+                        style: "background: rgba(255, 255, 255, 0.08); hover:background: rgba(255, 255, 255, 0.2); border: none; color: #cbd5e1; font-size: 16px; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;",
+                        onclick: move |_| on_close.call(()),
+                        "✕"
+                    }
+                }
+
+                // Body
+                div {
+                    style: "padding: 24px; display: flex; flex-direction: column; gap: 20px;",
+
+                    // 1. Token Box (Moved into popup)
+                    if player.has_api_connected {
+                        div {
+                            style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px 18px;",
+                            div {
+                                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+                                div {
+                                    style: "display: flex; align-items: center; gap: 8px;",
+                                    span { style: "color: #00e676; font-size: 14px;", "●" }
+                                    span { style: "font-size: 12px; font-weight: 600; color: #cbd5e1;", "API-Client verbunden" }
+                                    if is_api_recently_active {
+                                        span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); font-weight: 600;", "Aktiv (<30s)" }
+                                    } else {
+                                        span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); font-weight: 600;", "Inaktiv (>30s)" }
+                                    }
+                                }
+                                span { style: "font-size: 11px; color: #64748b;", "Zed config.toml" }
+                            }
+                            div {
+                                style: "display: flex; gap: 8px;",
+                                input {
+                                    readonly: true,
+                                    style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none;",
+                                    value: "{token}",
+                                }
+                                button {
+                                    style: if copied() {
+                                        "background: #059669; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
+                                    } else {
+                                        "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
+                                    },
+                                    onclick: copy_token,
+                                    if copied() { "✔ Kopiert!" } else { "📋 Kopieren" }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Stationsstatus Section
+                    div {
+                        style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
+                        h3 { style: "margin: 0 0 14px 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🏠 Stationsstatus" }
+                        div {
+                            style: "display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;",
+                            div {
+                                style: "padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                div { style: "font-size: 11px; color: #8da2c0;", "GELAGERTES ERZ" }
+                                div { style: "font-size: 20px; font-weight: 700; color: #ffd700; margin-top: 2px;", "{base.stored_ore}" }
+                            }
+                            div {
+                                style: "padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                div { style: "font-size: 11px; color: #8da2c0;", "ENERGIE" }
+                                div { style: "font-size: 20px; font-weight: 700; color: #00e5ff; margin-top: 2px;", "{base.stored_energy}" }
+                            }
+                            div {
+                                style: "padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                div { style: "font-size: 11px; color: #8da2c0;", "FUNK-REICHWEITE" }
+                                div { style: "font-size: 20px; font-weight: 700; color: #38bdf8; margin-top: 2px;", "{base.signal_radius as u32} px" }
+                            }
+                            div {
+                                style: "padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
+                                div { style: "font-size: 11px; color: #8da2c0;", "GESAMTPUNKTE" }
+                                div { style: "font-size: 20px; font-weight: 700; color: #00e676; margin-top: 2px;", "{player.score}" }
+                            }
+                        }
+                    }
+
+                    // 3. Sensor-Forschungszentrum Section
+                    div {
+                        style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; padding: 18px;",
+                        div {
+                            style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;",
+                            h3 { style: "margin: 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🧪 Sensor-Forschungszentrum" }
+                            span {
+                                style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);",
+                                "⚠️ 50% Reset-Risiko"
+                            }
+                        }
+                        p {
+                            style: "margin: 0 0 14px 0; font-size: 11px; color: #94a3b8; line-height: 1.3;",
+                            "100 Rätsel pro Stufe • Steigende Erzkosten • Falsche Antworten bergen 50% Durchbrenn-Risiko!"
+                        }
+
+                        // Track 1
+                        div {
+                            style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                            div {
+                                style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
+                                span { style: "color: #cbd5e1; font-weight: 600;", "🛸 Drohnen-Scan (Sortieren)" }
+                                span { style: "color: #00e5ff; font-weight: 700;", "Stufe {base.drone_scanner_level}/5 ({150 + (base.drone_scanner_level.saturating_sub(1) as u32 * 50)} px)" }
+                            }
+                            div {
+                                style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
+                                div {
+                                    style: "height: 100%; width: {base.drone_scanner_progress}%; background: linear-gradient(90deg, #0284c7, #00e5ff); border-radius: 4px; transition: width 0.3s;"
+                                }
+                            }
+                            div {
+                                style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
+                                span { "Fortschritt: {base.drone_scanner_progress}%" }
+                                span { "{cost_t1_text}" }
+                            }
+                        }
+
+                        // Track 2
+                        div {
+                            style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                            div {
+                                style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
+                                span { style: "color: #cbd5e1; font-weight: 600;", "☄️ Basen- & Asteroiden (Distanz)" }
+                                span { style: "color: #38bdf8; font-weight: 700;", "Stufe {base.base_scanner_level}/5 ({300 + (base.base_scanner_level.saturating_sub(1) as u32 * 100)} px)" }
+                            }
+                            div {
+                                style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
+                                div {
+                                    style: "height: 100%; width: {base.base_scanner_progress}%; background: linear-gradient(90deg, #0369a1, #38bdf8); border-radius: 4px; transition: width 0.3s;"
+                                }
+                            }
+                            div {
+                                style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
+                                span { "Fortschritt: {base.base_scanner_progress}%" }
+                                span { "{cost_t2_text}" }
+                            }
+                        }
+
+                        // Track 3
+                        div {
+                            style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                            div {
+                                style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
+                                span { style: "color: #cbd5e1; font-weight: 600;", "📡 Radar-Horizont (Denoise)" }
+                                span { style: "color: #a855f7; font-weight: 700;", "Stufe {base.radar_horizon_level}/5 ({600 + (base.radar_horizon_level.saturating_sub(1) as u32 * 150)} px)" }
+                            }
+                            div {
+                                style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
+                                div {
+                                    style: "height: 100%; width: {base.radar_horizon_progress}%; background: linear-gradient(90deg, #7e22ce, #c084fc); border-radius: 4px; transition: width 0.3s;"
+                                }
+                            }
+                            div {
+                                style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
+                                span { "Fortschritt: {base.radar_horizon_progress}%" }
+                                span { "{cost_t3_text}" }
+                            }
+                        }
+
+                        // Active Riddle Status
+                        if let Some(ref r) = current_riddle {
+                            div {
+                                style: "padding: 10px 14px; background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; font-size: 12px; color: #fef08a;",
+                                "⏳ Aktives Rätsel: Track {r.track} (Ziel-Stufe {r.target_level}) • Wird in Zed gelöst."
                             }
                         }
                     }
