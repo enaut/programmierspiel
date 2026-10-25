@@ -6,6 +6,14 @@ struct ConvertTask {
     target_height: u32,
 }
 
+struct PairTask {
+    base_candidates: &'static [&'static str],
+    cmap_candidates: &'static [&'static str],
+    base_outputs: &'static [&'static str],
+    mask_outputs: &'static [&'static str],
+    target_size: u32,
+}
+
 const TASKS: &[ConvertTask] = &[
     ConvertTask {
         candidates: &["mega-station-pads.jpg", "mega-station-pads.jpeg"],
@@ -20,6 +28,33 @@ const TASKS: &[ConvertTask] = &[
         ],
         outputs: &["mega-station-rings.png", "mega-station-ring.png"],
         target_height: 373,
+    },
+];
+
+const PAIR_TASKS: &[PairTask] = &[
+    PairTask {
+        base_candidates: &["asteroid1.jpg", "asteroid1.jpeg"],
+        cmap_candidates: &["asteroid1-colormap.jpg", "asteroid1-colormap.jpeg"],
+        base_outputs: &["asteroid1.png"],
+        mask_outputs: &["asteroid1-mask.png"],
+        target_size: 512,
+    },
+    PairTask {
+        base_candidates: &["asteroid2.jpg", "asteroid2.jpeg"],
+        cmap_candidates: &["asteroid2-colormap.jpg", "asteroid2-colormap.jpeg"],
+        base_outputs: &["asteroid2.png"],
+        mask_outputs: &["asteroid2-mask.png"],
+        target_size: 512,
+    },
+    PairTask {
+        base_candidates: &["player-station.jpg", "player-station.jpeg"],
+        cmap_candidates: &[
+            "player-station-colormap.jpg",
+            "player-station-colormap.jpeg",
+        ],
+        base_outputs: &["player-station.png"],
+        mask_outputs: &["player-station-mask.png"],
+        target_size: 512,
     },
 ];
 
@@ -61,6 +96,35 @@ fn needs_rebuild(input: &Path, outputs: &[PathBuf]) -> bool {
     false
 }
 
+fn needs_rebuild_pair(base_input: &Path, cmap_input: &Path, outputs: &[PathBuf]) -> bool {
+    let base_time = match base_input.metadata().and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return true,
+    };
+    let cmap_time = match cmap_input.metadata().and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return true,
+    };
+    let newest_input = base_time.max(cmap_time);
+
+    for out in outputs {
+        if !out.exists() {
+            return true;
+        }
+        let Ok(out_meta) = out.metadata() else {
+            return true;
+        };
+        let Ok(out_time) = out_meta.modified() else {
+            return true;
+        };
+        if out_time < newest_input {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn convert_image(
     input_path: &Path,
     output_paths: &[PathBuf],
@@ -79,9 +143,6 @@ fn convert_image(
         // Studio white background: channels are high (r, g, b > 240)
         let min_c = r.min(g).min(b);
 
-        // Alpha falloff:
-        // min_c >= 248 is pure background (alpha = 0)
-        // min_c <= 230 is pure foreground (alpha = 255)
         let alpha: u8 = if min_c >= 248 {
             0
         } else if min_c <= 230 {
@@ -96,8 +157,6 @@ fn convert_image(
         } else if alpha == 255 {
             rgba.put_pixel(x, y, image::Rgba([r, g, b, 255]));
         } else {
-            // De-fringe: unmix white background from semi-transparent edge
-            // C = alpha * F + (1 - alpha) * 255 => F = (C - (1 - alpha) * 255) / alpha
             let alpha_f = alpha as f32 / 255.0;
             let unmix = |c: u8| -> u8 {
                 let f = (c as f32 - (1.0 - alpha_f) * 255.0) / alpha_f;
@@ -122,6 +181,120 @@ fn convert_image(
             std::fs::create_dir_all(parent)?;
         }
         resized.save(out_path)?;
+    }
+
+    Ok(())
+}
+
+fn convert_asset_pair(
+    base_path: &Path,
+    cmap_path: &Path,
+    base_outputs: &[PathBuf],
+    mask_outputs: &[PathBuf],
+    target_size: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let base_img = image::open(base_path)?.to_rgb8();
+    let (width, height) = base_img.dimensions();
+    let cmap_img = image::open(cmap_path)?.to_rgb8();
+    let (c_w, c_h) = cmap_img.dimensions();
+
+    // 1. Process alpha transparency and color de-fringing on base image
+    let mut base_rgba = image::RgbaImage::new(width, height);
+    let mut base_alphas = vec![0u8; (width * height) as usize];
+
+    for (x, y, pixel) in base_img.enumerate_pixels() {
+        let r = pixel[0];
+        let g = pixel[1];
+        let b = pixel[2];
+
+        let min_c = r.min(g).min(b);
+        let alpha: u8 = if min_c >= 248 {
+            0
+        } else if min_c <= 230 {
+            255
+        } else {
+            let factor = (248 - min_c) as f32 / (248 - 230) as f32;
+            (factor * 255.0).round() as u8
+        };
+
+        base_alphas[(y * width + x) as usize] = alpha;
+
+        if alpha == 0 {
+            base_rgba.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+        } else if alpha == 255 {
+            base_rgba.put_pixel(x, y, image::Rgba([r, g, b, 255]));
+        } else {
+            let alpha_f = alpha as f32 / 255.0;
+            let unmix = |c: u8| -> u8 {
+                let f = (c as f32 - (1.0 - alpha_f) * 255.0) / alpha_f;
+                f.clamp(0.0, 255.0).round() as u8
+            };
+            base_rgba.put_pixel(x, y, image::Rgba([unmix(r), unmix(g), unmix(b), alpha]));
+        }
+    }
+
+    // 2. Process colormap mask (green on black), clipped to base silhouette
+    let mut mask_rgba = image::RgbaImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let base_alpha = base_alphas[(y * width + x) as usize];
+            if base_alpha == 0 {
+                mask_rgba.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+                continue;
+            }
+
+            let cx = ((x as f64 / width as f64) * c_w as f64).min(c_w as f64 - 1.0) as u32;
+            let cy = ((y as f64 / height as f64) * c_h as f64).min(c_h as f64 - 1.0) as u32;
+            let c_pixel = cmap_img.get_pixel(cx, cy);
+            let g = c_pixel[1];
+
+            let mask_alpha: u8 = if g <= 10 {
+                0
+            } else {
+                let factor = (g as f32 - 10.0) / (200.0 - 10.0);
+                let val = factor.clamp(0.0, 1.0) * (base_alpha as f32 / 255.0) * 255.0;
+                val.round() as u8
+            };
+
+            if mask_alpha == 0 {
+                mask_rgba.put_pixel(x, y, image::Rgba([0, 0, 0, 0]));
+            } else {
+                mask_rgba.put_pixel(x, y, image::Rgba([255, 255, 255, mask_alpha]));
+            }
+        }
+    }
+
+    // 3. Downscale both to target_size (e.g. 512x512) with Lanczos3
+    let target_height = target_size;
+    let target_width = ((width as f64) * (target_height as f64) / (height as f64)).round() as u32;
+
+    let resized_base = image::imageops::resize(
+        &base_rgba,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let resized_mask = image::imageops::resize(
+        &mask_rgba,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+
+    // 4. Save base outputs
+    for out_path in base_outputs {
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        resized_base.save(out_path)?;
+    }
+
+    // 5. Save mask outputs
+    for out_path in mask_outputs {
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        resized_mask.save(out_path)?;
     }
 
     Ok(())
@@ -154,6 +327,48 @@ fn main() {
                         "cargo:warning=Failed to convert {} to {:?}: {}",
                         input_path.display(),
                         task.outputs,
+                        err
+                    );
+                }
+            }
+        }
+    }
+
+    for task in PAIR_TASKS {
+        if let (Some(base_path), Some(cmap_path)) = (
+            find_input_file(task.base_candidates, &search_dirs),
+            find_input_file(task.cmap_candidates, &search_dirs),
+        ) {
+            println!("cargo:rerun-if-changed={}", base_path.display());
+            println!("cargo:rerun-if-changed={}", cmap_path.display());
+
+            let base_outputs: Vec<PathBuf> = task
+                .base_outputs
+                .iter()
+                .map(|name| local_assets.join(name))
+                .collect();
+            let mask_outputs: Vec<PathBuf> = task
+                .mask_outputs
+                .iter()
+                .map(|name| local_assets.join(name))
+                .collect();
+
+            let mut all_outputs = base_outputs.clone();
+            all_outputs.extend(mask_outputs.clone());
+
+            if needs_rebuild_pair(&base_path, &cmap_path, &all_outputs) {
+                if let Err(err) = convert_asset_pair(
+                    &base_path,
+                    &cmap_path,
+                    &base_outputs,
+                    &mask_outputs,
+                    task.target_size,
+                ) {
+                    println!(
+                        "cargo:warning=Failed to convert pair {} + {} to {:?}: {}",
+                        base_path.display(),
+                        cmap_path.display(),
+                        task.base_outputs,
                         err
                     );
                 }

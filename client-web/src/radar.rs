@@ -10,11 +10,39 @@ use std::collections::HashMap;
 static MEGA_STATION_PADS_ASSET: Asset = asset!("/assets/mega-station-pads.png");
 #[cfg(target_arch = "wasm32")]
 static MEGA_STATION_RING_ASSET: Asset = asset!("/assets/mega-station-ring.png");
+#[cfg(target_arch = "wasm32")]
+static ASTEROID1_BASE_ASSET: Asset = asset!("/assets/asteroid1.png");
+#[cfg(target_arch = "wasm32")]
+static ASTEROID1_MASK_ASSET: Asset = asset!("/assets/asteroid1-mask.png");
+#[cfg(target_arch = "wasm32")]
+static ASTEROID2_BASE_ASSET: Asset = asset!("/assets/asteroid2.png");
+#[cfg(target_arch = "wasm32")]
+static ASTEROID2_MASK_ASSET: Asset = asset!("/assets/asteroid2-mask.png");
+#[cfg(target_arch = "wasm32")]
+static PLAYER_STATION_BASE_ASSET: Asset = asset!("/assets/player-station.png");
+#[cfg(target_arch = "wasm32")]
+static PLAYER_STATION_MASK_ASSET: Asset = asset!("/assets/player-station-mask.png");
+
+#[cfg(target_arch = "wasm32")]
+struct SpriteAssetPair {
+    base_asset: &'static Asset,
+    mask_asset: &'static Asset,
+}
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
     static MEGA_STATION_PADS_IMAGE: RefCell<Option<web_sys::HtmlImageElement>> = const { RefCell::new(None) };
     static MEGA_STATION_RING_IMAGE: RefCell<Option<web_sys::HtmlImageElement>> = const { RefCell::new(None) };
+
+    static ASTEROID_PAIRS: [SpriteAssetPair; 2] = [
+        SpriteAssetPair { base_asset: &ASTEROID1_BASE_ASSET, mask_asset: &ASTEROID1_MASK_ASSET },
+        SpriteAssetPair { base_asset: &ASTEROID2_BASE_ASSET, mask_asset: &ASTEROID2_MASK_ASSET },
+    ];
+    static ASTEROID_IMAGES: RefCell<[Option<(web_sys::HtmlImageElement, web_sys::HtmlImageElement)>; 2]> = const { RefCell::new([None, None]) };
+    static ASTEROID_CANVAS_CACHE: RefCell<HashMap<(u8, u8), web_sys::HtmlCanvasElement>> = RefCell::new(HashMap::new());
+
+    static PLAYER_STATION_IMAGES: RefCell<Option<(web_sys::HtmlImageElement, web_sys::HtmlImageElement)>> = const { RefCell::new(None) };
+    static PLAYER_STATION_CANVAS_CACHE: RefCell<HashMap<u16, web_sys::HtmlCanvasElement>> = RefCell::new(HashMap::new());
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -48,6 +76,170 @@ fn get_megastation_ring_image() -> Option<web_sys::HtmlImageElement> {
         } else {
             None
         }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_asteroid_images(
+    model: usize,
+) -> Option<(web_sys::HtmlImageElement, web_sys::HtmlImageElement)> {
+    let idx = model % 2;
+    ASTEROID_IMAGES.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some(ref pair) = opt[idx] {
+            return Some(pair.clone());
+        }
+        let (base_asset, mask_asset) = ASTEROID_PAIRS.with(|pairs| {
+            (
+                pairs[idx].base_asset.to_string(),
+                pairs[idx].mask_asset.to_string(),
+            )
+        });
+        if let (Ok(base_img), Ok(mask_img)) = (
+            web_sys::HtmlImageElement::new(),
+            web_sys::HtmlImageElement::new(),
+        ) {
+            base_img.set_src(&base_asset);
+            mask_img.set_src(&mask_asset);
+            let pair = (base_img, mask_img);
+            opt[idx] = Some(pair.clone());
+            Some(pair)
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_player_station_images() -> Option<(web_sys::HtmlImageElement, web_sys::HtmlImageElement)> {
+    PLAYER_STATION_IMAGES.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some(ref pair) = *opt {
+            return Some(pair.clone());
+        }
+        if let (Ok(base_img), Ok(mask_img)) = (
+            web_sys::HtmlImageElement::new(),
+            web_sys::HtmlImageElement::new(),
+        ) {
+            base_img.set_src(&PLAYER_STATION_BASE_ASSET.to_string());
+            mask_img.set_src(&PLAYER_STATION_MASK_ASSET.to_string());
+            let pair = (base_img, mask_img);
+            *opt = Some(pair.clone());
+            Some(pair)
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_image_ready(img: &web_sys::HtmlImageElement) -> bool {
+    img.complete() && img.natural_width() > 0
+}
+
+#[cfg(target_arch = "wasm32")]
+fn render_tinted_sprite(
+    base_img: &web_sys::HtmlImageElement,
+    mask_img: &web_sys::HtmlImageElement,
+    tint_color: &str,
+) -> Option<web_sys::HtmlCanvasElement> {
+    use wasm_bindgen::JsCast;
+
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let size = 512.0;
+
+    let result_canvas: web_sys::HtmlCanvasElement =
+        document.create_element("canvas").ok()?.dyn_into().ok()?;
+    result_canvas.set_width(512);
+    result_canvas.set_height(512);
+    let result_ctx: web_sys::CanvasRenderingContext2d =
+        result_canvas.get_context("2d").ok()??.dyn_into().ok()?;
+
+    let _ =
+        result_ctx.draw_image_with_html_image_element_and_dw_and_dh(base_img, 0.0, 0.0, size, size);
+
+    let scratch_canvas: web_sys::HtmlCanvasElement =
+        document.create_element("canvas").ok()?.dyn_into().ok()?;
+    scratch_canvas.set_width(512);
+    scratch_canvas.set_height(512);
+    let scratch_ctx: web_sys::CanvasRenderingContext2d =
+        scratch_canvas.get_context("2d").ok()??.dyn_into().ok()?;
+
+    scratch_ctx.set_fill_style(&JsValue::from_str(tint_color));
+    scratch_ctx.fill_rect(0.0, 0.0, size, size);
+
+    let _ = scratch_ctx.set_global_composite_operation("destination-in");
+    let _ = scratch_ctx
+        .draw_image_with_html_image_element_and_dw_and_dh(mask_img, 0.0, 0.0, size, size);
+
+    let _ = result_ctx.set_global_composite_operation("multiply");
+    let _ = result_ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+        &scratch_canvas,
+        0.0,
+        0.0,
+        size,
+        size,
+    );
+
+    let _ = result_ctx.set_global_composite_operation("source-over");
+    result_ctx.set_global_alpha(0.35);
+    let _ = result_ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+        &scratch_canvas,
+        0.0,
+        0.0,
+        size,
+        size,
+    );
+    result_ctx.set_global_alpha(1.0);
+
+    Some(result_canvas)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_tinted_asteroid_canvas(model: u8, resource_type: u8) -> Option<web_sys::HtmlCanvasElement> {
+    let key = (model % 2, resource_type);
+    ASTEROID_CANVAS_CACHE.with(|cache_cell| {
+        let mut cache = cache_cell.borrow_mut();
+        if let Some(canvas) = cache.get(&key) {
+            return Some(canvas.clone());
+        }
+
+        let (base_img, mask_img) = get_asteroid_images(model as usize)?;
+        if !is_image_ready(&base_img) || !is_image_ready(&mask_img) {
+            return None;
+        }
+
+        let color = match resource_type {
+            3 => "#a855f7", // Titanium (purple)
+            2 => "#06b6d4", // Ice (cyan)
+            1 => "#64748b", // Iron (slate)
+            _ => "#8d6e63", // Generic (brown)
+        };
+
+        let canvas = render_tinted_sprite(&base_img, &mask_img, color)?;
+        cache.insert(key, canvas.clone());
+        Some(canvas)
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_tinted_player_station_canvas(hue: u16) -> Option<web_sys::HtmlCanvasElement> {
+    PLAYER_STATION_CANVAS_CACHE.with(|cache_cell| {
+        let mut cache = cache_cell.borrow_mut();
+        if let Some(canvas) = cache.get(&hue) {
+            return Some(canvas.clone());
+        }
+
+        let (base_img, mask_img) = get_player_station_images()?;
+        if !is_image_ready(&base_img) || !is_image_ready(&mask_img) {
+            return None;
+        }
+
+        let color = format!("hsl({}, 90%, 55%)", hue);
+        let canvas = render_tinted_sprite(&base_img, &mask_img, &color)?;
+        cache.insert(hue, canvas.clone());
+        Some(canvas)
     })
 }
 
@@ -457,35 +649,65 @@ pub fn render_player_radar(
             let ay = ast.position.y as f64;
             asteroid_pos_map.insert(ast.asteroid_id, (ax, ay));
 
-            let color = match ast.resource_type {
-                3 => "#a855f7", // Titanium (purple)
-                2 => "#06b6d4", // Ice (cyan)
-                1 => "#64748b", // Iron (slate)
-                _ => "#78716c", // Generic
-            };
-            let border = match ast.resource_type {
-                3 => "#d8b4fe",
-                2 => "#a5f3fc",
-                1 => "#94a3b8",
-                _ => "#a8a29e",
-            };
+            let model = (ast.asteroid_id % 2) as u8;
+            let diameter = (ast.radius as f64) * 2.0;
+            let is_selected = selected_entity == Some(SelectedEntity::Asteroid(ast.asteroid_id));
 
-            ctx.begin_path();
-            let _ = ctx.arc(
-                ax,
-                ay,
-                (ast.radius as f64) * 0.75,
-                0.0,
-                std::f64::consts::TAU,
-            );
-            ctx.set_fill_style(&JsValue::from_str(color));
-            ctx.fill();
-            ctx.set_stroke_style(&JsValue::from_str(border));
-            ctx.set_line_width(1.0 / zoom);
-            ctx.stroke();
+            if let Some(canvas) = get_tinted_asteroid_canvas(model, ast.resource_type) {
+                let spin_speed = ((ast.asteroid_id % 7) as f64 - 3.0) * 0.04 + 0.08;
+                let angle = ((ast.asteroid_id as f64 * 1.618) + time * spin_speed)
+                    .rem_euclid(std::f64::consts::TAU);
 
-            if selected_entity == Some(SelectedEntity::Asteroid(ast.asteroid_id)) {
-                draw_target_reticle(ctx, ax, ay, (ast.radius as f64) * 0.75, time, "#00e5ff");
+                let _ = ctx.save();
+                let _ = ctx.translate(ax, ay);
+                let _ = ctx.rotate(angle);
+                let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+                    &canvas,
+                    -diameter / 2.0,
+                    -diameter / 2.0,
+                    diameter,
+                    diameter,
+                );
+                let _ = ctx.restore();
+            } else {
+                let color = match ast.resource_type {
+                    3 => "#a855f7", // Titanium (purple)
+                    2 => "#06b6d4", // Ice (cyan)
+                    1 => "#64748b", // Iron (slate)
+                    _ => "#78716c", // Generic
+                };
+                let border = match ast.resource_type {
+                    3 => "#d8b4fe",
+                    2 => "#a5f3fc",
+                    1 => "#94a3b8",
+                    _ => "#a8a29e",
+                };
+
+                ctx.begin_path();
+                let _ = ctx.arc(
+                    ax,
+                    ay,
+                    (ast.radius as f64) * 0.75,
+                    0.0,
+                    std::f64::consts::TAU,
+                );
+                ctx.set_fill_style(&JsValue::from_str(color));
+                ctx.fill();
+                ctx.set_stroke_style(&JsValue::from_str(border));
+                ctx.set_line_width(1.0 / zoom);
+                ctx.stroke();
+            }
+
+            if is_selected {
+                draw_target_reticle(ctx, ax, ay, (ast.radius as f64) * 0.85, time, "#00e5ff");
+                ctx.set_font("bold 11px sans-serif");
+                ctx.set_text_align("center");
+                ctx.set_fill_style(&JsValue::from_str("#ffffff"));
+                let _ = ctx.fill_text(
+                    &format!("{} Erz", ast.remaining_ore),
+                    ax,
+                    ay + (ast.radius as f64) + 14.0,
+                );
             }
         }
 
@@ -501,22 +723,33 @@ pub fn render_player_radar(
                     .get(&base.owner)
                     .map_or("Basis".to_string(), |p| format!("Basis ({})", p.name));
 
-                ctx.begin_path();
-                let _ = ctx.arc(bx, by, 18.0, 0.0, std::f64::consts::TAU);
-                ctx.set_fill_style(&JsValue::from_str("#0f172a"));
-                ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", b_hue)));
-                ctx.set_line_width(2.5 / zoom);
-                ctx.stroke();
+                if let Some(canvas) = get_tinted_player_station_canvas(b_hue) {
+                    let station_size = 54.0;
+                    let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+                        &canvas,
+                        bx - station_size / 2.0,
+                        by - station_size / 2.0,
+                        station_size,
+                        station_size,
+                    );
+                } else {
+                    ctx.begin_path();
+                    let _ = ctx.arc(bx, by, 18.0, 0.0, std::f64::consts::TAU);
+                    ctx.set_fill_style(&JsValue::from_str("#0f172a"));
+                    ctx.fill();
+                    ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", b_hue)));
+                    ctx.set_line_width(2.5 / zoom);
+                    ctx.stroke();
 
-                ctx.set_stroke_style(&JsValue::from_str("#94a3b8"));
-                ctx.set_line_width(1.5 / zoom);
-                ctx.begin_path();
-                ctx.move_to(bx - 24.0, by);
-                ctx.line_to(bx + 24.0, by);
-                ctx.move_to(bx, by - 24.0);
-                ctx.line_to(bx, by + 24.0);
-                ctx.stroke();
+                    ctx.set_stroke_style(&JsValue::from_str("#94a3b8"));
+                    ctx.set_line_width(1.5 / zoom);
+                    ctx.begin_path();
+                    ctx.move_to(bx - 24.0, by);
+                    ctx.line_to(bx + 24.0, by);
+                    ctx.move_to(bx, by - 24.0);
+                    ctx.line_to(bx, by + 24.0);
+                    ctx.stroke();
+                }
 
                 ctx.set_font("bold 11px sans-serif");
                 ctx.set_text_align("center");
@@ -524,7 +757,7 @@ pub fn render_player_radar(
                 let _ = ctx.fill_text(&b_name, bx, by + 36.0);
 
                 if selected_entity == Some(SelectedEntity::ForeignBase(base.base_id)) {
-                    draw_target_reticle(ctx, bx, by, 22.0, time, "#f59e0b");
+                    draw_target_reticle(ctx, bx, by, 28.0, time, "#f59e0b");
                 }
             }
         }
@@ -550,22 +783,33 @@ pub fn render_player_radar(
             )));
             ctx.fill();
 
-            ctx.begin_path();
-            let _ = ctx.arc(bx, by, 22.0, 0.0, std::f64::consts::TAU);
-            ctx.set_fill_style(&JsValue::from_str("#0f172a"));
-            ctx.fill();
-            ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 95%, 60%)", color_hue)));
-            ctx.set_line_width(3.0 / zoom);
-            ctx.stroke();
+            if let Some(canvas) = get_tinted_player_station_canvas(color_hue) {
+                let station_size = 54.0;
+                let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+                    &canvas,
+                    bx - station_size / 2.0,
+                    by - station_size / 2.0,
+                    station_size,
+                    station_size,
+                );
+            } else {
+                ctx.begin_path();
+                let _ = ctx.arc(bx, by, 22.0, 0.0, std::f64::consts::TAU);
+                ctx.set_fill_style(&JsValue::from_str("#0f172a"));
+                ctx.fill();
+                ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 95%, 60%)", color_hue)));
+                ctx.set_line_width(3.0 / zoom);
+                ctx.stroke();
 
-            ctx.set_stroke_style(&JsValue::from_str("#38bdf8"));
-            ctx.set_line_width(2.0 / zoom);
-            ctx.begin_path();
-            ctx.move_to(bx - 32.0, by);
-            ctx.line_to(bx + 32.0, by);
-            ctx.move_to(bx, by - 32.0);
-            ctx.line_to(bx, by + 32.0);
-            ctx.stroke();
+                ctx.set_stroke_style(&JsValue::from_str("#38bdf8"));
+                ctx.set_line_width(2.0 / zoom);
+                ctx.begin_path();
+                ctx.move_to(bx - 32.0, by);
+                ctx.line_to(bx + 32.0, by);
+                ctx.move_to(bx, by - 32.0);
+                ctx.line_to(bx, by + 32.0);
+                ctx.stroke();
+            }
 
             ctx.set_font("bold 12px sans-serif");
             ctx.set_text_align("center");
@@ -573,7 +817,7 @@ pub fn render_player_radar(
             let _ = ctx.fill_text("HEIMATBASIS", bx, by + 46.0);
 
             if selected_entity == Some(SelectedEntity::Heimatbasis) {
-                draw_target_reticle(ctx, bx, by, 26.0, time, "#00e5ff");
+                draw_target_reticle(ctx, bx, by, 28.0, time, "#00e5ff");
             }
         }
 
