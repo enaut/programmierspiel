@@ -2,12 +2,82 @@ use crate::module_bindings::{
     BaseStation, Config, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, Ship,
     UnidentifiedContact, Vec2,
 };
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 #[cfg(target_arch = "wasm32")]
 use web_sys::CanvasRenderingContext2d;
+
+#[derive(Default, Clone)]
+struct PerceivedAsteroidInterpState {
+    last_server_pos: (f32, f32),
+    last_update_time: f64,
+}
+
+thread_local! {
+    static PERCEIVED_ASTEROID_TRACKER: RefCell<HashMap<u32, PerceivedAsteroidInterpState>> = RefCell::new(HashMap::new());
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_interpolated_perceived_asteroid_pos(
+    ast: &PerceivedAsteroid,
+    time: f64,
+    world_w: f32,
+    world_h: f32,
+) -> (f64, f64) {
+    PERCEIVED_ASTEROID_TRACKER.with(|tracker| {
+        let mut map = tracker.borrow_mut();
+        let state = map
+            .entry(ast.asteroid_id)
+            .or_insert(PerceivedAsteroidInterpState {
+                last_server_pos: (ast.position.x, ast.position.y),
+                last_update_time: time,
+            });
+
+        let dx = (ast.position.x - state.last_server_pos.0).abs();
+        let dy = (ast.position.y - state.last_server_pos.1).abs();
+        if dx > 0.05 || dy > 0.05 {
+            state.last_server_pos = (ast.position.x, ast.position.y);
+            state.last_update_time = time;
+        }
+
+        let dt = ((time - state.last_update_time) as f32).clamp(0.0, 1.0);
+
+        let margin = 50.0;
+        let min_x = -margin;
+        let max_x = world_w + margin;
+        let span_x = max_x - min_x;
+
+        let min_y = -margin;
+        let max_y = world_h + margin;
+        let span_y = max_y - min_y;
+
+        let mut x = state.last_server_pos.0 + ast.velocity.x * dt;
+        let mut y = state.last_server_pos.1 + ast.velocity.y * dt;
+
+        if span_x > 0.0 {
+            while x < min_x {
+                x += span_x;
+            }
+            while x > max_x {
+                x -= span_x;
+            }
+        }
+
+        if span_y > 0.0 {
+            while y < min_y {
+                y += span_y;
+            }
+            while y > max_y {
+                y -= span_y;
+            }
+        }
+
+        (x as f64, y as f64)
+    })
+}
 
 pub fn render_player_radar(
     #[cfg(target_arch = "wasm32")] ctx: &CanvasRenderingContext2d,
@@ -149,9 +219,17 @@ pub fn render_player_radar(
         }
 
         // 4. Draw Identified Asteroids
+        let world_w = config.map_or(3200.0, |c| c.world_size.x);
+        let world_h = config.map_or(2000.0, |c| c.world_size.y);
+
+        let mut asteroid_pos_map = HashMap::new();
+
         for ast in visible_asteroids {
-            let ax = ast.position.x as f64 - center_x;
-            let ay = ast.position.y as f64 - center_y;
+            let (ix, iy) = get_interpolated_perceived_asteroid_pos(ast, time, world_w, world_h);
+            asteroid_pos_map.insert(ast.asteroid_id, (ix, iy));
+
+            let ax = ix - center_x;
+            let ay = iy - center_y;
 
             if ax.abs() < cx + 60.0 && ay.abs() < cy + 60.0 {
                 let color = match ast.resource_type {
@@ -182,6 +260,15 @@ pub fn render_player_radar(
                 ctx.stroke();
             }
         }
+
+        PERCEIVED_ASTEROID_TRACKER.with(|tracker| {
+            let mut map = tracker.borrow_mut();
+            if map.len() > visible_asteroids.len() + 15 {
+                let active: HashSet<u32> =
+                    visible_asteroids.iter().map(|a| a.asteroid_id).collect();
+                map.retain(|id, _| active.contains(id));
+            }
+        });
 
         // 5. Draw Bases
         // 5A. Other identified bases in sensor range (from visible_bases)
@@ -321,12 +408,16 @@ pub fn render_player_radar(
             // Mining laser beam if currently mining
             if s.is_mining {
                 if let Some(target_id) = s.target_asteroid_id {
-                    if let Some(ast) = visible_asteroids
-                        .iter()
-                        .find(|a| a.asteroid_id == target_id)
-                    {
-                        let ast_x = ast.position.x as f64 - center_x;
-                        let ast_y = ast.position.y as f64 - center_y;
+                    let ast_coords = asteroid_pos_map.get(&target_id).copied().or_else(|| {
+                        visible_asteroids
+                            .iter()
+                            .find(|a| a.asteroid_id == target_id)
+                            .map(|a| (a.position.x as f64, a.position.y as f64))
+                    });
+
+                    if let Some((ix, iy)) = ast_coords {
+                        let ast_x = ix - center_x;
+                        let ast_y = iy - center_y;
                         ctx.begin_path();
                         ctx.move_to(sx, sy);
                         ctx.line_to(ast_x, ast_y);

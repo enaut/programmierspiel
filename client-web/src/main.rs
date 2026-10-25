@@ -1,4 +1,5 @@
 pub mod module_bindings;
+pub mod oauth;
 pub mod radar;
 
 use ::dioxus::prelude::*;
@@ -25,48 +26,376 @@ fn distance(a: &Vec2, b: &Vec2) -> f32 {
     (dx * dx + dy * dy).sqrt()
 }
 
+#[derive(Debug, Clone, Routable, PartialEq)]
+pub enum Route {
+    #[route("/")]
+    CockpitApp {},
+    #[route("/callback?:code&:state&:error&:error_description")]
+    OAuthCallback {
+        code: Option<String>,
+        state: Option<String>,
+        error: Option<String>,
+        error_description: Option<String>,
+    },
+    #[route("/:..route")]
+    PageNotFound { route: Vec<String> },
+}
+
 fn main() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(w) = web_sys::window() {
+            if let Ok(search) = w.location().search() {
+                if !search.is_empty() && (search.contains("code=") || search.contains("error=")) {
+                    if let Ok(Some(session)) = w.session_storage() {
+                        let _ = session.set_item("pending_oauth_search", &search);
+                    }
+                }
+            }
+        }
+    }
     ::dioxus::launch(App);
 }
 
 #[component]
 fn App() -> Element {
-    // 1. Read token from localStorage if available
-    let saved_token = {
+    rsx! {
+        Router::<Route> {}
+    }
+}
+
+#[component]
+fn PageNotFound(route: Vec<String>) -> Element {
+    let nav = use_navigator();
+    use_effect(move || {
+        nav.replace(Route::CockpitApp {});
+    });
+    rsx! {
+        div {
+            style: "width: 100vw; height: 100vh; background: #060b18; color: #94a3b8; display: flex; align-items: center; justify-content: center;",
+            "Weiterleitung zum Cockpit..."
+        }
+    }
+}
+
+#[component]
+fn GiteaLoginScreen() -> Element {
+    let mut login_error = use_signal(|| None::<String>);
+    let mut is_redirecting = use_signal(|| false);
+
+    let on_login = move |_| {
+        is_redirecting.set(true);
         #[cfg(target_arch = "wasm32")]
         {
-            web_sys::window()
-                .and_then(|w| w.local_storage().ok().flatten())
-                .and_then(|s| s.get_item("spacetimedb_token").ok().flatten())
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            None::<String>
+            if let Some(w) = web_sys::window() {
+                if let Ok(hostname) = w.location().hostname() {
+                    if hostname == "localhost" {
+                        let port = w.location().port().unwrap_or_default();
+                        let target = if port.is_empty() {
+                            "http://127.0.0.1:8081/".to_string()
+                        } else {
+                            format!("http://127.0.0.1:{}/", port)
+                        };
+                        let _ = w.location().set_href(&target);
+                        return;
+                    }
+                }
+
+                if let Ok(Some(session)) = w.session_storage() {
+                    let verifier = oauth::generate_code_verifier();
+                    let challenge = oauth::generate_code_challenge(&verifier);
+                    let state = oauth::generate_state();
+
+                    let _ = session.set_item(oauth::KEY_PKCE_VERIFIER, &verifier);
+                    let _ = session.set_item(oauth::KEY_OAUTH_STATE, &state);
+
+                    let redirect_uri = format!("{}/callback", oauth::get_current_origin());
+                    let auth_url =
+                        oauth::build_authorization_url(&redirect_uri, &state, &challenge);
+
+                    if let Err(e) = w.location().set_href(&auth_url) {
+                        is_redirecting.set(false);
+                        login_error.set(Some(format!("Weiterleitungsfehler: {e:?}")));
+                    }
+                    return;
+                }
+            }
+            is_redirecting.set(false);
+            login_error.set(Some("Browser-Speicher nicht verfügbar.".to_string()));
         }
     };
 
-    // 2. Resolve WebSocket endpoint: prefer 127.0.0.1 over localhost to prevent IPv6 [::1] connection issues
-    let ws_url = {
+    rsx! {
+        div {
+            style: "width: 100vw; height: 100vh; margin: 0; padding: 0; background-color: #060b18; color: #f0f4f8; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;",
+            div {
+                style: "position: absolute; width: 600px; height: 600px; border-radius: 50%; background: radial-gradient(circle, rgba(0, 229, 255, 0.08) 0%, rgba(59, 130, 246, 0.03) 50%, transparent 70%); pointer-events: none; filter: blur(40px);"
+            }
+
+            div {
+                style: "position: relative; z-index: 2; max-width: 480px; width: 90%; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.35); border-radius: 16px; padding: 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.7); text-align: center; backdrop-filter: blur(12px);",
+
+                div {
+                    style: "width: 64px; height: 64px; border-radius: 16px; background: rgba(0, 229, 255, 0.1); border: 1px solid rgba(0, 229, 255, 0.3); display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 20px auto; box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);",
+                    "🛸"
+                }
+
+                div {
+                    style: "display: inline-block; padding: 3px 12px; border-radius: 20px; background: rgba(0, 229, 255, 0.12); color: #00e5ff; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-bottom: 12px; border: 1px solid rgba(0, 229, 255, 0.25);",
+                    "PROGRAMMIERSPIEL • PILOTEN-LOGIN"
+                }
+
+                h1 {
+                    style: "margin: 0 0 10px 0; font-size: 24px; font-weight: 800; color: #f8fafc; letter-spacing: -0.5px;",
+                    "Willkommen auf der Megastation"
+                }
+
+                p {
+                    style: "margin: 0 0 28px 0; font-size: 14px; line-height: 1.6; color: #94a3b8;",
+                    "Melde dich mit deinem Schul-Account auf "
+                    span { style: "color: #38bdf8; font-weight: 600;", "git.uhle.cloud" }
+                    " an, um dein Raumschiff freizuschalten und deine Heimatbasis zu errichten."
+                }
+
+                if let Some(ref err) = login_error() {
+                    div {
+                        style: "background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 12px; color: #fca5a5; text-align: left;",
+                        "⚠️ {err}"
+                    }
+                }
+
+                button {
+                    style: "width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; border: none; padding: 14px 20px; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 16px rgba(2, 132, 199, 0.4);",
+                    disabled: is_redirecting(),
+                    onclick: on_login,
+                    if is_redirecting() {
+                        span { "Verbinde mit Gitea..." }
+                    } else {
+                        span { style: "font-size: 18px;", "🔑" }
+                        span { "Mit Gitea anmelden" }
+                    }
+                }
+
+                div {
+                    style: "margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.08); font-size: 11px; color: #64748b; line-height: 1.5;",
+                    "OAuth2 & OpenID Connect Authentifizierung über "
+                    code { style: "color: #94a3b8;", "https://git.uhle.cloud" }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn OAuthCallback(
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+) -> Element {
+    let mut status_msg = use_signal(|| "Authentifiziere mit Gitea...".to_string());
+    let mut err_msg = use_signal(|| None::<String>);
+
+    use_hook(|| {
+        let code_prop = code.clone();
+        let state_prop = state.clone();
+        let err_prop = error.clone();
+        let desc_prop = error_description.clone();
+
+        spawn(async move {
+            #[cfg(target_arch = "wasm32")]
+            {
+                let window = match web_sys::window() {
+                    Some(w) => w,
+                    None => {
+                        err_msg.set(Some("Kein Browserfenster gefunden.".to_string()));
+                        return;
+                    }
+                };
+
+                let session = window.session_storage().ok().flatten();
+                let backup_search = session
+                    .as_ref()
+                    .and_then(|s| s.get_item("pending_oauth_search").ok().flatten())
+                    .unwrap_or_default();
+                let window_search = window.location().search().unwrap_or_default();
+
+                let combined_search = if !window_search.is_empty() {
+                    window_search
+                } else {
+                    backup_search
+                };
+
+                let url_params = web_sys::UrlSearchParams::new_with_str(&combined_search).ok();
+
+                let gitea_err =
+                    err_prop.or_else(|| url_params.as_ref().and_then(|p| p.get("error")));
+                if let Some(err) = gitea_err {
+                    let desc = desc_prop
+                        .or_else(|| url_params.as_ref().and_then(|p| p.get("error_description")))
+                        .unwrap_or_default();
+                    err_msg.set(Some(format!("OAuth-Fehler von Gitea: {err} - {desc}")));
+                    return;
+                }
+
+                let auth_code = code_prop
+                    .filter(|c| !c.is_empty())
+                    .or_else(|| url_params.as_ref().and_then(|p| p.get("code")))
+                    .filter(|c| !c.is_empty());
+
+                let code = match auth_code {
+                    Some(c) => c,
+                    None => {
+                        err_msg.set(Some(format!(
+                            "Kein Autorisierungscode in URL gefunden. (search='{}')",
+                            combined_search
+                        )));
+                        return;
+                    }
+                };
+
+                let auth_state = state_prop
+                    .or_else(|| url_params.as_ref().and_then(|p| p.get("state")))
+                    .unwrap_or_default();
+
+                let session = match session {
+                    Some(s) => s,
+                    None => {
+                        err_msg.set(Some("SessionStorage nicht verfügbar.".to_string()));
+                        return;
+                    }
+                };
+
+                let saved_state = session.get_item(oauth::KEY_OAUTH_STATE).ok().flatten();
+                if let Some(ref expected) = saved_state {
+                    if expected != &auth_state {
+                        err_msg.set(Some(
+                            "CSRF-Schutz: State-Parameter stimmt nicht überein.".to_string(),
+                        ));
+                        return;
+                    }
+                }
+
+                let verifier = session
+                    .get_item(oauth::KEY_PKCE_VERIFIER)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+
+                let redirect_uri = format!("{}/callback", oauth::get_current_origin());
+
+                status_msg.set("Tausche Autorisierungscode gegen Token aus...".to_string());
+
+                match oauth::exchange_code(&code, &verifier, &redirect_uri).await {
+                    Ok(tokens) => {
+                        status_msg.set("Anmeldung erfolgreich! Lade Cockpit...".to_string());
+                        oauth::save_session(&tokens);
+
+                        // Clear temporary PKCE and search keys
+                        let _ = session.remove_item(oauth::KEY_PKCE_VERIFIER);
+                        let _ = session.remove_item(oauth::KEY_OAUTH_STATE);
+                        let _ = session.remove_item("pending_oauth_search");
+
+                        // Clean reload to main page so SpacetimeDB initializes with the saved token
+                        let _ = window.location().set_href("/");
+                    }
+                    Err(e) => {
+                        err_msg.set(Some(format!("Token-Austausch fehlgeschlagen: {e}")));
+                    }
+                }
+            }
+        });
+    });
+
+    let on_retry = move |_| {
+        oauth::clear_session();
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(w) = web_sys::window() {
+                if let Ok(Some(session)) = w.session_storage() {
+                    let _ = session.remove_item("pending_oauth_search");
+                }
+                let _ = w.location().set_href("/");
+            }
+        }
+    };
+
+    rsx! {
+        div {
+            style: "width: 100vw; height: 100vh; background-color: #060b18; color: #f0f4f8; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center;",
+            div {
+                style: "max-width: 440px; width: 90%; background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 32px; text-align: center; box-shadow: 0 16px 40px rgba(0,0,0,0.6);",
+                if let Some(ref err) = err_msg() {
+                    div {
+                        div { style: "font-size: 32px; margin-bottom: 12px;", "⚠️" }
+                        h2 { style: "margin: 0 0 12px 0; font-size: 18px; color: #f87171;", "Anmeldung fehlgeschlagen" }
+                        p { style: "font-size: 13px; color: #94a3b8; line-height: 1.5; margin-bottom: 24px;", "{err}" }
+                        button {
+                            style: "background: #ef4444; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 700; cursor: pointer;",
+                            onclick: on_retry,
+                            "Zurück zum Login"
+                        }
+                    }
+                } else {
+                    div {
+                        div { style: "font-size: 32px; margin-bottom: 12px; animation: spin 2s linear infinite;", "⏳" }
+                        h2 { style: "margin: 0 0 8px 0; font-size: 18px; color: #38bdf8;", "Gitea Authentifizierung" }
+                        p { style: "font-size: 13px; color: #94a3b8;", "{status_msg()}" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn CockpitApp() -> Element {
+    // 1. Read token from localStorage if available
+    let saved_token = oauth::get_saved_token();
+
+    if saved_token.is_none() {
+        return rsx! {
+            GiteaLoginScreen {}
+        };
+    }
+
+    // 2. Resolve SpacetimeDB HTTP endpoint.
+    // NOTE: In browser WASM, spacetimedb-sdk exchanges user token for a websocket token
+    // via POST {host}v1/identity/websocket-token. Therefore, the URI MUST start with http:// or https://
+    // and MUST end with a trailing slash so {host}v1 forms a valid URL!
+    // make_uri in spacetimedb-sdk will automatically convert http:// to ws:// (or https:// to wss://)
+    // for the subsequent WebSocket connection.
+    let stdb_url = {
         #[cfg(target_arch = "wasm32")]
         {
             if let Some(w) = web_sys::window() {
                 let hostname = w.location().hostname().unwrap_or_default();
-                if hostname.is_empty() || hostname == "localhost" {
-                    "ws://127.0.0.1:3000".to_string()
+                let protocol = w
+                    .location()
+                    .protocol()
+                    .unwrap_or_else(|_| "http:".to_string());
+                let scheme = if protocol.starts_with("https") {
+                    "https"
                 } else {
-                    format!("ws://{}:3000", hostname)
-                }
+                    "http"
+                };
+                let host = if hostname.is_empty() || hostname == "localhost" {
+                    "127.0.0.1"
+                } else {
+                    &hostname
+                };
+                format!("{scheme}://{host}:3000/")
             } else {
-                "ws://127.0.0.1:3000".to_string()
+                "http://127.0.0.1:3000/".to_string()
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            "ws://127.0.0.1:3000".to_string()
+            "http://127.0.0.1:3000/".to_string()
         }
     };
 
-    let _stdb_ctx = use_spacetimedb_context_provider(&ws_url, "server", saved_token);
+    let _stdb_ctx = use_spacetimedb_context_provider(&stdb_url, "server", saved_token);
 
     // 3. Subscribe to table queries so client receives live rows & updates
     use_subscription(&[
@@ -86,6 +415,19 @@ fn App() -> Element {
     let ctx = use_spacetimedb_context();
     let state = (ctx.state)();
     let conn_error = (ctx.error)();
+
+    // Log connection status and error changes to browser console for immediate visibility
+    use_effect(move || {
+        let current_state = (ctx.state)();
+        let err = (ctx.error)();
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+                "[SpacetimeDB] ConnectionState: {:?}, Error: {:?}",
+                current_state, err
+            )));
+        }
+    });
 
     // Persist token upon connection
     use_effect(move || {
@@ -109,20 +451,44 @@ fn App() -> Element {
             #[cfg(target_arch = "wasm32")]
             {
                 if let Some(w) = web_sys::window() {
-                    if let Ok(Some(storage)) = w.local_storage() {
-                        if storage
-                            .get_item("spacetimedb_token")
-                            .ok()
-                            .flatten()
-                            .is_some()
-                        {
-                            let _ = storage.remove_item("spacetimedb_token");
-                            let _ = w.location().reload();
+                    oauth::clear_session();
+                    let _ = w.location().set_href("/");
+                }
+            }
+        }
+    });
+
+    // Background token expiration check and silent renewal
+    use_hook(|| {
+        spawn(async move {
+            #[cfg(target_arch = "wasm32")]
+            loop {
+                // Wait 60 seconds between checks
+                let promise = js_sys::Promise::new(&mut |resolve, _| {
+                    if let Some(w) = web_sys::window() {
+                        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
+                            &resolve, 60_000,
+                        );
+                    }
+                });
+                let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+
+                if let Some(id_tok) = oauth::get_saved_token() {
+                    if let Some(claims) = oauth::parse_id_token_claims(&id_tok) {
+                        if let Some(exp) = claims.exp {
+                            let now_secs = (js_sys::Date::now() / 1000.0) as u64;
+                            if exp.saturating_sub(now_secs) < 300 {
+                                if let Some(rt) = oauth::get_saved_refresh_token() {
+                                    if let Ok(new_tokens) = oauth::refresh_access_token(&rt).await {
+                                        oauth::save_session(&new_tokens);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
+        });
     });
 
     let my_identity = match state {
@@ -148,13 +514,11 @@ fn App() -> Element {
     let reg_is_submitting = use_signal_sync(|| false);
 
     let on_logout = move |_| {
+        oauth::clear_session();
         #[cfg(target_arch = "wasm32")]
         {
             if let Some(w) = web_sys::window() {
-                if let Ok(Some(storage)) = w.local_storage() {
-                    let _ = storage.remove_item("spacetimedb_token");
-                }
-                let _ = w.location().reload();
+                let _ = w.location().set_href("/");
             }
         }
     };
@@ -187,6 +551,13 @@ fn App() -> Element {
                             span { style: "color: #ffd700; font-size: 12px; font-weight: 700;", "({p.score} Pkt)" }
                         }
                     }
+                    if let Some(g_user) = oauth::get_saved_username() {
+                        div {
+                            style: "display: flex; align-items: center; gap: 6px; font-size: 12px; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25);",
+                            span { "🔑" }
+                            span { style: "font-weight: 600;", "{g_user}" }
+                        }
+                    }
                     button {
                         style: "background: rgba(250, 204, 21, 0.15); border: 1px solid rgba(250, 204, 21, 0.4); color: #fde047; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;",
                         onclick: move |_| show_scoreboard.set(!show_scoreboard()),
@@ -205,8 +576,8 @@ fn App() -> Element {
                     button {
                         style: "background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;",
                         onclick: on_logout,
-                        title: "Löscht den lokal gespeicherten Token und verbindet neu",
-                        "🔄 Token reset"
+                        title: "Meldet dich von Gitea ab und löscht die Sitzung",
+                        "🚪 Abmelden"
                     }
                 }
             }
@@ -220,8 +591,20 @@ fn App() -> Element {
                         span { "⚠️" }
                         span {
                             match state {
-                                ConnectionState::Connecting => "Verbinde mit SpacetimeDB-Server (ws://127.0.0.1:3000)...".to_string(),
-                                ConnectionState::Reconnecting { attempt, delay_ms } => format!("Verbindungsaufbau wird wiederholt (Versuch #{attempt}, in {delay_ms}ms)..."),
+                                ConnectionState::Connecting => {
+                                    if let Some(ref err) = conn_error {
+                                        format!("Verbinde mit SpacetimeDB... [{err}]")
+                                    } else {
+                                        format!("Verbinde mit SpacetimeDB-Server ({stdb_url})...")
+                                    }
+                                }
+                                ConnectionState::Reconnecting { attempt, delay_ms } => {
+                                    if let Some(ref err) = conn_error {
+                                        format!("Verbindung wird wiederholt (Versuch #{attempt}, in {delay_ms}ms): {err}")
+                                    } else {
+                                        format!("Verbindungsaufbau wird wiederholt (Versuch #{attempt}, in {delay_ms}ms)...")
+                                    }
+                                }
                                 ConnectionState::Error => {
                                     if let Some(ref err) = conn_error {
                                         format!("Verbindungsfehler: {err} — Klicke rechts auf 'Token löschen & Neu verbinden'.")
@@ -289,7 +672,9 @@ fn RegistrationScreen(
     mut is_submitting: SyncSignal<bool>,
 ) -> Element {
     let ctx = use_spacetimedb_context();
-    let mut name_input = use_signal(String::new);
+    let gitea_user = oauth::get_saved_username();
+    let initial_name = gitea_user.clone().unwrap_or_default();
+    let mut name_input = use_signal(move || initial_name);
     let mut color_hue = use_signal(|| 180u16);
 
     let mut submit_registration = move || {
@@ -445,6 +830,14 @@ fn RegistrationScreen(
                         "Wähle dein Rufzeichen und deine Team-Farbe, um die Startfreigabe aus dem Hangar zu erhalten."
                     }
 
+                    if let Some(ref gu) = gitea_user {
+                        div {
+                            style: "display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: rgba(14, 165, 233, 0.12); border: 1px solid rgba(14, 165, 233, 0.3); font-size: 12px; color: #38bdf8; margin-bottom: 16px;",
+                            span { "🔑" }
+                            span { "Verknüpfter Gitea-Account: " strong { style: "color: #f1f5f9;", "{gu}" } }
+                        }
+                    }
+
                     // Name input
                     div {
                         style: "margin-bottom: 20px;",
@@ -571,72 +964,105 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
         }
     });
 
-    // Trigger canvas radar render whenever tables change or resize occurs
+    // Continuously render radar canvas via request_animation_frame with interpolation
     use_effect(move || {
-        let _ = resize_trigger();
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(w) = web_sys::window() {
-                if let Some(doc) = w.document() {
-                    if let Some(canvas_el) = doc.get_element_by_id("radar-canvas") {
-                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
-                            let rect = canvas.get_bounding_client_rect();
-                            let css_w = rect.width();
-                            let css_h = rect.height();
-                            if css_w > 0.0 && css_h > 0.0 {
-                                let dpr = w.device_pixel_ratio().max(1.0);
-                                let target_w = (css_w * dpr).round() as u32;
-                                let target_h = (css_h * dpr).round() as u32;
+            use std::cell::RefCell;
+            use std::rc::Rc;
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
 
-                                if canvas.width() != target_w || canvas.height() != target_h {
-                                    canvas.set_width(target_w);
-                                    canvas.set_height(target_h);
-                                }
+            let anim_handle: Rc<RefCell<Option<Closure<dyn FnMut()>>>> =
+                Rc::new(RefCell::new(None));
+            let anim_handle_clone = anim_handle.clone();
 
-                                if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
-                                    if let Ok(ctx_2d) =
-                                        ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
-                                    {
-                                        let configs = (ctx.tables.config)();
-                                        let players = (ctx.tables.player)();
-                                        let my_ships = (ctx.tables.my_ships)();
-                                        let visible_drones = (ctx.tables.visible_drones)();
-                                        let visible_bases = (ctx.tables.visible_bases)();
-                                        let visible_asteroids = (ctx.tables.visible_asteroids)();
-                                        let unidentified_objects =
-                                            (ctx.tables.unidentified_objects)();
+            let render_step = Rc::new(move || -> bool {
+                if let Some(w) = web_sys::window() {
+                    if let Some(doc) = w.document() {
+                        if let Some(canvas_el) = doc.get_element_by_id("radar-canvas") {
+                            if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
+                                let rect = canvas.get_bounding_client_rect();
+                                let css_w = rect.width();
+                                let css_h = rect.height();
+                                if css_w > 0.0 && css_h > 0.0 {
+                                    let dpr = w.device_pixel_ratio().max(1.0);
+                                    let target_w = (css_w * dpr).round() as u32;
+                                    let target_h = (css_h * dpr).round() as u32;
 
-                                        let current_ship = my_ships
-                                            .into_iter()
-                                            .find(|s| s.owner == p_identity && s.ship_tier == 0);
+                                    if canvas.width() != target_w || canvas.height() != target_h {
+                                        canvas.set_width(target_w);
+                                        canvas.set_height(target_h);
+                                    }
 
-                                        if let Some(ref s) = current_ship {
-                                            let ships_slice = [s.clone()];
-                                            let time = js_sys::Date::now() / 1000.0;
-                                            render_player_radar(
-                                                &ctx_2d,
-                                                css_w,
-                                                css_h,
-                                                dpr,
-                                                s.position.clone(),
-                                                p_hue,
-                                                configs.first(),
-                                                &ships_slice,
-                                                None,
-                                                &visible_drones,
-                                                &visible_bases,
-                                                &visible_asteroids,
-                                                &unidentified_objects,
-                                                &players,
-                                                target_marker(),
-                                                time,
-                                            );
+                                    if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
+                                        if let Ok(ctx_2d) =
+                                            ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
+                                        {
+                                            let configs = (ctx.tables.config)();
+                                            let players = (ctx.tables.player)();
+                                            let my_ships = (ctx.tables.my_ships)();
+                                            let visible_drones = (ctx.tables.visible_drones)();
+                                            let visible_bases = (ctx.tables.visible_bases)();
+                                            let visible_asteroids =
+                                                (ctx.tables.visible_asteroids)();
+                                            let unidentified_objects =
+                                                (ctx.tables.unidentified_objects)();
+
+                                            let current_ship = my_ships.into_iter().find(|s| {
+                                                s.owner == p_identity && s.ship_tier == 0
+                                            });
+
+                                            if let Some(ref s) = current_ship {
+                                                let ships_slice = [s.clone()];
+                                                let time = js_sys::Date::now() / 1000.0;
+                                                render_player_radar(
+                                                    &ctx_2d,
+                                                    css_w,
+                                                    css_h,
+                                                    dpr,
+                                                    s.position.clone(),
+                                                    p_hue,
+                                                    configs.first(),
+                                                    &ships_slice,
+                                                    None,
+                                                    &visible_drones,
+                                                    &visible_bases,
+                                                    &visible_asteroids,
+                                                    &unidentified_objects,
+                                                    &players,
+                                                    target_marker(),
+                                                    time,
+                                                );
+                                            }
                                         }
                                     }
                                 }
+                                return true;
                             }
                         }
                     }
+                }
+                false
+            });
+
+            *anim_handle_clone.borrow_mut() = Some(Closure::new({
+                let anim_handle = anim_handle.clone();
+                let render_step = render_step.clone();
+                move || {
+                    if render_step() {
+                        if let Some(w) = web_sys::window() {
+                            if let Some(ref closure) = *anim_handle.borrow() {
+                                let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
+                            }
+                        }
+                    }
+                }
+            }));
+
+            if let Some(w) = web_sys::window() {
+                if let Some(ref closure) = *anim_handle_clone.borrow() {
+                    let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
                 }
             }
         }
@@ -872,68 +1298,106 @@ fn BaseDashboardScreen(
         }
     });
 
-    // Render local base radar
+    // Continuously render local base radar via request_animation_frame with interpolation
     use_effect(move || {
-        let _ = resize_trigger();
+        let b_center = base_pos.clone();
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(w) = web_sys::window() {
-                if let Some(doc) = w.document() {
-                    if let Some(canvas_el) = doc.get_element_by_id("base-radar-canvas") {
-                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
-                            let rect = canvas.get_bounding_client_rect();
-                            let css_w = rect.width();
-                            let css_h = rect.height();
-                            if css_w > 0.0 && css_h > 0.0 {
-                                let dpr = w.device_pixel_ratio().max(1.0);
-                                let target_w = (css_w * dpr).round() as u32;
-                                let target_h = (css_h * dpr).round() as u32;
+            use std::cell::RefCell;
+            use std::rc::Rc;
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
 
-                                if canvas.width() != target_w || canvas.height() != target_h {
-                                    canvas.set_width(target_w);
-                                    canvas.set_height(target_h);
-                                }
+            let anim_handle: Rc<RefCell<Option<Closure<dyn FnMut()>>>> =
+                Rc::new(RefCell::new(None));
+            let anim_handle_clone = anim_handle.clone();
 
-                                if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
-                                    if let Ok(ctx_2d) =
-                                        ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
-                                    {
-                                        let configs = (ctx.tables.config)();
-                                        let players = (ctx.tables.player)();
-                                        let my_current_bases = (ctx.tables.my_base)();
-                                        let my_current_ships = (ctx.tables.my_ships)();
-                                        let visible_drones = (ctx.tables.visible_drones)();
-                                        let visible_bases = (ctx.tables.visible_bases)();
-                                        let visible_asteroids = (ctx.tables.visible_asteroids)();
-                                        let unidentified_objects =
-                                            (ctx.tables.unidentified_objects)();
+            let render_step = Rc::new({
+                let b_center = b_center.clone();
+                move || -> bool {
+                    if let Some(w) = web_sys::window() {
+                        if let Some(doc) = w.document() {
+                            if let Some(canvas_el) = doc.get_element_by_id("base-radar-canvas") {
+                                if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
+                                    let rect = canvas.get_bounding_client_rect();
+                                    let css_w = rect.width();
+                                    let css_h = rect.height();
+                                    if css_w > 0.0 && css_h > 0.0 {
+                                        let dpr = w.device_pixel_ratio().max(1.0);
+                                        let target_w = (css_w * dpr).round() as u32;
+                                        let target_h = (css_h * dpr).round() as u32;
 
-                                        let my_current_base = my_current_bases.first();
-                                        let time = js_sys::Date::now() / 1000.0;
+                                        if canvas.width() != target_w || canvas.height() != target_h
+                                        {
+                                            canvas.set_width(target_w);
+                                            canvas.set_height(target_h);
+                                        }
 
-                                        render_player_radar(
-                                            &ctx_2d,
-                                            css_w,
-                                            css_h,
-                                            dpr,
-                                            base_pos.clone(),
-                                            p_hue,
-                                            configs.first(),
-                                            &my_current_ships,
-                                            my_current_base,
-                                            &visible_drones,
-                                            &visible_bases,
-                                            &visible_asteroids,
-                                            &unidentified_objects,
-                                            &players,
-                                            None,
-                                            time,
-                                        );
+                                        if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
+                                            if let Ok(ctx_2d) = ctx_2d
+                                                .dyn_into::<web_sys::CanvasRenderingContext2d>(
+                                            ) {
+                                                let configs = (ctx.tables.config)();
+                                                let players = (ctx.tables.player)();
+                                                let my_current_bases = (ctx.tables.my_base)();
+                                                let my_current_ships = (ctx.tables.my_ships)();
+                                                let visible_drones = (ctx.tables.visible_drones)();
+                                                let visible_bases = (ctx.tables.visible_bases)();
+                                                let visible_asteroids =
+                                                    (ctx.tables.visible_asteroids)();
+                                                let unidentified_objects =
+                                                    (ctx.tables.unidentified_objects)();
+
+                                                let my_current_base = my_current_bases.first();
+                                                let time = js_sys::Date::now() / 1000.0;
+
+                                                render_player_radar(
+                                                    &ctx_2d,
+                                                    css_w,
+                                                    css_h,
+                                                    dpr,
+                                                    b_center.clone(),
+                                                    p_hue,
+                                                    configs.first(),
+                                                    &my_current_ships,
+                                                    my_current_base,
+                                                    &visible_drones,
+                                                    &visible_bases,
+                                                    &visible_asteroids,
+                                                    &unidentified_objects,
+                                                    &players,
+                                                    None,
+                                                    time,
+                                                );
+                                            }
+                                        }
                                     }
+                                    return true;
                                 }
                             }
                         }
                     }
+                    false
+                }
+            });
+
+            *anim_handle_clone.borrow_mut() = Some(Closure::new({
+                let anim_handle = anim_handle.clone();
+                let render_step = render_step.clone();
+                move || {
+                    if render_step() {
+                        if let Some(w) = web_sys::window() {
+                            if let Some(ref closure) = *anim_handle.borrow() {
+                                let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
+                            }
+                        }
+                    }
+                }
+            }));
+
+            if let Some(w) = web_sys::window() {
+                if let Some(ref closure) = *anim_handle_clone.borrow() {
+                    let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
                 }
             }
         }

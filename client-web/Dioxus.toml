@@ -1,0 +1,8 @@
+[application]
+name = "client-web"
+
+[web.app]
+title = "Space Programming Cockpit"
+
+[web.watcher]
+port = 8081

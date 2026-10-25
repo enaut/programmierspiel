@@ -102,6 +102,7 @@ pub struct Asteroid {
     #[index(btree)]
     pub universe: u8,
     pub position: Vec2,
+    pub velocity: Vec2,
     pub resource_type: u8,
     pub remaining_ore: u32,
     pub radius: f32,
@@ -181,6 +182,7 @@ pub struct PerceivedAsteroid {
     pub viewer: Identity,
     pub asteroid_id: u32,
     pub position: Vec2,
+    pub velocity: Vec2,
     pub resource_type: u8,
     pub remaining_ore: u32,
     pub radius: f32,

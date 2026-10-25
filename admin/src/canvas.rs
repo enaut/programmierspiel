@@ -1,10 +1,79 @@
 use crate::module_bindings::{Asteroid, BaseStation, Config, Player, Ship};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 #[cfg(target_arch = "wasm32")]
 use web_sys::CanvasRenderingContext2d;
+
+#[derive(Default, Clone)]
+struct AsteroidInterpState {
+    last_server_pos: (f32, f32),
+    last_update_time: f64,
+}
+
+thread_local! {
+    static ASTEROID_TRACKER: RefCell<HashMap<u32, AsteroidInterpState>> = RefCell::new(HashMap::new());
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_interpolated_asteroid_pos(
+    ast: &Asteroid,
+    anim_time: f64,
+    world_w: f32,
+    world_h: f32,
+) -> (f64, f64) {
+    ASTEROID_TRACKER.with(|tracker| {
+        let mut map = tracker.borrow_mut();
+        let state = map.entry(ast.asteroid_id).or_insert(AsteroidInterpState {
+            last_server_pos: (ast.position.x, ast.position.y),
+            last_update_time: anim_time,
+        });
+
+        // Check if server sent a new position
+        let dx = (ast.position.x - state.last_server_pos.0).abs();
+        let dy = (ast.position.y - state.last_server_pos.1).abs();
+        if dx > 0.05 || dy > 0.05 {
+            state.last_server_pos = (ast.position.x, ast.position.y);
+            state.last_update_time = anim_time;
+        }
+
+        let dt = ((anim_time - state.last_update_time) as f32).clamp(0.0, 1.0);
+
+        let margin = 50.0;
+        let min_x = -margin;
+        let max_x = world_w + margin;
+        let span_x = max_x - min_x;
+
+        let min_y = -margin;
+        let max_y = world_h + margin;
+        let span_y = max_y - min_y;
+
+        let mut x = state.last_server_pos.0 + ast.velocity.x * dt;
+        let mut y = state.last_server_pos.1 + ast.velocity.y * dt;
+
+        if span_x > 0.0 {
+            while x < min_x {
+                x += span_x;
+            }
+            while x > max_x {
+                x -= span_x;
+            }
+        }
+
+        if span_y > 0.0 {
+            while y < min_y {
+                y += span_y;
+            }
+            while y > max_y {
+                y -= span_y;
+            }
+        }
+
+        (x as f64, y as f64)
+    })
+}
 
 pub fn render_space_scene(
     #[cfg(target_arch = "wasm32")] ctx: &CanvasRenderingContext2d,
@@ -54,22 +123,36 @@ pub fn render_space_scene(
             draw_base_station(ctx, base, hue, anim_time);
         }
 
+        let world_w = config.map_or(3200.0, |c| c.world_size.x);
+        let world_h = config.map_or(2000.0, |c| c.world_size.y);
+
+        let mut interp_asteroid_positions = HashMap::new();
+
         // 5. Draw Asteroids
         for asteroid in asteroids {
-            draw_asteroid(ctx, asteroid);
+            let interp_pos = get_interpolated_asteroid_pos(asteroid, anim_time, world_w, world_h);
+            interp_asteroid_positions.insert(asteroid.asteroid_id, interp_pos);
+            draw_asteroid(ctx, asteroid, interp_pos);
         }
 
         // 6. Draw Mining Beams
-        let asteroid_map: HashMap<_, _> = asteroids.iter().map(|a| (a.asteroid_id, a)).collect();
         for ship in ships {
             if ship.is_mining {
                 if let Some(target_id) = ship.target_asteroid_id {
-                    if let Some(ast) = asteroid_map.get(&target_id) {
-                        draw_mining_laser(ctx, ship, ast, anim_time);
+                    if let Some(&ast_pos) = interp_asteroid_positions.get(&target_id) {
+                        draw_mining_laser(ctx, ship, ast_pos, anim_time);
                     }
                 }
             }
         }
+
+        ASTEROID_TRACKER.with(|tracker| {
+            let mut map = tracker.borrow_mut();
+            if map.len() > asteroids.len() + 15 {
+                let active: HashSet<u32> = asteroids.iter().map(|a| a.asteroid_id).collect();
+                map.retain(|id, _| active.contains(id));
+            }
+        });
 
         // 7. Draw Ships
         for ship in ships {
@@ -199,9 +282,7 @@ fn draw_base_station(ctx: &CanvasRenderingContext2d, base: &BaseStation, hue: u1
 }
 
 #[cfg(target_arch = "wasm32")]
-fn draw_asteroid(ctx: &CanvasRenderingContext2d, ast: &Asteroid) {
-    let x = ast.position.x as f64;
-    let y = ast.position.y as f64;
+fn draw_asteroid(ctx: &CanvasRenderingContext2d, ast: &Asteroid, (x, y): (f64, f64)) {
     let r = ast.radius as f64;
 
     let (color, border) = match ast.resource_type {
@@ -227,11 +308,9 @@ fn draw_asteroid(ctx: &CanvasRenderingContext2d, ast: &Asteroid) {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn draw_mining_laser(ctx: &CanvasRenderingContext2d, ship: &Ship, ast: &Asteroid, time: f64) {
+fn draw_mining_laser(ctx: &CanvasRenderingContext2d, ship: &Ship, (ax, ay): (f64, f64), time: f64) {
     let sx = ship.position.x as f64;
     let sy = ship.position.y as f64;
-    let ax = ast.position.x as f64;
-    let ay = ast.position.y as f64;
 
     let pulse = (time * 15.0).sin().abs() * 0.4 + 0.6;
     ctx.begin_path();

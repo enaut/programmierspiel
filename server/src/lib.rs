@@ -2,7 +2,7 @@ pub mod math;
 pub mod models;
 pub mod riddles;
 
-use math::Vec2;
+use math::{SimpleRng, Vec2, wrap_position};
 pub use models::*;
 use spacetimedb::{
     AnonymousViewContext, ReducerContext, ScheduleAt, SpacetimeType, Table, ViewContext, reducer,
@@ -16,6 +16,9 @@ const DEFAULT_MEGASTATION_POS: Vec2 = Vec2::new(1600.0, 1000.0);
 const DEFAULT_TICK_INTERVAL_MS: u32 = 50; // 20 Ticks/s (50ms interval)
 const DEFAULT_SIGNAL_RADIUS: f32 = 1200.0;
 const MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY: f32 = 250.0;
+const TARGET_ASTEROID_COUNT: usize = 120;
+const MIN_ASTEROID_COUNT: usize = 80;
+const ASTEROID_WRAP_MARGIN: f32 = 50.0;
 
 // ==========================================
 // Lifecycle Reducers
@@ -38,7 +41,7 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
     }
 
     // 2. Spawn initial Asteroids
-    seed_asteroids(ctx, 30);
+    seed_asteroids(ctx, TARGET_ASTEROID_COUNT);
 
     // 3. Schedule periodic Game Tick (every 50ms / 20 Ticks/s)
     ctx.db.tick_schedule().insert(TickSchedule {
@@ -48,7 +51,10 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
         ),
     });
 
-    log::info!("Game Server Initialized with 30 asteroids and 50ms tick loop.");
+    log::info!(
+        "Game Server Initialized with {} asteroids and 50ms tick loop.",
+        TARGET_ASTEROID_COUNT
+    );
     Ok(())
 }
 
@@ -862,7 +868,15 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 ctx.db.asteroid().asteroid_id().update(asteroid);
                             }
                         }
+                    } else {
+                        // Drifted out of laser range: cancel mining
+                        ship.is_mining = false;
+                        ship.target_asteroid_id = None;
                     }
+                } else {
+                    // Asteroid no longer exists: cancel mining
+                    ship.is_mining = false;
+                    ship.target_asteroid_id = None;
                 }
             }
         }
@@ -919,10 +933,22 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
         ctx.db.ship().ship_id().delete(&id);
     }
 
-    // Respawn asteroids if count drops below 20
-    let asteroid_count = ctx.db.asteroid().count();
-    if asteroid_count < 20 {
-        seed_asteroids(ctx, (25 - asteroid_count) as usize);
+    // 2. Update Asteroids (Drift and Wrap-around)
+    let min_x = -ASTEROID_WRAP_MARGIN;
+    let max_x = DEFAULT_WORLD_WIDTH + ASTEROID_WRAP_MARGIN;
+    let min_y = -ASTEROID_WRAP_MARGIN;
+    let max_y = DEFAULT_WORLD_HEIGHT + ASTEROID_WRAP_MARGIN;
+
+    for mut asteroid in ctx.db.asteroid().iter() {
+        let new_pos = asteroid.position + asteroid.velocity * dt;
+        asteroid.position = wrap_position(new_pos, min_x, max_x, min_y, max_y);
+        ctx.db.asteroid().asteroid_id().update(asteroid);
+    }
+
+    // Respawn asteroids if count drops below MIN_ASTEROID_COUNT
+    let asteroid_count = ctx.db.asteroid().count() as usize;
+    if asteroid_count < MIN_ASTEROID_COUNT {
+        seed_asteroids(ctx, TARGET_ASTEROID_COUNT.saturating_sub(asteroid_count));
     }
 
     // 250ms periodic sensor sweep (every 5 ticks of 50ms)
@@ -1094,6 +1120,7 @@ fn update_radar_sensors(ctx: &ReducerContext) {
                     viewer: p_id,
                     asteroid_id: ast.asteroid_id,
                     position: ast.position,
+                    velocity: ast.velocity,
                     resource_type: ast.resource_type,
                     remaining_ore: ast.remaining_ore,
                     radius: ast.radius,
@@ -1215,25 +1242,30 @@ pub fn admin_all_asteroids(ctx: &ViewContext) -> Vec<Asteroid> {
 // ==========================================
 
 fn seed_asteroids(ctx: &ReducerContext, count: usize) {
-    let base_x = 300.0;
-    let base_y = 200.0;
-    let width = DEFAULT_WORLD_WIDTH - 600.0;
-    let height = DEFAULT_WORLD_HEIGHT - 400.0;
+    let mut rng = SimpleRng::new(ctx.timestamp.to_micros_since_unix_epoch() as u64);
+    let base_x = 100.0;
+    let base_y = 100.0;
+    let width = DEFAULT_WORLD_WIDTH - 200.0;
+    let height = DEFAULT_WORLD_HEIGHT - 200.0;
 
-    for i in 0..count {
-        // Deterministic pseudo-random distribution based on timestamp & index
-        let seed = ctx.timestamp.to_micros_since_unix_epoch() as f32 + (i as f32 * 137.5);
-        let rx = (seed * 1.618).sin().abs();
-        let ry = (seed * 2.718).cos().abs();
-
+    let mut spawned = 0;
+    let mut attempts = 0;
+    while spawned < count && attempts < count * 10 {
+        attempts += 1;
+        let rx = rng.next_f32();
+        let ry = rng.next_f32();
         let pos = Vec2::new(base_x + rx * width, base_y + ry * height);
 
-        // Keep asteroids away from Megastation center
+        // Keep asteroids away from Megastation center initially
         if pos.distance(&DEFAULT_MEGASTATION_POS) < 300.0 {
             continue;
         }
 
-        let res_type = (i % 4) as u8;
+        let speed = rng.next_f32_range(10.0, 20.0);
+        let angle = rng.next_f32_range(0.0, std::f32::consts::TAU);
+        let velocity = Vec2::new(angle.cos() * speed, angle.sin() * speed);
+
+        let res_type = (rng.next_u64() % 4) as u8;
         let ore = match res_type {
             3 => 150, // Titanium
             2 => 100, // Ice
@@ -1245,10 +1277,12 @@ fn seed_asteroids(ctx: &ReducerContext, count: usize) {
             asteroid_id: 0,
             universe: 0,
             position: pos,
+            velocity,
             resource_type: res_type,
             remaining_ore: ore,
-            radius: 20.0 + (i % 3) as f32 * 8.0,
+            radius: 20.0 + (rng.next_u64() % 3) as f32 * 8.0,
         });
+        spawned += 1;
     }
 }
 

@@ -148,6 +148,67 @@ impl Div<f32> for Vec2 {
     }
 }
 
+/// Simple pseudo-random number generator (LCG) based on seed
+#[derive(Debug, Clone)]
+pub struct SimpleRng {
+    state: u64,
+}
+
+impl SimpleRng {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            state: seed.wrapping_add(0x9E3779B97F4A7C15),
+        }
+    }
+
+    pub fn next_u64(&mut self) -> u64 {
+        self.state = self
+            .state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        self.state
+    }
+
+    pub fn next_i64_range(&mut self, min: i64, max: i64) -> i64 {
+        let range = (max - min).unsigned_abs() + 1;
+        min + (self.next_u64() % range) as i64
+    }
+
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u64() % 1_000_000) as f32 / 1_000_000.0
+    }
+
+    pub fn next_f32_range(&mut self, min: f32, max: f32) -> f32 {
+        min + self.next_f32() * (max - min)
+    }
+}
+
+/// Wraps a 2D coordinate inside the given bounds [min_x..max_x] and [min_y..max_y].
+pub fn wrap_position(mut pos: Vec2, min_x: f32, max_x: f32, min_y: f32, max_y: f32) -> Vec2 {
+    let span_x = max_x - min_x;
+    let span_y = max_y - min_y;
+
+    if span_x > 0.0 {
+        while pos.x < min_x {
+            pos.x += span_x;
+        }
+        while pos.x > max_x {
+            pos.x -= span_x;
+        }
+    }
+
+    if span_y > 0.0 {
+        while pos.y < min_y {
+            pos.y += span_y;
+        }
+        while pos.y > max_y {
+            pos.y -= span_y;
+        }
+    }
+
+    pos
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +230,41 @@ mod tests {
 
         let clamped = a.clamp_magnitude(2.5);
         assert!((clamped.magnitude() - 2.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_simple_rng() {
+        let mut rng = SimpleRng::new(123456789);
+        let v1 = rng.next_f32();
+        let v2 = rng.next_f32();
+        assert_ne!(v1, v2);
+        assert!((0.0..=1.0).contains(&v1));
+
+        let speed = rng.next_f32_range(10.0, 20.0);
+        assert!((10.0..=20.0).contains(&speed));
+    }
+
+    #[test]
+    fn test_wrap_position() {
+        let min_x = -50.0;
+        let max_x = 3250.0;
+        let min_y = -50.0;
+        let max_y = 2050.0;
+
+        // Inside bounds remains unchanged
+        let p1 = Vec2::new(100.0, 200.0);
+        assert_eq!(wrap_position(p1, min_x, max_x, min_y, max_y), p1);
+
+        // Past right edge wraps to left
+        let p2 = Vec2::new(3255.0, 500.0);
+        let wrapped2 = wrap_position(p2, min_x, max_x, min_y, max_y);
+        assert!((wrapped2.x - (-45.0)).abs() < 1e-4);
+        assert_eq!(wrapped2.y, 500.0);
+
+        // Past bottom edge wraps to top
+        let p3 = Vec2::new(500.0, 2055.0);
+        let wrapped3 = wrap_position(p3, min_x, max_x, min_y, max_y);
+        assert_eq!(wrapped3.x, 500.0);
+        assert!((wrapped3.y - (-45.0)).abs() < 1e-4);
     }
 }

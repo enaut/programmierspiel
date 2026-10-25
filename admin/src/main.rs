@@ -164,72 +164,89 @@ fn HeaderBar() -> Element {
 #[component]
 fn SpaceViewport() -> Element {
     let ctx = use_spacetimedb_context();
-    let mut resize_trigger = use_signal(|| 0u32);
 
+    // Continuously render scene via request_animation_frame with interpolation
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(w) = web_sys::window() {
-                let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                    resize_trigger += 1;
-                });
-                let _ =
-                    w.add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref());
-                closure.forget();
-            }
-        }
-    });
+            use std::cell::RefCell;
+            use std::rc::Rc;
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
 
-    // Trigger canvas re-render on periodic timer, resize, or data updates
-    use_effect(move || {
-        let _ = resize_trigger();
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(window) = web_sys::window() {
-                if let Some(document) = window.document() {
-                    if let Some(canvas_el) = document.get_element_by_id("space-canvas") {
-                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
-                            let rect = canvas.get_bounding_client_rect();
-                            let css_w = rect.width();
-                            let css_h = rect.height();
-                            if css_w > 0.0 && css_h > 0.0 {
-                                let dpr = window.device_pixel_ratio().max(1.0);
-                                let target_w = (css_w * dpr).round() as u32;
-                                let target_h = (css_h * dpr).round() as u32;
+            let anim_handle: Rc<RefCell<Option<Closure<dyn FnMut()>>>> =
+                Rc::new(RefCell::new(None));
+            let anim_handle_clone = anim_handle.clone();
 
-                                if canvas.width() != target_w || canvas.height() != target_h {
-                                    canvas.set_width(target_w);
-                                    canvas.set_height(target_h);
-                                }
+            let render_step = Rc::new(move || -> bool {
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        if let Some(canvas_el) = document.get_element_by_id("space-canvas") {
+                            if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
+                                let rect = canvas.get_bounding_client_rect();
+                                let css_w = rect.width();
+                                let css_h = rect.height();
+                                if css_w > 0.0 && css_h > 0.0 {
+                                    let dpr = window.device_pixel_ratio().max(1.0);
+                                    let target_w = (css_w * dpr).round() as u32;
+                                    let target_h = (css_h * dpr).round() as u32;
 
-                                if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
-                                    if let Ok(ctx_2d) =
-                                        ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
-                                    {
-                                        let configs = (ctx.tables.config)();
-                                        let players = (ctx.tables.player)();
-                                        let base_stations = (ctx.tables.admin_all_bases)();
-                                        let asteroids = (ctx.tables.admin_all_asteroids)();
-                                        let ships = (ctx.tables.admin_all_ships)();
+                                    if canvas.width() != target_w || canvas.height() != target_h {
+                                        canvas.set_width(target_w);
+                                        canvas.set_height(target_h);
+                                    }
 
-                                        let time = js_sys::Date::now() / 1000.0;
+                                    if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
+                                        if let Ok(ctx_2d) =
+                                            ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
+                                        {
+                                            let configs = (ctx.tables.config)();
+                                            let players = (ctx.tables.player)();
+                                            let base_stations = (ctx.tables.admin_all_bases)();
+                                            let asteroids = (ctx.tables.admin_all_asteroids)();
+                                            let ships = (ctx.tables.admin_all_ships)();
 
-                                        render_space_scene(
-                                            &ctx_2d,
-                                            canvas.width() as f64,
-                                            canvas.height() as f64,
-                                            configs.first(),
-                                            &players,
-                                            &base_stations,
-                                            &asteroids,
-                                            &ships,
-                                            time,
-                                        );
+                                            let time = js_sys::Date::now() / 1000.0;
+
+                                            render_space_scene(
+                                                &ctx_2d,
+                                                canvas.width() as f64,
+                                                canvas.height() as f64,
+                                                configs.first(),
+                                                &players,
+                                                &base_stations,
+                                                &asteroids,
+                                                &ships,
+                                                time,
+                                            );
+                                        }
                                     }
                                 }
+                                return true;
                             }
                         }
                     }
+                }
+                false
+            });
+
+            *anim_handle_clone.borrow_mut() = Some(Closure::new({
+                let anim_handle = anim_handle.clone();
+                let render_step = render_step.clone();
+                move || {
+                    if render_step() {
+                        if let Some(w) = web_sys::window() {
+                            if let Some(ref closure) = *anim_handle.borrow() {
+                                let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
+                            }
+                        }
+                    }
+                }
+            }));
+
+            if let Some(w) = web_sys::window() {
+                if let Some(ref closure) = *anim_handle_clone.borrow() {
+                    let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
                 }
             }
         }

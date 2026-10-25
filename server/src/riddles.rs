@@ -1,4 +1,4 @@
-use crate::math::Vec2;
+use crate::math::{SimpleRng, Vec2};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -31,37 +31,6 @@ pub struct DenoisePayload {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DenoiseSolution {
     pub cleaned: Vec<f32>,
-}
-
-/// Simple pseudo-random number generator (LCG) based on seed
-struct SimpleRng {
-    state: u64,
-}
-
-impl SimpleRng {
-    fn new(seed: u64) -> Self {
-        Self {
-            state: seed.wrapping_add(0x9E3779B97F4A7C15),
-        }
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.state = self
-            .state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        self.state
-    }
-
-    fn next_i64_range(&mut self, min: i64, max: i64) -> i64 {
-        let range = (max - min).unsigned_abs() + 1;
-        min + (self.next_u64() % range) as i64
-    }
-
-    #[allow(dead_code)]
-    fn next_f32(&mut self) -> f32 {
-        (self.next_u64() % 1_000_000) as f32 / 1_000_000.0
-    }
 }
 
 /// Generates riddle payload and expected solution based on track and target level.

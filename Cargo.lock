@@ -627,11 +627,15 @@ dependencies = [
 name = "client-web"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "dioxus",
  "futures-channel",
  "getrandom 0.3.4",
  "js-sys",
  "log",
+ "serde",
+ "serde_json",
+ "sha2",
  "spacetimedb-sdk",
  "wasm-bindgen",
  "wasm-bindgen-futures",
