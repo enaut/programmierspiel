@@ -4,22 +4,42 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 #[cfg(target_arch = "wasm32")]
-static MEGA_STATION_ASSET: Asset = asset!("/assets/mega-station.png");
+static MEGA_STATION_PADS_ASSET: Asset = asset!("/assets/mega-station-pads.png");
+#[cfg(target_arch = "wasm32")]
+static MEGA_STATION_RING_ASSET: Asset = asset!("/assets/mega-station-ring.png");
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
-    static MEGA_STATION_IMAGE: RefCell<Option<web_sys::HtmlImageElement>> = const { RefCell::new(None) };
+    static MEGA_STATION_PADS_IMAGE: RefCell<Option<web_sys::HtmlImageElement>> = const { RefCell::new(None) };
+    static MEGA_STATION_RING_IMAGE: RefCell<Option<web_sys::HtmlImageElement>> = const { RefCell::new(None) };
 }
 
 #[cfg(target_arch = "wasm32")]
-fn get_megastation_image() -> Option<web_sys::HtmlImageElement> {
-    MEGA_STATION_IMAGE.with(|cell| {
+fn get_megastation_pads_image() -> Option<web_sys::HtmlImageElement> {
+    MEGA_STATION_PADS_IMAGE.with(|cell| {
         let mut opt = cell.borrow_mut();
         if let Some(ref img) = *opt {
             return Some(img.clone());
         }
         if let Ok(img) = web_sys::HtmlImageElement::new() {
-            img.set_src(&MEGA_STATION_ASSET.to_string());
+            img.set_src(&MEGA_STATION_PADS_ASSET.to_string());
+            *opt = Some(img.clone());
+            Some(img)
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_megastation_ring_image() -> Option<web_sys::HtmlImageElement> {
+    MEGA_STATION_RING_IMAGE.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some(ref img) = *opt {
+            return Some(img.clone());
+        }
+        if let Ok(img) = web_sys::HtmlImageElement::new() {
+            img.set_src(&MEGA_STATION_RING_ASSET.to_string());
             *opt = Some(img.clone());
             Some(img)
         } else {
@@ -227,10 +247,15 @@ fn draw_megastation(ctx: &CanvasRenderingContext2d, x: f64, y: f64, time: f64) {
     ctx.set_line_width(2.0);
     ctx.stroke();
 
-    // Check if Mega Station sprite asset is loaded and ready
-    let mut drawn_sprite = false;
-    if let Some(img) = get_megastation_image() {
-        if img.complete() && img.natural_width() > 0 {
+    // Check if both Mega Station sprite assets are loaded and ready
+    if let (Some(pads_img), Some(ring_img)) =
+        (get_megastation_pads_image(), get_megastation_ring_image())
+    {
+        if pads_img.complete()
+            && pads_img.natural_width() > 0
+            && ring_img.complete()
+            && ring_img.natural_width() > 0
+        {
             // Soft pulsating ambient aura behind the station
             let pulse = (time * 1.5).sin() * 0.08 + 0.92;
             ctx.begin_path();
@@ -238,54 +263,31 @@ fn draw_megastation(ctx: &CanvasRenderingContext2d, x: f64, y: f64, time: f64) {
             ctx.set_fill_style(&JsValue::from_str("rgba(92, 225, 230, 0.07)"));
             ctx.fill();
 
-            // Draw Mega Station sprite centered
             let sprite_w = 220.0;
             let sprite_h = sprite_w * (373.0 / 668.0);
+
+            // 1. Draw rotating ring layer (background, slowly rotating around center)
+            let ring_angle = (time * 0.15).rem_euclid(std::f64::consts::TAU);
+            let _ = ctx.save();
+            let _ = ctx.rotate(ring_angle);
             let _ = ctx.draw_image_with_html_image_element_and_dw_and_dh(
-                &img,
+                &ring_img,
                 -sprite_w / 2.0,
                 -sprite_h / 2.0,
                 sprite_w,
                 sprite_h,
             );
-            drawn_sprite = true;
+            let _ = ctx.restore();
+
+            // 2. Draw stationary pads & panels layer (foreground)
+            let _ = ctx.draw_image_with_html_image_element_and_dw_and_dh(
+                &pads_img,
+                -sprite_w / 2.0,
+                -sprite_h / 2.0,
+                sprite_w,
+                sprite_h,
+            );
         }
-    }
-
-    if !drawn_sprite {
-        // Fallback procedural rendering while image is loading
-        // Rotating outer docking spokes
-        let _ = ctx.rotate(time * 0.15);
-        ctx.set_stroke_style(&JsValue::from_str("rgba(160, 220, 255, 0.6)"));
-        ctx.set_line_width(4.0);
-        for i in 0..6 {
-            let angle = i as f64 * (std::f64::consts::TAU / 6.0);
-            ctx.begin_path();
-            ctx.move_to(angle.cos() * 30.0, angle.sin() * 30.0);
-            ctx.line_to(angle.cos() * 70.0, angle.sin() * 70.0);
-            ctx.stroke();
-        }
-
-        // Outer ring
-        ctx.begin_path();
-        let _ = ctx.arc(0.0, 0.0, 70.0, 0.0, std::f64::consts::TAU);
-        ctx.stroke();
-
-        // Core Station Hub
-        ctx.begin_path();
-        let _ = ctx.arc(0.0, 0.0, 35.0, 0.0, std::f64::consts::TAU);
-        ctx.set_fill_style(&JsValue::from_str("#1c3b57"));
-        ctx.fill();
-        ctx.set_stroke_style(&JsValue::from_str("#5ce1e6"));
-        ctx.set_line_width(3.0);
-        ctx.stroke();
-
-        // Glowing core
-        let pulse = (time * 2.0).sin() * 0.2 + 0.8;
-        ctx.begin_path();
-        let _ = ctx.arc(0.0, 0.0, 15.0 * pulse, 0.0, std::f64::consts::TAU);
-        ctx.set_fill_style(&JsValue::from_str("rgba(92, 225, 230, 0.8)"));
-        ctx.fill();
     }
 
     // Label
