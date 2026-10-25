@@ -1,6 +1,7 @@
 use crate::action::Action;
 use crate::config::BotConfig;
 use crate::module_bindings::api_heartbeat_reducer::api_heartbeat;
+use crate::module_bindings::build_ship_reducer::build_ship;
 use crate::module_bindings::command_ship_reducer::command_ship;
 use crate::module_bindings::my_base_table::MyBaseTableAccess;
 use crate::module_bindings::my_ships_table::MyShipsTableAccess;
@@ -105,6 +106,9 @@ where
     let mut last_heartbeat = std::time::Instant::now()
         .checked_sub(Duration::from_secs(60))
         .unwrap_or_else(std::time::Instant::now);
+    let mut last_emergency_build = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(60))
+        .unwrap_or_else(std::time::Instant::now);
 
     // 5. Haupt-Tick-Loop (10 Hz = alle 100ms)
     loop {
@@ -131,17 +135,24 @@ where
             conn.db.unidentified_objects().iter().collect();
 
         if my_ships.is_empty() {
-            if tick_counter >= last_status_tick + 30 {
-                last_status_tick = tick_counter;
-                if my_base.is_none() {
+            if let Some(_base) = &my_base {
+                if last_emergency_build.elapsed() >= Duration::from_secs(5) {
+                    last_emergency_build = std::time::Instant::now();
                     println!(
-                        "⏳ [SPACE BOT] Noch keine Heimatbasis gefunden. Bitte platziere deine Basis im Web-Dashboard!"
+                        "🛸 [SPACE BOT] Keine aktiven Schiffe vorhanden – fordere automatische Notfall-Drohne (Tier 1) an..."
                     );
-                } else {
-                    println!(
-                        "⏳ [SPACE BOT] Heimatbasis vorhanden, aber noch keine aktiven Schiffe/Drohnen. Baue eine Drohne an deiner Basis!"
-                    );
+                    if let Err(e) = conn.reducers.build_ship(1) {
+                        eprintln!(
+                            "⚠️ [SPACE BOT] Fehler beim Anfordern der Notfall-Drohne: {}",
+                            e
+                        );
+                    }
                 }
+            } else if tick_counter >= last_status_tick + 30 {
+                last_status_tick = tick_counter;
+                println!(
+                    "⏳ [SPACE BOT] Noch keine Heimatbasis gefunden. Bitte platziere deine Basis im Web-Dashboard!"
+                );
             }
             continue;
         }

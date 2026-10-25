@@ -2,12 +2,13 @@ use space_bot_sdk::module_bindings::api_heartbeat_reducer::api_heartbeat;
 use space_bot_sdk::module_bindings::game_event_table::GameEventTableAccess;
 use space_bot_sdk::module_bindings::my_active_riddle_table::MyActiveRiddleTableAccess;
 use space_bot_sdk::module_bindings::my_base_table::MyBaseTableAccess;
+use space_bot_sdk::module_bindings::my_ships_table::MyShipsTableAccess;
 use space_bot_sdk::module_bindings::request_riddle_reducer::request_riddle;
 use space_bot_sdk::module_bindings::submit_riddle_solution_reducer::submit_riddle_solution;
 use space_bot_sdk::module_bindings::{BaseStation, DbConnection, PublicRiddle};
 use space_bot_sdk::{
-    BotConfig, DenoisePayload, DenoiseSolution, DistancePayload, DistanceSolution, SortPayload,
-    SortSolution,
+    BotConfig, DRONE_TIER_1_COST, DenoisePayload, DenoiseSolution, DistancePayload,
+    DistanceSolution, SortPayload, SortSolution, build_drone,
 };
 use spacetimedb_sdk::{DbContext, Table};
 use std::sync::Arc;
@@ -22,6 +23,9 @@ use testclient::research::{self, UpgradeTrack};
 /// - `Some(UpgradeTrack::RadarHorizon)`      -> Track 3: Radar-Horizont (Denoise)
 /// - `None`                                  -> Erforscht automatisch den Zweig mit der niedrigsten Stufe
 const TARGET_TRACK: Option<UpgradeTrack> = None;
+
+/// Maximale Anzahl an Drohnen, die die Heimatbasis automatisch bauen soll.
+const TARGET_FLEET_SIZE: usize = 5;
 
 fn main() {
     println!("================================================================================");
@@ -86,6 +90,7 @@ fn main() {
             "SELECT * FROM config",
             "SELECT * FROM player",
             "SELECT * FROM my_base",
+            "SELECT * FROM my_ships",
             "SELECT * FROM my_active_riddle",
             "SELECT * FROM game_event",
         ]);
@@ -93,6 +98,9 @@ fn main() {
     let mut last_event_id: u64 = 0;
     let mut last_status_time = std::time::Instant::now();
     let mut last_ore_warning = std::time::Instant::now();
+    let mut last_drone_build = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(60))
+        .unwrap_or_else(std::time::Instant::now);
     let mut request_in_flight = false;
     let mut last_heartbeat = std::time::Instant::now()
         .checked_sub(Duration::from_secs(60))
@@ -121,6 +129,11 @@ fn main() {
                     "UPGRADE_UNLOCKED" => {
                         println!("\n{}", "=".repeat(80));
                         println!("🎉 {}", ev.message);
+                        println!("{}\n", "=".repeat(80));
+                    }
+                    "FLEET_EXPANDED" => {
+                        println!("\n{}", "=".repeat(80));
+                        println!("🛸 {}", ev.message);
                         println!("{}\n", "=".repeat(80));
                     }
                     "MODULE_BURNOUT" => {
@@ -153,12 +166,16 @@ fn main() {
             }
         };
 
+        let current_ships_count = conn.db.my_ships().iter().count();
+
         // Periodischer Statusbericht
         if last_status_time.elapsed().as_secs() >= 8 {
             last_status_time = std::time::Instant::now();
             println!(
-                "🏠 [STATUS] Erz: {} | Drohnen-Scan: Lvl {} ({}/100) | Asteroiden: Lvl {} ({}/100) | Horizont: Lvl {} ({}/100)",
+                "🏠 [STATUS] Erz: {} | Flotte: {}/{} Drohnen | Drohnen-Scan: Lvl {} ({}/100) | Asteroiden: Lvl {} ({}/100) | Horizont: Lvl {} ({}/100)",
                 base.stored_ore,
+                current_ships_count,
+                TARGET_FLEET_SIZE,
                 base.drone_scanner_level,
                 base.drone_scanner_progress,
                 base.base_scanner_level,
@@ -182,25 +199,41 @@ fn main() {
             UpgradeTrack::RadarHorizon => (base.radar_horizon_level, base.radar_horizon_progress),
         };
 
-        if current_level >= 5 {
-            // Alle Tracks auf Level 5?
-            if base.drone_scanner_level >= 5
-                && base.base_scanner_level >= 5
-                && base.radar_horizon_level >= 5
-            {
-                if last_status_time.elapsed().as_secs() >= 10 {
-                    println!(
-                        "🏆 [BASE STATION] Alle Sensor-Upgrades haben Maximalstufe 5 erreicht!"
-                    );
-                }
+        let all_research_maxed = base.drone_scanner_level >= 5
+            && base.base_scanner_level >= 5
+            && base.radar_horizon_level >= 5;
+
+        // Benötigtes Erz für das nächste Rätsel berechnen:
+        // Formel: (Stufe - 1) * 100 + Fortschritt + 1
+        let required_ore = if all_research_maxed {
+            0
+        } else {
+            (current_level.saturating_sub(1) as u32) * 100 + (current_progress as u32) + 1
+        };
+
+        // Flottenerweiterung: Wenn Erz-Überschuss über dem nächsten Rätsel vorhanden ist
+        if current_ships_count < TARGET_FLEET_SIZE
+            && base.stored_ore >= required_ore + DRONE_TIER_1_COST
+            && last_drone_build.elapsed() >= Duration::from_secs(3)
+        {
+            last_drone_build = std::time::Instant::now();
+            println!(
+                "🛸 [BASE STATION] Erz-Überschuss vorhanden! Baue Drohne #{}/{} (Erz: {})...",
+                current_ships_count + 1,
+                TARGET_FLEET_SIZE,
+                base.stored_ore
+            );
+            if let Err(e) = build_drone(&conn, 1) {
+                eprintln!("⚠️ [BASE STATION] Fehler beim Bauen der Drohne: {}", e);
+            }
+        }
+
+        if all_research_maxed {
+            if last_status_time.elapsed().as_secs() >= 10 {
+                println!("🏆 [BASE STATION] Alle Sensor-Upgrades haben Maximalstufe 5 erreicht!");
             }
             continue;
         }
-
-        // Benötigtes Erz für das nächste Rätsel berechnen
-        // Formel: (Stufe - 1) * 100 + Fortschritt + 1
-        let required_ore =
-            (current_level.saturating_sub(1) as u32) * 100 + (current_progress as u32) + 1;
 
         // Prüfen, ob ausreichend Erz im Basislager vorhanden ist
         if base.stored_ore < required_ore {
