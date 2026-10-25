@@ -2,8 +2,34 @@ use crate::module_bindings::{
     BaseStation, Config, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, Ship,
     UnidentifiedContact, Vec2,
 };
+use dioxus::prelude::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+
+#[cfg(target_arch = "wasm32")]
+static MEGA_STATION_ASSET: Asset = asset!("/assets/mega-station.png");
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static MEGA_STATION_IMAGE: RefCell<Option<web_sys::HtmlImageElement>> = const { RefCell::new(None) };
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_megastation_image() -> Option<web_sys::HtmlImageElement> {
+    MEGA_STATION_IMAGE.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some(ref img) = *opt {
+            return Some(img.clone());
+        }
+        if let Ok(img) = web_sys::HtmlImageElement::new() {
+            img.set_src(&MEGA_STATION_ASSET.to_string());
+            *opt = Some(img.clone());
+            Some(img)
+        } else {
+            None
+        }
+    })
+}
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
@@ -241,19 +267,45 @@ pub fn render_player_radar(
         ctx.set_line_width(2.0);
         ctx.stroke();
 
-        // Mega-Station icon
-        ctx.begin_path();
-        let _ = ctx.arc(mega_x, mega_y, 28.0, 0.0, std::f64::consts::TAU);
-        ctx.set_fill_style(&JsValue::from_str("#1c3b57"));
-        ctx.fill();
-        ctx.set_stroke_style(&JsValue::from_str("#5ce1e6"));
-        ctx.set_line_width(2.5);
-        ctx.stroke();
+        let mut drawn_sprite = false;
+        if let Some(img) = get_megastation_image() {
+            if img.complete() && img.natural_width() > 0 {
+                // Soft pulsing ambient aura on radar
+                let pulse = (time * 1.5).sin() * 0.08 + 0.92;
+                ctx.begin_path();
+                let _ = ctx.arc(mega_x, mega_y, 55.0 * pulse, 0.0, std::f64::consts::TAU);
+                ctx.set_fill_style(&JsValue::from_str("rgba(92, 225, 230, 0.08)"));
+                ctx.fill();
+
+                // Draw Mega Station sprite centered on radar
+                let sprite_w = 110.0;
+                let sprite_h = sprite_w * (373.0 / 668.0);
+                let _ = ctx.draw_image_with_html_image_element_and_dw_and_dh(
+                    &img,
+                    mega_x - sprite_w / 2.0,
+                    mega_y - sprite_h / 2.0,
+                    sprite_w,
+                    sprite_h,
+                );
+                drawn_sprite = true;
+            }
+        }
+
+        if !drawn_sprite {
+            // Mega-Station icon fallback
+            ctx.begin_path();
+            let _ = ctx.arc(mega_x, mega_y, 28.0, 0.0, std::f64::consts::TAU);
+            ctx.set_fill_style(&JsValue::from_str("#1c3b57"));
+            ctx.fill();
+            ctx.set_stroke_style(&JsValue::from_str("#5ce1e6"));
+            ctx.set_line_width(2.5);
+            ctx.stroke();
+        }
 
         ctx.set_font("bold 11px sans-serif");
         ctx.set_text_align("center");
         ctx.set_fill_style(&JsValue::from_str("#e0f7fa"));
-        let _ = ctx.fill_text("MEGA-STATION", mega_x, mega_y + 44.0);
+        let _ = ctx.fill_text("MEGA-STATION", mega_x, mega_y + 46.0);
 
         // 3. Draw Unidentified Objects (Faint red radar blip with no text label)
         for contact in unidentified_objects {

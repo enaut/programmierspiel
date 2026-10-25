@@ -23,6 +23,7 @@ web-sys = { version = "0.3", features = [
     "EventTarget",
     "HtmlCanvasElement",
     "CanvasRenderingContext2d",
+    "HtmlImageElement",
     "AudioContext",
     "BaseAudioContext",
     "AudioNode",
@@ -38,3 +39,10 @@ wasm-bindgen-futures = "0.4"
 default = ["web"]
 web = ["dioxus/web"]
 desktop = ["dioxus/desktop"]
+
+[build-dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+
+
+
