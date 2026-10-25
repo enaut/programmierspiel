@@ -1,7 +1,7 @@
 use crate::module_bindings::{Asteroid, BaseStation, Config, Player, Ship};
 use dioxus::prelude::*;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[cfg(target_arch = "wasm32")]
 static MEGA_STATION_PADS_ASSET: Asset = asset!("/assets/mega-station-pads.png");
@@ -53,78 +53,13 @@ use wasm_bindgen::JsValue;
 #[cfg(target_arch = "wasm32")]
 use web_sys::CanvasRenderingContext2d;
 
-#[derive(Default, Clone)]
-struct AsteroidInterpState {
-    last_server_pos: (f32, f32),
-    last_update_time: f64,
-}
-
-thread_local! {
-    static ASTEROID_TRACKER: RefCell<HashMap<u32, AsteroidInterpState>> = RefCell::new(HashMap::new());
-}
-
-#[cfg(target_arch = "wasm32")]
-fn get_interpolated_asteroid_pos(
-    ast: &Asteroid,
-    anim_time: f64,
-    world_w: f32,
-    world_h: f32,
-) -> (f64, f64) {
-    ASTEROID_TRACKER.with(|tracker| {
-        let mut map = tracker.borrow_mut();
-        let state = map.entry(ast.asteroid_id).or_insert(AsteroidInterpState {
-            last_server_pos: (ast.position.x, ast.position.y),
-            last_update_time: anim_time,
-        });
-
-        // Check if server sent a new position
-        let dx = (ast.position.x - state.last_server_pos.0).abs();
-        let dy = (ast.position.y - state.last_server_pos.1).abs();
-        if dx > 0.05 || dy > 0.05 {
-            state.last_server_pos = (ast.position.x, ast.position.y);
-            state.last_update_time = anim_time;
-        }
-
-        let dt = ((anim_time - state.last_update_time) as f32).clamp(0.0, 1.0);
-
-        let margin = 50.0;
-        let min_x = -margin;
-        let max_x = world_w + margin;
-        let span_x = max_x - min_x;
-
-        let min_y = -margin;
-        let max_y = world_h + margin;
-        let span_y = max_y - min_y;
-
-        let mut x = state.last_server_pos.0 + ast.velocity.x * dt;
-        let mut y = state.last_server_pos.1 + ast.velocity.y * dt;
-
-        if span_x > 0.0 {
-            while x < min_x {
-                x += span_x;
-            }
-            while x > max_x {
-                x -= span_x;
-            }
-        }
-
-        if span_y > 0.0 {
-            while y < min_y {
-                y += span_y;
-            }
-            while y > max_y {
-                y -= span_y;
-            }
-        }
-
-        (x as f64, y as f64)
-    })
-}
-
 pub fn render_space_scene(
     #[cfg(target_arch = "wasm32")] ctx: &CanvasRenderingContext2d,
     width: f64,
     height: f64,
+    camera_x: f64,
+    camera_y: f64,
+    zoom: f64,
     config: Option<&Config>,
     players: &[Player],
     base_stations: &[BaseStation],
@@ -141,26 +76,25 @@ pub fn render_space_scene(
         // Precompute player lookup (identity -> player)
         let player_map: HashMap<_, _> = players.iter().map(|p| (p.identity, p)).collect();
 
-        // World scale transformation (fit world_size into canvas view)
-        let world_w = config.map_or(3200.0, |c| c.world_size.x as f64);
-        let world_h = config.map_or(2000.0, |c| c.world_size.y as f64);
-        let scale_x = width / world_w;
-        let scale_y = height / world_h;
-        let scale = scale_x.min(scale_y);
+        let half_w = width / 2.0;
+        let half_h = height / 2.0;
 
-        let offset_x = (width - world_w * scale) / 2.0;
-        let offset_y = (height - world_h * scale) / 2.0;
+        let min_x = camera_x - half_w / zoom;
+        let max_x = camera_x + half_w / zoom;
+        let min_y = camera_y - half_h / zoom;
+        let max_y = camera_y + half_h / zoom;
 
         let _ = ctx.save();
-        let _ = ctx.translate(offset_x, offset_y);
-        let _ = ctx.scale(scale, scale);
+        let _ = ctx.translate(half_w, half_h);
+        let _ = ctx.scale(zoom, zoom);
+        let _ = ctx.translate(-camera_x, -camera_y);
 
-        // 2. Faint Grid Lines
-        draw_grid(ctx, world_w, world_h, scale);
+        // 2. Infinite Grid Lines
+        draw_grid(ctx, min_x, max_x, min_y, max_y, zoom);
 
-        // 3. Draw Central Mega-Station
-        let mega_x = config.map_or(1600.0, |c| c.megastation_pos.x as f64);
-        let mega_y = config.map_or(1000.0, |c| c.megastation_pos.y as f64);
+        // 3. Draw Central Mega-Station (at origin 0.0, 0.0)
+        let mega_x = config.map_or(0.0, |c| c.megastation_pos.x as f64);
+        let mega_y = config.map_or(0.0, |c| c.megastation_pos.y as f64);
         draw_megastation(ctx, mega_x, mega_y, anim_time);
 
         // 4. Draw Base Stations & Signal Radii
@@ -169,36 +103,35 @@ pub fn render_space_scene(
             draw_base_station(ctx, base, hue, anim_time);
         }
 
-        let world_w = config.map_or(3200.0, |c| c.world_size.x);
-        let world_h = config.map_or(2000.0, |c| c.world_size.y);
+        let margin = 100.0;
+        let cull_min_x = min_x - margin;
+        let cull_max_x = max_x + margin;
+        let cull_min_y = min_y - margin;
+        let cull_max_y = max_y + margin;
 
-        let mut interp_asteroid_positions = HashMap::new();
+        let mut asteroid_pos_map = HashMap::new();
 
-        // 5. Draw Asteroids
+        // 5. Draw Asteroids (Culled to viewport)
         for asteroid in asteroids {
-            let interp_pos = get_interpolated_asteroid_pos(asteroid, anim_time, world_w, world_h);
-            interp_asteroid_positions.insert(asteroid.asteroid_id, interp_pos);
-            draw_asteroid(ctx, asteroid, interp_pos);
+            let ax = asteroid.position.x as f64;
+            let ay = asteroid.position.y as f64;
+            asteroid_pos_map.insert(asteroid.asteroid_id, (ax, ay));
+
+            if ax >= cull_min_x && ax <= cull_max_x && ay >= cull_min_y && ay <= cull_max_y {
+                draw_asteroid(ctx, asteroid, (ax, ay));
+            }
         }
 
         // 6. Draw Mining Beams
         for ship in ships {
             if ship.is_mining {
                 if let Some(target_id) = ship.target_asteroid_id {
-                    if let Some(&ast_pos) = interp_asteroid_positions.get(&target_id) {
+                    if let Some(&ast_pos) = asteroid_pos_map.get(&target_id) {
                         draw_mining_laser(ctx, ship, ast_pos, anim_time);
                     }
                 }
             }
         }
-
-        ASTEROID_TRACKER.with(|tracker| {
-            let mut map = tracker.borrow_mut();
-            if map.len() > asteroids.len() + 15 {
-                let active: HashSet<u32> = asteroids.iter().map(|a| a.asteroid_id).collect();
-                map.retain(|id, _| active.contains(id));
-            }
-        });
 
         // 7. Draw Ships
         for ship in ships {
@@ -211,25 +144,57 @@ pub fn render_space_scene(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn draw_grid(ctx: &CanvasRenderingContext2d, w: f64, h: f64, scale: f64) {
-    ctx.set_stroke_style(&JsValue::from_str("rgba(255, 255, 255, 0.04)"));
-    ctx.set_line_width(1.0 / scale);
+fn draw_grid(
+    ctx: &CanvasRenderingContext2d,
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+    zoom: f64,
+) {
+    let step = if zoom < 0.2 {
+        2000.0
+    } else if zoom < 0.6 {
+        1000.0
+    } else {
+        500.0
+    };
 
-    let step = 200.0;
-    let mut x = 0.0;
-    while x <= w {
+    let start_x = (min_x / step).floor() * step;
+    let end_x = (max_x / step).ceil() * step;
+    let start_y = (min_y / step).floor() * step;
+    let end_y = (max_y / step).ceil() * step;
+
+    let line_w = 1.0 / zoom;
+
+    let mut x = start_x;
+    while x <= end_x {
         ctx.begin_path();
-        ctx.move_to(x, 0.0);
-        ctx.line_to(x, h);
+        ctx.move_to(x, min_y);
+        ctx.line_to(x, max_y);
+        if x.abs() < 1.0 {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+            ctx.set_line_width(line_w * 2.0);
+        } else {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(255, 255, 255, 0.05)"));
+            ctx.set_line_width(line_w);
+        }
         ctx.stroke();
         x += step;
     }
 
-    let mut y = 0.0;
-    while y <= h {
+    let mut y = start_y;
+    while y <= end_y {
         ctx.begin_path();
-        ctx.move_to(0.0, y);
-        ctx.line_to(w, y);
+        ctx.move_to(min_x, y);
+        ctx.line_to(max_x, y);
+        if y.abs() < 1.0 {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+            ctx.set_line_width(line_w * 2.0);
+        } else {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(255, 255, 255, 0.05)"));
+            ctx.set_line_width(line_w);
+        }
         ctx.stroke();
         y += step;
     }

@@ -101,11 +101,36 @@ pub struct Asteroid {
     pub asteroid_id: u32,
     #[index(btree)]
     pub universe: u8,
+    #[index(btree)]
+    pub chunk_key: u64,
+    pub chunk_index: u16,
     pub position: Vec2,
     pub velocity: Vec2,
     pub resource_type: u8,
     pub remaining_ore: u32,
     pub radius: f32,
+}
+
+#[table(accessor = depleted_asteroid)]
+#[derive(Debug, Clone)]
+pub struct DepletedAsteroid {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub chunk_key: u64,
+    pub chunk_index: u16,
+    pub respawn_at: Timestamp,
+}
+
+#[table(accessor = active_chunk)]
+#[derive(Debug, Clone)]
+pub struct ActiveChunk {
+    #[primary_key]
+    pub chunk_key: u64,
+    pub chunk_x: i32,
+    pub chunk_y: i32,
+    pub last_active_tick: u64,
 }
 
 #[table(accessor = admin_user)]

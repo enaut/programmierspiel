@@ -148,6 +148,29 @@ impl Div<f32> for Vec2 {
     }
 }
 
+/// Derives a deterministic 64-bit seed for a chunk based on world seed and chunk coordinates.
+pub fn chunk_seed(world_seed: u64, cx: i32, cy: i32) -> u64 {
+    let mut h = world_seed;
+    h ^= (cx as i64 as u64).wrapping_mul(0x517cc1b727220a95);
+    h ^= (cy as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94d049bb133111eb);
+    h ^= h >> 31;
+    h
+}
+
+/// Packs 2D chunk coordinates (cx, cy) into a single 64-bit unsigned integer key.
+pub const fn pack_chunk_key(cx: i32, cy: i32) -> u64 {
+    ((cx as u32 as u64) << 32) | (cy as u32 as u64)
+}
+
+/// Unpacks a 64-bit chunk key back into (cx, cy).
+pub const fn unpack_chunk_key(key: u64) -> (i32, i32) {
+    ((key >> 32) as i32, key as u32 as i32)
+}
+
 /// Simple pseudo-random number generator (LCG) based on seed
 #[derive(Debug, Clone)]
 pub struct SimpleRng {
@@ -266,5 +289,19 @@ mod tests {
         let wrapped3 = wrap_position(p3, min_x, max_x, min_y, max_y);
         assert_eq!(wrapped3.x, 500.0);
         assert!((wrapped3.y - (-45.0)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_chunk_keys_and_seed() {
+        let (cx, cy) = (-12, 45);
+        let key = pack_chunk_key(cx, cy);
+        let (unpacked_x, unpacked_y) = unpack_chunk_key(key);
+        assert_eq!((cx, cy), (unpacked_x, unpacked_y));
+
+        let seed1 = chunk_seed(42, -5, 10);
+        let seed2 = chunk_seed(42, -5, 10);
+        let seed3 = chunk_seed(42, -5, 11);
+        assert_eq!(seed1, seed2);
+        assert_ne!(seed1, seed3);
     }
 }

@@ -4,7 +4,7 @@ use crate::module_bindings::{
 };
 use dioxus::prelude::*;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[cfg(target_arch = "wasm32")]
 static MEGA_STATION_PADS_ASSET: Asset = asset!("/assets/mega-station-pads.png");
@@ -65,73 +65,14 @@ pub enum SelectedEntity {
     ForeignBase(u32),
 }
 
-#[derive(Default, Clone)]
-struct PerceivedAsteroidInterpState {
-    last_server_pos: (f32, f32),
-    last_update_time: f64,
-}
-
-thread_local! {
-    static PERCEIVED_ASTEROID_TRACKER: RefCell<HashMap<u32, PerceivedAsteroidInterpState>> = RefCell::new(HashMap::new());
-}
-
 #[cfg(target_arch = "wasm32")]
 pub fn get_interpolated_asteroid_pos(
     ast: &PerceivedAsteroid,
-    time: f64,
-    world_w: f32,
-    world_h: f32,
+    _time: f64,
+    _world_w: f32,
+    _world_h: f32,
 ) -> (f64, f64) {
-    PERCEIVED_ASTEROID_TRACKER.with(|tracker| {
-        let mut map = tracker.borrow_mut();
-        let state = map
-            .entry(ast.asteroid_id)
-            .or_insert(PerceivedAsteroidInterpState {
-                last_server_pos: (ast.position.x, ast.position.y),
-                last_update_time: time,
-            });
-
-        let dx = (ast.position.x - state.last_server_pos.0).abs();
-        let dy = (ast.position.y - state.last_server_pos.1).abs();
-        if dx > 0.05 || dy > 0.05 {
-            state.last_server_pos = (ast.position.x, ast.position.y);
-            state.last_update_time = time;
-        }
-
-        let dt = ((time - state.last_update_time) as f32).clamp(0.0, 1.0);
-
-        let margin = 50.0;
-        let min_x = -margin;
-        let max_x = world_w + margin;
-        let span_x = max_x - min_x;
-
-        let min_y = -margin;
-        let max_y = world_h + margin;
-        let span_y = max_y - min_y;
-
-        let mut x = state.last_server_pos.0 + ast.velocity.x * dt;
-        let mut y = state.last_server_pos.1 + ast.velocity.y * dt;
-
-        if span_x > 0.0 {
-            while x < min_x {
-                x += span_x;
-            }
-            while x > max_x {
-                x -= span_x;
-            }
-        }
-
-        if span_y > 0.0 {
-            while y < min_y {
-                y += span_y;
-            }
-            while y > max_y {
-                y -= span_y;
-            }
-        }
-
-        (x as f64, y as f64)
-    })
+    (ast.position.x as f64, ast.position.y as f64)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -179,12 +120,152 @@ fn draw_target_reticle(
     ctx.stroke();
 }
 
+#[cfg(target_arch = "wasm32")]
+fn draw_infinite_grid(
+    ctx: &CanvasRenderingContext2d,
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+    zoom: f64,
+) {
+    let step = if zoom < 0.25 {
+        2000.0
+    } else if zoom < 0.7 {
+        1000.0
+    } else {
+        500.0
+    };
+
+    let start_x = (min_x / step).floor() * step;
+    let end_x = (max_x / step).ceil() * step;
+    let start_y = (min_y / step).floor() * step;
+    let end_y = (max_y / step).ceil() * step;
+
+    let line_w = 1.0 / zoom;
+
+    let mut x = start_x;
+    while x <= end_x {
+        ctx.begin_path();
+        ctx.move_to(x, min_y);
+        ctx.line_to(x, max_y);
+        if x.abs() < 1.0 {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+            ctx.set_line_width(line_w * 2.0);
+        } else {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.05)"));
+            ctx.set_line_width(line_w);
+        }
+        ctx.stroke();
+        x += step;
+    }
+
+    let mut y = start_y;
+    while y <= end_y {
+        ctx.begin_path();
+        ctx.move_to(min_x, y);
+        ctx.line_to(max_x, y);
+        if y.abs() < 1.0 {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+            ctx.set_line_width(line_w * 2.0);
+        } else {
+            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.05)"));
+            ctx.set_line_width(line_w);
+        }
+        ctx.stroke();
+        y += step;
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn draw_offscreen_indicator(
+    ctx: &CanvasRenderingContext2d,
+    screen_w: f64,
+    screen_h: f64,
+    camera_x: f64,
+    camera_y: f64,
+    zoom: f64,
+    target_x: f64,
+    target_y: f64,
+    label: &str,
+    color: &str,
+) {
+    let half_w = screen_w / 2.0;
+    let half_h = screen_h / 2.0;
+
+    let sx = half_w + (target_x - camera_x) * zoom;
+    let sy = half_h + (target_y - camera_y) * zoom;
+
+    let margin = 50.0;
+    // Check if within visible bounds
+    if sx >= margin && sx <= screen_w - margin && sy >= margin && sy <= screen_h - margin {
+        return;
+    }
+
+    let dx = sx - half_w;
+    let dy = sy - half_h;
+    let angle = dy.atan2(dx);
+
+    let edge_x = half_w - margin;
+    let edge_y = half_h - margin;
+
+    let tan = dy / (if dx.abs() < 1e-4 { 1e-4 } else { dx });
+    let (ix, iy) = if dx.abs() * edge_y > dy.abs() * edge_x {
+        let ix = if dx > 0.0 {
+            half_w + edge_x
+        } else {
+            half_w - edge_x
+        };
+        let iy = (half_h + (ix - half_w) * tan).clamp(margin, screen_h - margin);
+        (ix, iy)
+    } else {
+        let iy = if dy > 0.0 {
+            half_h + edge_y
+        } else {
+            half_h - edge_y
+        };
+        let ix = (half_w + (iy - half_h) / tan).clamp(margin, screen_w - margin);
+        (ix, iy)
+    };
+
+    let world_dist = ((target_x - camera_x).powi(2) + (target_y - camera_y).powi(2)).sqrt();
+
+    let _ = ctx.save();
+    let _ = ctx.translate(ix, iy);
+
+    // Arrow pointer
+    let _ = ctx.save();
+    let _ = ctx.rotate(angle);
+    ctx.begin_path();
+    ctx.move_to(12.0, 0.0);
+    ctx.line_to(-8.0, -8.0);
+    ctx.line_to(-4.0, 0.0);
+    ctx.line_to(-8.0, 8.0);
+    ctx.close_path();
+    ctx.set_fill_style(&JsValue::from_str(color));
+    ctx.fill();
+    let _ = ctx.restore();
+
+    // Distance label
+    ctx.set_font("bold 11px monospace");
+    ctx.set_fill_style(&JsValue::from_str("#ffffff"));
+    ctx.set_text_align("center");
+    let text = format!("{} ({:.0}m)", label, world_dist);
+    let text_y = if iy < half_h { 20.0 } else { -14.0 };
+    let _ = ctx.fill_text(&text, 0.0, text_y);
+
+    let _ = ctx.restore();
+}
+
 pub fn render_player_radar(
     #[cfg(target_arch = "wasm32")] ctx: &CanvasRenderingContext2d,
     canvas_w: f64,
     canvas_h: f64,
     dpr: f64,
-    center_pos: Vec2,
+    camera_x: f64,
+    camera_y: f64,
+    zoom: f64,
+    sensor_hub_pos: Vec2,
     color_hue: u16,
     config: Option<&Config>,
     my_ships: &[Ship],
@@ -200,21 +281,34 @@ pub fn render_player_radar(
 ) {
     #[cfg(target_arch = "wasm32")]
     {
-        // 1. Dark radar background with subtle radial vignette
+        // 1. Dark radar background
         ctx.set_fill_style(&JsValue::from_str("#060a17"));
         ctx.fill_rect(0.0, 0.0, canvas_w * dpr, canvas_h * dpr);
 
-        let cx = canvas_w / 2.0;
-        let cy = canvas_h / 2.0;
+        let half_w = canvas_w / 2.0;
+        let half_h = canvas_h / 2.0;
 
         let _ = ctx.save();
         let _ = ctx.scale(dpr, dpr);
-        let _ = ctx.translate(cx, cy);
+        let _ = ctx.translate(half_w, half_h);
+        let _ = ctx.scale(zoom, zoom);
+        let _ = ctx.translate(-camera_x, -camera_y);
+
+        let min_x = camera_x - half_w / zoom;
+        let max_x = camera_x + half_w / zoom;
+        let min_y = camera_y - half_h / zoom;
+        let max_y = camera_y + half_h / zoom;
+
+        // Draw Infinite Grid
+        draw_infinite_grid(ctx, min_x, max_x, min_y, max_y, zoom);
 
         // Precompute player lookup (identity -> player)
         let player_map: HashMap<_, _> = players.iter().map(|p| (p.identity, p)).collect();
 
-        // Dynamic radar sensor range rings based on Base Station upgrades
+        // Dynamic radar sensor range rings centered at sensor_hub_pos
+        let hub_x = sensor_hub_pos.x as f64;
+        let hub_y = sensor_hub_pos.y as f64;
+
         let drone_scan_r = my_base.map_or(150.0, |b| {
             150.0 + (b.drone_scanner_level.saturating_sub(1) as f64 * 50.0)
         });
@@ -224,6 +318,12 @@ pub fn render_player_radar(
         let horizon_r = my_base.map_or(600.0, |b| {
             600.0 + (b.radar_horizon_level.saturating_sub(1) as f64 * 150.0)
         });
+
+        // Ambient radar glow within scan horizon
+        ctx.begin_path();
+        let _ = ctx.arc(hub_x, hub_y, horizon_r, 0.0, std::f64::consts::TAU);
+        ctx.set_fill_style(&JsValue::from_str("rgba(0, 229, 255, 0.02)"));
+        ctx.fill();
 
         let drone_label = format!(
             "{:.0}m Drohnen-Scan (Stufe {})",
@@ -249,42 +349,33 @@ pub fn render_player_radar(
 
         for (r, label, stroke_color) in &rings {
             ctx.begin_path();
-            let _ = ctx.arc(0.0, 0.0, *r, 0.0, std::f64::consts::TAU);
+            let _ = ctx.arc(hub_x, hub_y, *r, 0.0, std::f64::consts::TAU);
             ctx.set_stroke_style(&JsValue::from_str(stroke_color));
-            ctx.set_line_width(1.0);
+            ctx.set_line_width(1.0 / zoom);
             ctx.stroke();
 
             // Ring distance label
             ctx.set_font("10px monospace");
             ctx.set_fill_style(&JsValue::from_str("rgba(0, 229, 255, 0.45)"));
             ctx.set_text_align("left");
-            let _ = ctx.fill_text(label, 6.0, -r + 12.0);
+            let _ = ctx.fill_text(label, hub_x + 6.0, hub_y - *r + 12.0);
         }
 
-        // Radar crosshairs
-        ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.08)"));
-        ctx.set_line_width(1.0);
-        ctx.begin_path();
-        ctx.move_to(-canvas_w / 2.0, 0.0);
-        ctx.line_to(canvas_w / 2.0, 0.0);
-        ctx.move_to(0.0, -canvas_h / 2.0);
-        ctx.line_to(0.0, canvas_h / 2.0);
-        ctx.stroke();
-
-        let center_x = center_pos.x as f64;
-        let center_y = center_pos.y as f64;
-
-        // 2. Draw Central Mega-Station (Permanent Beacon)
-        let mega_world_x = config.map_or(1600.0, |c| c.megastation_pos.x as f64);
-        let mega_world_y = config.map_or(1000.0, |c| c.megastation_pos.y as f64);
-        let mega_x = mega_world_x - center_x;
-        let mega_y = mega_world_y - center_y;
+        // 2. Draw Central Mega-Station (Permanent Beacon at 0.0, 0.0)
+        let mega_world_x = config.map_or(0.0, |c| c.megastation_pos.x as f64);
+        let mega_world_y = config.map_or(0.0, |c| c.megastation_pos.y as f64);
 
         // Safe zone boundary (250 units radius around Mega-Station)
         ctx.begin_path();
-        let _ = ctx.arc(mega_x, mega_y, 250.0, 0.0, std::f64::consts::TAU);
+        let _ = ctx.arc(
+            mega_world_x,
+            mega_world_y,
+            250.0,
+            0.0,
+            std::f64::consts::TAU,
+        );
         ctx.set_stroke_style(&JsValue::from_str("rgba(80, 200, 255, 0.22)"));
-        ctx.set_line_width(2.0);
+        ctx.set_line_width(2.0 / zoom);
         ctx.stroke();
 
         if let (Some(pads_img), Some(ring_img)) =
@@ -295,10 +386,15 @@ pub fn render_player_radar(
                 && ring_img.complete()
                 && ring_img.natural_width() > 0
             {
-                // Soft pulsing ambient aura on radar
                 let pulse = (time * 1.5).sin() * 0.08 + 0.92;
                 ctx.begin_path();
-                let _ = ctx.arc(mega_x, mega_y, 55.0 * pulse, 0.0, std::f64::consts::TAU);
+                let _ = ctx.arc(
+                    mega_world_x,
+                    mega_world_y,
+                    55.0 * pulse,
+                    0.0,
+                    std::f64::consts::TAU,
+                );
                 ctx.set_fill_style(&JsValue::from_str("rgba(92, 225, 230, 0.08)"));
                 ctx.fill();
 
@@ -306,9 +402,8 @@ pub fn render_player_radar(
                 let sprite_h = sprite_w * (373.0 / 668.0);
 
                 let _ = ctx.save();
-                let _ = ctx.translate(mega_x, mega_y);
+                let _ = ctx.translate(mega_world_x, mega_world_y);
 
-                // 1. Draw rotating ring layer (background)
                 let ring_angle = (time * 0.15).rem_euclid(std::f64::consts::TAU);
                 let _ = ctx.save();
                 let _ = ctx.rotate(ring_angle);
@@ -321,7 +416,6 @@ pub fn render_player_radar(
                 );
                 let _ = ctx.restore();
 
-                // 2. Draw stationary pads & panels layer (foreground)
                 let _ = ctx.draw_image_with_html_image_element_and_dw_and_dh(
                     &pads_img,
                     -sprite_w / 2.0,
@@ -337,107 +431,86 @@ pub fn render_player_radar(
         ctx.set_font("bold 11px sans-serif");
         ctx.set_text_align("center");
         ctx.set_fill_style(&JsValue::from_str("#e0f7fa"));
-        let _ = ctx.fill_text("MEGA-STATION", mega_x, mega_y + 46.0);
+        let _ = ctx.fill_text("MEGA-STATION", mega_world_x, mega_world_y + 46.0);
 
-        // 3. Draw Unidentified Objects (Faint red radar blip with no text label)
+        // 3. Draw Unidentified Objects (radar blips)
         for contact in unidentified_objects {
-            let ux = contact.position.x as f64 - center_x;
-            let uy = contact.position.y as f64 - center_y;
+            let ux = contact.position.x as f64;
+            let uy = contact.position.y as f64;
 
-            if ux.abs() < cx + 40.0 && uy.abs() < cy + 40.0 {
-                let pulse =
-                    ((time * 3.5 + (contact.contact_id as f64 * 0.7)).sin() * 0.25 + 0.75) * 4.5;
-                ctx.begin_path();
-                let _ = ctx.arc(ux, uy, pulse, 0.0, std::f64::consts::TAU);
-                ctx.set_fill_style(&JsValue::from_str("rgba(239, 68, 68, 0.75)"));
-                ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str("rgba(248, 113, 113, 0.9)"));
-                ctx.set_line_width(1.0);
-                ctx.stroke();
-            }
+            let pulse =
+                ((time * 3.5 + (contact.contact_id as f64 * 0.7)).sin() * 0.25 + 0.75) * 4.5;
+            ctx.begin_path();
+            let _ = ctx.arc(ux, uy, pulse, 0.0, std::f64::consts::TAU);
+            ctx.set_fill_style(&JsValue::from_str("rgba(239, 68, 68, 0.75)"));
+            ctx.fill();
+            ctx.set_stroke_style(&JsValue::from_str("rgba(248, 113, 113, 0.9)"));
+            ctx.set_line_width(1.0 / zoom);
+            ctx.stroke();
         }
 
         // 4. Draw Identified Asteroids
-        let world_w = config.map_or(3200.0, |c| c.world_size.x);
-        let world_h = config.map_or(2000.0, |c| c.world_size.y);
-
         let mut asteroid_pos_map = HashMap::new();
 
         for ast in visible_asteroids {
-            let (ix, iy) = get_interpolated_asteroid_pos(ast, time, world_w, world_h);
-            asteroid_pos_map.insert(ast.asteroid_id, (ix, iy));
+            let ax = ast.position.x as f64;
+            let ay = ast.position.y as f64;
+            asteroid_pos_map.insert(ast.asteroid_id, (ax, ay));
 
-            let ax = ix - center_x;
-            let ay = iy - center_y;
+            let color = match ast.resource_type {
+                3 => "#a855f7", // Titanium (purple)
+                2 => "#06b6d4", // Ice (cyan)
+                1 => "#64748b", // Iron (slate)
+                _ => "#78716c", // Generic
+            };
+            let border = match ast.resource_type {
+                3 => "#d8b4fe",
+                2 => "#a5f3fc",
+                1 => "#94a3b8",
+                _ => "#a8a29e",
+            };
 
-            if ax.abs() < cx + 60.0 && ay.abs() < cy + 60.0 {
-                let color = match ast.resource_type {
-                    3 => "#a855f7", // Titanium (purple)
-                    2 => "#06b6d4", // Ice (cyan)
-                    1 => "#64748b", // Iron (slate)
-                    _ => "#78716c", // Generic
-                };
-                let border = match ast.resource_type {
-                    3 => "#d8b4fe",
-                    2 => "#a5f3fc",
-                    1 => "#94a3b8",
-                    _ => "#a8a29e",
-                };
+            ctx.begin_path();
+            let _ = ctx.arc(
+                ax,
+                ay,
+                (ast.radius as f64) * 0.75,
+                0.0,
+                std::f64::consts::TAU,
+            );
+            ctx.set_fill_style(&JsValue::from_str(color));
+            ctx.fill();
+            ctx.set_stroke_style(&JsValue::from_str(border));
+            ctx.set_line_width(1.0 / zoom);
+            ctx.stroke();
 
-                ctx.begin_path();
-                let _ = ctx.arc(
-                    ax,
-                    ay,
-                    (ast.radius as f64) * 0.75,
-                    0.0,
-                    std::f64::consts::TAU,
-                );
-                ctx.set_fill_style(&JsValue::from_str(color));
-                ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str(border));
-                ctx.set_line_width(1.0);
-                ctx.stroke();
-
-                if selected_entity == Some(SelectedEntity::Asteroid(ast.asteroid_id)) {
-                    draw_target_reticle(ctx, ax, ay, (ast.radius as f64) * 0.75, time, "#00e5ff");
-                }
+            if selected_entity == Some(SelectedEntity::Asteroid(ast.asteroid_id)) {
+                draw_target_reticle(ctx, ax, ay, (ast.radius as f64) * 0.75, time, "#00e5ff");
             }
         }
 
-        PERCEIVED_ASTEROID_TRACKER.with(|tracker| {
-            let mut map = tracker.borrow_mut();
-            if map.len() > visible_asteroids.len() + 15 {
-                let active: HashSet<u32> =
-                    visible_asteroids.iter().map(|a| a.asteroid_id).collect();
-                map.retain(|id, _| active.contains(id));
-            }
-        });
-
         // 5. Draw Bases
-        // 5A. Other identified bases in sensor range (from visible_bases)
+        // 5A. Foreign identified bases
         for base in visible_bases {
-            // Check if this base is our own base
             let is_my_base = my_base.map_or(false, |b| b.base_id == base.base_id);
             if !is_my_base {
-                let bx = base.position.x as f64 - center_x;
-                let by = base.position.y as f64 - center_y;
+                let bx = base.position.x as f64;
+                let by = base.position.y as f64;
                 let b_hue = player_map.get(&base.owner).map_or(200, |p| p.color_hue);
                 let b_name = player_map
                     .get(&base.owner)
                     .map_or("Basis".to_string(), |p| format!("Basis ({})", p.name));
 
-                // Base structure icon
                 ctx.begin_path();
                 let _ = ctx.arc(bx, by, 18.0, 0.0, std::f64::consts::TAU);
                 ctx.set_fill_style(&JsValue::from_str("#0f172a"));
                 ctx.fill();
                 ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", b_hue)));
-                ctx.set_line_width(2.5);
+                ctx.set_line_width(2.5 / zoom);
                 ctx.stroke();
 
-                // Cross arms
                 ctx.set_stroke_style(&JsValue::from_str("#94a3b8"));
-                ctx.set_line_width(1.5);
+                ctx.set_line_width(1.5 / zoom);
                 ctx.begin_path();
                 ctx.move_to(bx - 24.0, by);
                 ctx.line_to(bx + 24.0, by);
@@ -456,12 +529,11 @@ pub fn render_player_radar(
             }
         }
 
-        // 5B. Draw Player's Own Home Base (if deployed)
+        // 5B. Own Home Base
         if let Some(base) = my_base {
-            let bx = base.position.x as f64 - center_x;
-            let by = base.position.y as f64 - center_y;
+            let bx = base.position.x as f64;
+            let by = base.position.y as f64;
 
-            // Signal radius circle
             let sig_r = base.signal_radius as f64;
             ctx.begin_path();
             let _ = ctx.arc(bx, by, sig_r, 0.0, std::f64::consts::TAU);
@@ -469,28 +541,25 @@ pub fn render_player_radar(
                 "hsla({}, 90%, 65%, 0.25)",
                 color_hue
             )));
-            ctx.set_line_width(2.0);
+            ctx.set_line_width(2.0 / zoom);
             ctx.stroke();
 
-            // Inner fill tint
             ctx.set_fill_style(&JsValue::from_str(&format!(
                 "hsla({}, 90%, 60%, 0.03)",
                 color_hue
             )));
             ctx.fill();
 
-            // Base structure icon
             ctx.begin_path();
             let _ = ctx.arc(bx, by, 22.0, 0.0, std::f64::consts::TAU);
             ctx.set_fill_style(&JsValue::from_str("#0f172a"));
             ctx.fill();
             ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 95%, 60%)", color_hue)));
-            ctx.set_line_width(3.0);
+            ctx.set_line_width(3.0 / zoom);
             ctx.stroke();
 
-            // Solar panels / cross arms
             ctx.set_stroke_style(&JsValue::from_str("#38bdf8"));
-            ctx.set_line_width(2.0);
+            ctx.set_line_width(2.0 / zoom);
             ctx.begin_path();
             ctx.move_to(bx - 32.0, by);
             ctx.line_to(bx + 32.0, by);
@@ -508,12 +577,12 @@ pub fn render_player_radar(
             }
         }
 
-        // 6. Draw Other Identified Drones (from visible_drones)
+        // 6. Draw Foreign Drones
         for d in visible_drones {
             let is_my_drone = my_ships.iter().any(|s| s.ship_id == d.ship_id);
             if !is_my_drone {
-                let dx = d.position.x as f64 - center_x;
-                let dy = d.position.y as f64 - center_y;
+                let dx = d.position.x as f64;
+                let dy = d.position.y as f64;
                 let d_hue = player_map.get(&d.owner).map_or(180, |p| p.color_hue);
                 let p_name = player_map
                     .get(&d.owner)
@@ -533,12 +602,11 @@ pub fn render_player_radar(
                 ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 85%, 50%)", d_hue)));
                 ctx.fill();
                 ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
-                ctx.set_line_width(1.5);
+                ctx.set_line_width(1.5 / zoom);
                 ctx.stroke();
 
                 let _ = ctx.restore();
 
-                // Label
                 ctx.set_font("10px monospace");
                 ctx.set_text_align("center");
                 ctx.set_fill_style(&JsValue::from_str("#cbd5e1"));
@@ -555,12 +623,12 @@ pub fn render_player_radar(
             }
         }
 
-        // 7. Draw Player's Own Ships & Drones (with full telemetry & movement paths)
+        // 7. Draw Player's Own Ships
         for s in my_ships {
-            let sx = s.position.x as f64 - center_x;
-            let sy = s.position.y as f64 - center_y;
+            let sx = s.position.x as f64;
+            let sy = s.position.y as f64;
 
-            // Mining laser beam if currently mining
+            // Mining laser beam
             if s.is_mining {
                 if let Some(target_id) = s.target_asteroid_id {
                     let ast_coords = asteroid_pos_map.get(&target_id).copied().or_else(|| {
@@ -570,72 +638,63 @@ pub fn render_player_radar(
                             .map(|a| (a.position.x as f64, a.position.y as f64))
                     });
 
-                    if let Some((ix, iy)) = ast_coords {
-                        let ast_x = ix - center_x;
-                        let ast_y = iy - center_y;
+                    if let Some((ast_x, ast_y)) = ast_coords {
                         ctx.begin_path();
                         ctx.move_to(sx, sy);
                         ctx.line_to(ast_x, ast_y);
                         ctx.set_stroke_style(&JsValue::from_str("#00e5ff"));
-                        ctx.set_line_width(2.0);
+                        ctx.set_line_width(2.0 / zoom);
                         ctx.stroke();
                     }
                 }
             }
 
-            // Target flight line if moving
+            // Waypoint path
             if let Some(ref target) = s.target_position {
-                let tx = target.x as f64 - center_x;
-                let ty = target.y as f64 - center_y;
+                let tx = target.x as f64;
+                let ty = target.y as f64;
 
+                ctx.set_line_dash(&JsValue::from(js_sys::Array::of2(
+                    &JsValue::from_f64(6.0),
+                    &JsValue::from_f64(6.0),
+                )))
+                .ok();
                 ctx.begin_path();
                 ctx.move_to(sx, sy);
                 ctx.line_to(tx, ty);
-                ctx.set_stroke_style(&JsValue::from_str("rgba(0, 230, 118, 0.4)"));
-                ctx.set_line_width(1.5);
+                ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+                ctx.set_line_width(1.5 / zoom);
                 ctx.stroke();
+                ctx.set_line_dash(&JsValue::from(js_sys::Array::new())).ok();
 
-                // Target indicator
-                let pulse = (time * 8.0).sin() * 3.0 + 10.0;
                 ctx.begin_path();
-                let _ = ctx.arc(tx, ty, pulse, 0.0, std::f64::consts::TAU);
-                ctx.set_stroke_style(&JsValue::from_str("#00e676"));
-                ctx.set_line_width(2.0);
+                let _ = ctx.arc(tx, ty, 5.0, 0.0, std::f64::consts::TAU);
+                ctx.set_stroke_style(&JsValue::from_str("#00e5ff"));
+                ctx.set_line_width(1.5 / zoom);
                 ctx.stroke();
             }
 
-            // Draw Ship Body
             let _ = ctx.save();
             let _ = ctx.translate(sx, sy);
             let _ = ctx.rotate(s.heading_rad as f64);
 
-            if s.is_stranded {
-                // Distress ring around stranded ship
-                ctx.begin_path();
-                let _ = ctx.arc(0.0, 0.0, 26.0, 0.0, std::f64::consts::TAU);
-                ctx.set_stroke_style(&JsValue::from_str("rgba(239, 68, 68, 0.8)"));
-                ctx.set_line_width(2.0);
-                ctx.stroke();
-            }
-
             if s.ship_tier == 0 {
-                // Tier-0 Construction / Builder Ship (Mothership)
+                // Tier-0 Builder Ship
                 ctx.begin_path();
                 ctx.move_to(22.0, 0.0);
                 ctx.line_to(-16.0, -14.0);
-                ctx.line_to(-10.0, 0.0);
+                ctx.line_to(-8.0, 0.0);
                 ctx.line_to(-16.0, 14.0);
                 ctx.close_path();
 
-                ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 90%, 52%)", color_hue)));
+                ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", color_hue)));
                 ctx.fill();
                 ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
-                ctx.set_line_width(2.0);
+                ctx.set_line_width(2.0 / zoom);
                 ctx.stroke();
 
-                // Solar wings for builder ship
                 ctx.set_stroke_style(&JsValue::from_str("#38bdf8"));
-                ctx.set_line_width(2.0);
+                ctx.set_line_width(2.0 / zoom);
                 ctx.begin_path();
                 ctx.move_to(-2.0, -20.0);
                 ctx.line_to(-2.0, 20.0);
@@ -652,13 +711,12 @@ pub fn render_player_radar(
                 ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 85%, 50%)", color_hue)));
                 ctx.fill();
                 ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
-                ctx.set_line_width(1.5);
+                ctx.set_line_width(1.5 / zoom);
                 ctx.stroke();
             }
 
             let _ = ctx.restore();
 
-            // Ship label above/below ship
             ctx.set_font("10px monospace");
             ctx.set_text_align("center");
             ctx.set_fill_style(&JsValue::from_str("#cbd5e1"));
@@ -675,19 +733,18 @@ pub fn render_player_radar(
             }
         }
 
-        // 8. Draw Manual Target Marker if in Builder Mode
+        // 8. Manual Target Marker if in Builder Mode
         if let Some(target) = target_pos {
-            let tx = target.x as f64 - center_x;
-            let ty = target.y as f64 - center_y;
+            let tx = target.x as f64;
+            let ty = target.y as f64;
 
             let pulse = (time * 8.0).sin() * 3.0 + 12.0;
             ctx.begin_path();
             let _ = ctx.arc(tx, ty, pulse, 0.0, std::f64::consts::TAU);
             ctx.set_stroke_style(&JsValue::from_str("#00e676"));
-            ctx.set_line_width(2.0);
+            ctx.set_line_width(2.0 / zoom);
             ctx.stroke();
 
-            // Cross in marker
             ctx.begin_path();
             ctx.move_to(tx - 6.0, ty);
             ctx.line_to(tx + 6.0, ty);
@@ -695,6 +752,31 @@ pub fn render_player_radar(
             ctx.line_to(tx, ty + 6.0);
             ctx.stroke();
         }
+
+        let _ = ctx.restore();
+
+        // Screen-space overlay for offscreen indicators
+        let _ = ctx.save();
+        let _ = ctx.scale(dpr, dpr);
+
+        // Indicator for Central Mega-Station
+        draw_offscreen_indicator(
+            ctx,
+            canvas_w,
+            canvas_h,
+            camera_x,
+            camera_y,
+            zoom,
+            mega_world_x,
+            mega_world_y,
+            "Mega-Station",
+            "#00e5ff",
+        );
+
+        // Indicator for Home Base / Sensor Origin
+        draw_offscreen_indicator(
+            ctx, canvas_w, canvas_h, camera_x, camera_y, zoom, hub_x, hub_y, "Basis", "#ffd700",
+        );
 
         let _ = ctx.restore();
     }

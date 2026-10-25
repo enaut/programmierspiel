@@ -6,6 +6,7 @@
 #![allow(unused, clippy::all)]
 use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
+pub mod active_chunk_type;
 pub mod active_riddle_type;
 pub mod admin_all_asteroids_table;
 pub mod admin_all_bases_table;
@@ -21,6 +22,7 @@ pub mod command_ship_reducer;
 pub mod config_table;
 pub mod config_type;
 pub mod count_row_type;
+pub mod depleted_asteroid_type;
 pub mod deploy_base_station_reducer;
 pub mod game_event_table;
 pub mod game_event_type;
@@ -49,6 +51,7 @@ pub mod visible_asteroids_table;
 pub mod visible_bases_table;
 pub mod visible_drones_table;
 
+pub use active_chunk_type::ActiveChunk;
 pub use active_riddle_type::ActiveRiddle;
 pub use admin_all_asteroids_table::*;
 pub use admin_all_bases_table::*;
@@ -64,6 +67,7 @@ pub use command_ship_reducer::command_ship;
 pub use config_table::*;
 pub use config_type::Config;
 pub use count_row_type::CountRow;
+pub use depleted_asteroid_type::DepletedAsteroid;
 pub use deploy_base_station_reducer::deploy_base_station;
 pub use game_event_table::*;
 pub use game_event_type::GameEvent;

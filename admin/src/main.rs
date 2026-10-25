@@ -57,14 +57,16 @@ fn App() -> Element {
         }
     });
 
+    let camera_target = use_signal(|| None::<(f64, f64)>);
+
     rsx! {
         div {
             style: "width: 100vw; height: 100vh; margin: 0; padding: 0; background-color: #050814; color: #f0f4f8; font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; overflow: hidden; user-select: none;",
             HeaderBar {}
             div {
                 style: "flex: 1; display: flex; flex-direction: row; position: relative; overflow: hidden;",
-                SpaceViewport {}
-                SidebarOverlay {}
+                SpaceViewport { camera_target }
+                SidebarOverlay { camera_target }
             }
         }
     }
@@ -162,8 +164,22 @@ fn HeaderBar() -> Element {
 }
 
 #[component]
-fn SpaceViewport() -> Element {
+fn SpaceViewport(camera_target: Signal<Option<(f64, f64)>>) -> Element {
     let ctx = use_spacetimedb_context();
+
+    let mut cam_x = use_signal(|| 0.0f64);
+    let mut cam_y = use_signal(|| 0.0f64);
+    let mut zoom = use_signal(|| 0.45f64);
+    let mut is_dragging = use_signal(|| false);
+    let mut drag_start = use_signal(|| (0.0f64, 0.0f64));
+
+    // Handle external jump target (e.g. from clicking player in scoreboard)
+    use_effect(move || {
+        if let Some((tx, ty)) = *camera_target.read() {
+            cam_x.set(tx);
+            cam_y.set(ty);
+        }
+    });
 
     // Continuously render scene via request_animation_frame with interpolation
     use_effect(move || {
@@ -212,6 +228,9 @@ fn SpaceViewport() -> Element {
                                                 &ctx_2d,
                                                 canvas.width() as f64,
                                                 canvas.height() as f64,
+                                                *cam_x.read(),
+                                                *cam_y.read(),
+                                                *zoom.read(),
                                                 configs.first(),
                                                 &players,
                                                 &base_stations,
@@ -252,22 +271,111 @@ fn SpaceViewport() -> Element {
         }
     });
 
+    let current_x = *cam_x.read();
+    let current_y = *cam_y.read();
+    let current_zoom = *zoom.read();
+
     rsx! {
         div {
-            style: "flex: 1; height: 100%; position: relative; background: #070b19; display: flex; align-items: center; justify-content: center; overflow: hidden;",
+            style: if *is_dragging.read() {
+                "flex: 1; height: 100%; position: relative; background: #070b19; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: grabbing;"
+            } else {
+                "flex: 1; height: 100%; position: relative; background: #070b19; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: grab;"
+            },
+            onmousedown: move |evt| {
+                is_dragging.set(true);
+                drag_start.set((evt.client_coordinates().x, evt.client_coordinates().y));
+            },
+            onmousemove: move |evt| {
+                if *is_dragging.read() {
+                    let (sx, sy) = *drag_start.read();
+                    let cx = evt.client_coordinates().x;
+                    let cy = evt.client_coordinates().y;
+                    let dx = cx - sx;
+                    let dy = cy - sy;
+                    drag_start.set((cx, cy));
+                    let z = *zoom.read();
+                    let cur_x = *cam_x.read();
+                    let cur_y = *cam_y.read();
+                    cam_x.set(cur_x - dx / z);
+                    cam_y.set(cur_y - dy / z);
+                }
+            },
+            onmouseup: move |_| {
+                is_dragging.set(false);
+            },
+            onmouseleave: move |_| {
+                is_dragging.set(false);
+            },
+            onwheel: move |evt| {
+                let delta_y = evt.delta().strip_units().y;
+                let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
+                let cur_z = *zoom.read();
+                let new_z = (cur_z * factor).clamp(0.04, 3.5);
+                zoom.set(new_z);
+            },
             canvas {
                 id: "space-canvas",
                 style: "width: 100%; height: 100%; display: block;",
+            }
+
+            // HUD Overlay: Coordinates, Zoom %, and Re-center controls
+            div {
+                style: "position: absolute; bottom: 20px; left: 20px; display: flex; gap: 10px; align-items: center; background: rgba(10, 16, 32, 0.88); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 13px; font-family: monospace; z-index: 5; pointer-events: auto;",
+                span {
+                    style: "color: #8da2c0;",
+                    "POS: "
+                }
+                span {
+                    style: "color: #00e5ff; font-weight: 700; width: 140px;",
+                    "[{current_x.round() as i32}, {current_y.round() as i32}]"
+                }
+                span {
+                    style: "color: #8da2c0; margin-left: 8px;",
+                    "ZOOM: "
+                }
+                span {
+                    style: "color: #ffd700; font-weight: 700; width: 50px;",
+                    "{(current_zoom * 100.0).round() as i32}%"
+                }
+                button {
+                    style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: 6px;",
+                    onclick: move |_| {
+                        let cur_z = *zoom.read();
+                        let new_z = (cur_z * 1.25).clamp(0.04, 3.5);
+                        zoom.set(new_z);
+                    },
+                    "+"
+                }
+                button {
+                    style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;",
+                    onclick: move |_| {
+                        let cur_z = *zoom.read();
+                        let new_z = (cur_z * 0.8).clamp(0.04, 3.5);
+                        zoom.set(new_z);
+                    },
+                    "-"
+                }
+                button {
+                    style: "background: #0284c7; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; margin-left: 6px;",
+                    onclick: move |_| {
+                        cam_x.set(0.0);
+                        cam_y.set(0.0);
+                        zoom.set(0.45);
+                    },
+                    "⌂ Mega-Station"
+                }
             }
         }
     }
 }
 
 #[component]
-fn SidebarOverlay() -> Element {
+fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
     let ctx = use_spacetimedb_context();
     let mut players = (ctx.tables.player)();
-    let _ships = (ctx.tables.admin_all_ships)();
+    let ships = (ctx.tables.admin_all_ships)();
+    let bases = (ctx.tables.admin_all_bases)();
     let mut events = (ctx.tables.game_event)();
 
     // Sort players by score descending
@@ -276,6 +384,25 @@ fn SidebarOverlay() -> Element {
     // Sort events by event_id descending (latest on top)
     events.sort_by(|a, b| b.event_id.cmp(&a.event_id));
     let recent_events: Vec<_> = events.into_iter().take(12).collect();
+
+    // Precompute player item positions before rsx!
+    let player_items: Vec<_> = players
+        .into_iter()
+        .enumerate()
+        .map(|(rank, player)| {
+            let p_identity = player.identity;
+            let p_base = bases.iter().find(|b| b.owner == p_identity);
+            let p_pos = p_base
+                .map(|b| (b.position.x as f64, b.position.y as f64))
+                .or_else(|| {
+                    ships
+                        .iter()
+                        .find(|s| s.owner == p_identity)
+                        .map(|s| (s.position.x as f64, s.position.y as f64))
+                });
+            (rank, player, p_pos)
+        })
+        .collect();
 
     rsx! {
         aside {
@@ -290,13 +417,19 @@ fn SidebarOverlay() -> Element {
                 }
                 div {
                     style: "display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto;",
-                    if players.is_empty() {
+                    if player_items.is_empty() {
                         div { style: "color: #64748b; font-size: 13px;", "Noch keine Schüler beigetreten..." }
                     }
-                    for (rank, player) in players.iter().enumerate() {
+                    for (rank, player, p_pos) in player_items {
                         div {
                             key: "{player.identity}",
-                            style: "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; border-left: 4px solid hsl({player.color_hue}, 90%, 55%);",
+                            style: "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; border-left: 4px solid hsl({player.color_hue}, 90%, 55%); cursor: pointer; transition: background 0.15s ease;",
+                            title: "Klicken, um Kamera auf Basis/Schiff zu zentrieren",
+                            onclick: move |_| {
+                                if let Some((px, py)) = p_pos {
+                                    camera_target.set(Some((px, py)));
+                                }
+                            },
                             div {
                                 style: "display: flex; align-items: center; gap: 10px;",
                                 span { style: "font-weight: 700; color: #8da2c0; font-size: 13px; width: 20px;", "#{rank + 1}" }

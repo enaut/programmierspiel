@@ -15,7 +15,7 @@ use module_bindings::{
     BaseStation, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, PlayerAchievement,
     PublicRiddle, Ship, ShipCommand, Vec2,
 };
-use radar::{SelectedEntity, get_interpolated_asteroid_pos, render_player_radar};
+use radar::{SelectedEntity, render_player_radar};
 use spacetimedb_sdk::Identity;
 
 #[cfg(target_arch = "wasm32")]
@@ -956,6 +956,12 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
     let config = configs.first().cloned();
 
     let mut target_marker = use_signal(|| None::<Vec2>);
+    let mut cam_offset_x = use_signal(|| 0.0f64);
+    let mut cam_offset_y = use_signal(|| 0.0f64);
+    let mut zoom = use_signal(|| 0.85f64);
+    let mut is_dragging = use_signal(|| false);
+    let mut drag_start = use_signal(|| (0.0f64, 0.0f64));
+    let mut drag_distance = use_signal(|| 0.0f64);
 
     let ship = match builder_ship {
         Some(s) => s,
@@ -974,13 +980,9 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
         }
     };
 
-    let mega_pos = config.as_ref().map_or(
-        Vec2 {
-            x: 1600.0,
-            y: 1000.0,
-        },
-        |c| c.megastation_pos.clone(),
-    );
+    let mega_pos = config
+        .as_ref()
+        .map_or(Vec2 { x: 0.0, y: 0.0 }, |c| c.megastation_pos.clone());
     let dist_to_megastation = distance(&ship.position, &mega_pos);
     let can_deploy = dist_to_megastation >= 250.0;
 
@@ -1055,11 +1057,20 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                                             if let Some(ref s) = current_ship {
                                                 let ships_slice = [s.clone()];
                                                 let time = js_sys::Date::now() / 1000.0;
+                                                let cam_x =
+                                                    s.position.x as f64 + *cam_offset_x.read();
+                                                let cam_y =
+                                                    s.position.y as f64 + *cam_offset_y.read();
+                                                let cur_zoom = *zoom.read();
+
                                                 render_player_radar(
                                                     &ctx_2d,
                                                     css_w,
                                                     css_h,
                                                     dpr,
+                                                    cam_x,
+                                                    cam_y,
+                                                    cur_zoom,
                                                     s.position.clone(),
                                                     p_hue,
                                                     configs.first(),
@@ -1070,7 +1081,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                                                     &visible_asteroids,
                                                     &unidentified_objects,
                                                     &players,
-                                                    target_marker(),
+                                                    target_marker.read().clone(),
                                                     None,
                                                     time,
                                                 );
@@ -1108,44 +1119,6 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
         }
     });
 
-    let on_canvas_click = move |evt: ::dioxus::prelude::MouseEvent| {
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(w) = web_sys::window() {
-                if let Some(doc) = w.document() {
-                    if let Some(canvas_el) = doc.get_element_by_id("radar-canvas") {
-                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
-                            let rect = canvas.get_bounding_client_rect();
-                            if rect.width() > 0.0 && rect.height() > 0.0 {
-                                let coords = evt.client_coordinates();
-                                let css_x = coords.x - rect.left();
-                                let css_y = coords.y - rect.top();
-
-                                // Canvas center corresponds to ship position
-                                let rel_x = css_x - (rect.width() / 2.0);
-                                let rel_y = css_y - (rect.height() / 2.0);
-
-                                let target_world = Vec2 {
-                                    x: ship.position.x + rel_x as f32,
-                                    y: ship.position.y + rel_y as f32,
-                                };
-
-                                target_marker.set(Some(target_world.clone()));
-
-                                if let Some(conn) = (ctx.connection)() {
-                                    let _ = conn.reducers.command_ship(
-                                        ship.ship_id,
-                                        ShipCommand::FlyTo(target_world),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
-
     let on_deploy = move |_| {
         if can_deploy {
             if let Some(conn) = (ctx.connection)() {
@@ -1154,22 +1127,140 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
         }
     };
 
+    let ship_pos_x = ship.position.x as f64;
+    let ship_pos_y = ship.position.y as f64;
+    let current_cam_x = ship_pos_x + *cam_offset_x.read();
+    let current_cam_y = ship_pos_y + *cam_offset_y.read();
+    let current_zoom = *zoom.read();
+
     rsx! {
         div {
             style: "flex: 1; display: flex; flex-direction: row; height: 100%; overflow: hidden;",
 
             // Radar Canvas Area (Left)
             div {
-                style: "flex: 1; height: 100%; position: relative; background: #050a16; display: flex; align-items: center; justify-content: center; overflow: hidden;",
+                style: if *is_dragging.read() {
+                    "flex: 1; height: 100%; position: relative; background: #050a16; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: grabbing;"
+                } else {
+                    "flex: 1; height: 100%; position: relative; background: #050a16; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: crosshair;"
+                },
+                onmousedown: move |evt| {
+                    is_dragging.set(true);
+                    drag_start.set((evt.client_coordinates().x, evt.client_coordinates().y));
+                    drag_distance.set(0.0);
+                },
+                onmousemove: move |evt| {
+                    if *is_dragging.read() {
+                        let (sx, sy) = *drag_start.read();
+                        let cx = evt.client_coordinates().x;
+                        let cy = evt.client_coordinates().y;
+                        let dx = cx - sx;
+                        let dy = cy - sy;
+                        let cur_dist = *drag_distance.read();
+                        drag_distance.set(cur_dist + dx.hypot(dy));
+                        drag_start.set((cx, cy));
+                        let z = *zoom.read();
+                        let cur_x = *cam_offset_x.read();
+                        let cur_y = *cam_offset_y.read();
+                        cam_offset_x.set(cur_x - dx / z);
+                        cam_offset_y.set(cur_y - dy / z);
+                    }
+                },
+                onmouseup: move |evt| {
+                    let was_dragging = *is_dragging.read();
+                    is_dragging.set(false);
+                    if was_dragging && *drag_distance.read() < 6.0 {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            if let Some(w) = web_sys::window() {
+                                if let Some(doc) = w.document() {
+                                    if let Some(canvas_el) = doc.get_element_by_id("radar-canvas") {
+                                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
+                                            let rect = canvas.get_bounding_client_rect();
+                                            if rect.width() > 0.0 && rect.height() > 0.0 {
+                                                let coords = evt.client_coordinates();
+                                                let css_x = coords.x - rect.left();
+                                                let css_y = coords.y - rect.top();
+
+                                                let rel_x = css_x - (rect.width() / 2.0);
+                                                let rel_y = css_y - (rect.height() / 2.0);
+
+                                                let z = *zoom.read();
+                                                let target_world = Vec2 {
+                                                    x: (ship.position.x as f64 + *cam_offset_x.read() + rel_x / z) as f32,
+                                                    y: (ship.position.y as f64 + *cam_offset_y.read() + rel_y / z) as f32,
+                                                };
+
+                                                target_marker.set(Some(target_world.clone()));
+
+                                                if let Some(conn) = (ctx.connection)() {
+                                                    let _ = conn.reducers.command_ship(
+                                                        ship.ship_id,
+                                                        ShipCommand::FlyTo(target_world),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                onmouseleave: move |_| {
+                    is_dragging.set(false);
+                },
+                onwheel: move |evt| {
+                    let delta_y = evt.delta().strip_units().y;
+                    let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
+                    let cur_z = *zoom.read();
+                    zoom.set((cur_z * factor).clamp(0.08, 3.0));
+                },
                 canvas {
                     id: "radar-canvas",
-                    style: "width: 100%; height: 100%; display: block; cursor: crosshair;",
-                    onclick: on_canvas_click,
+                    style: "width: 100%; height: 100%; display: block;",
                 }
+
+                // HUD Overlay: Camera Info & Center Controls
                 div {
-                    style: "position: absolute; bottom: 20px; left: 24px; background: rgba(10, 16, 32, 0.85); padding: 8px 16px; border-radius: 8px; font-size: 13px; color: #94a3b8; border: 1px solid rgba(80, 120, 200, 0.25); display: flex; align-items: center; gap: 8px;",
-                    span { "💡" }
-                    span { "Klicke mit der Maus auf das Radar, um dein Bauschiff zum Zielpunkt zu steuern." }
+                    style: "position: absolute; bottom: 20px; left: 24px; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;",
+                    span { style: "color: #8da2c0;", "POS: " }
+                    span { style: "color: #00e5ff; font-weight: 700;", "[{current_cam_x.round() as i32}, {current_cam_y.round() as i32}]" }
+                    span { style: "color: #8da2c0; margin-left: 6px;", "ZOOM: " }
+                    span { style: "color: #ffd700; font-weight: 700;", "{(current_zoom * 100.0).round() as i32}%" }
+                    button {
+                        style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
+                        onclick: move |_| {
+                            let cur_z = *zoom.read();
+                            zoom.set((cur_z * 1.25).clamp(0.08, 3.0));
+                        },
+                        "+"
+                    }
+                    button {
+                        style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
+                        onclick: move |_| {
+                            let cur_z = *zoom.read();
+                            zoom.set((cur_z * 0.8).clamp(0.08, 3.0));
+                        },
+                        "-"
+                    }
+                    button {
+                        style: "background: #0284c7; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 600; margin-left: 4px;",
+                        onclick: move |_| {
+                            cam_offset_x.set(0.0);
+                            cam_offset_y.set(0.0);
+                            zoom.set(0.85);
+                        },
+                        "⌂ Schiff"
+                    }
+                    button {
+                        style: "background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 600;",
+                        onclick: move |_| {
+                            cam_offset_x.set(-ship_pos_x);
+                            cam_offset_y.set(-ship_pos_y);
+                        },
+                        "⌂ Mega-Station"
+                    }
                 }
             }
 
@@ -1261,6 +1352,12 @@ fn BaseDashboardScreen(
     let state = (ctx.state)();
     let mut copied = use_signal(|| false);
     let mut selected_target = use_signal(|| None::<SelectedEntity>);
+    let mut cam_offset_x = use_signal(|| 0.0f64);
+    let mut cam_offset_y = use_signal(|| 0.0f64);
+    let mut zoom = use_signal(|| 0.85f64);
+    let mut is_dragging = use_signal(|| false);
+    let mut drag_start = use_signal(|| (0.0f64, 0.0f64));
+    let mut drag_distance = use_signal(|| 0.0f64);
 
     // Periodic tick to refresh elapsed time reactively (for 30s API active window)
     let mut time_tick = use_signal(|| 0u32);
@@ -1473,12 +1570,20 @@ fn BaseDashboardScreen(
 
                                                 let my_current_base = my_current_bases.first();
                                                 let time = js_sys::Date::now() / 1000.0;
+                                                let cam_x =
+                                                    b_center.x as f64 + *cam_offset_x.read();
+                                                let cam_y =
+                                                    b_center.y as f64 + *cam_offset_y.read();
+                                                let cur_zoom = *zoom.read();
 
                                                 render_player_radar(
                                                     &ctx_2d,
                                                     css_w,
                                                     css_h,
                                                     dpr,
+                                                    cam_x,
+                                                    cam_y,
+                                                    cur_zoom,
                                                     b_center.clone(),
                                                     p_hue,
                                                     configs.first(),
@@ -1542,139 +1647,11 @@ fn BaseDashboardScreen(
         }
     };
 
-    let on_canvas_click = move |evt: ::dioxus::prelude::MouseEvent| {
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(w) = web_sys::window() {
-                if let Some(doc) = w.document() {
-                    if let Some(canvas_el) = doc.get_element_by_id("base-radar-canvas") {
-                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
-                            let rect = canvas.get_bounding_client_rect();
-                            if rect.width() > 0.0 && rect.height() > 0.0 {
-                                let coords = evt.client_coordinates();
-                                let css_x = coords.x - rect.left();
-                                let css_y = coords.y - rect.top();
-
-                                let rel_x = css_x - (rect.width() / 2.0);
-                                let rel_y = css_y - (rect.height() / 2.0);
-
-                                let my_current_bases = (ctx.tables.my_base)();
-                                let my_current_ships = (ctx.tables.my_ships)();
-                                let visible_drones = (ctx.tables.visible_drones)();
-                                let visible_bases = (ctx.tables.visible_bases)();
-                                let visible_asteroids = (ctx.tables.visible_asteroids)();
-                                let configs = (ctx.tables.config)();
-
-                                let time = js_sys::Date::now() / 1000.0;
-                                let world_w = configs.first().map_or(3200.0, |c| c.world_size.x);
-                                let world_h = configs.first().map_or(2000.0, |c| c.world_size.y);
-
-                                let b_pos = my_current_bases
-                                    .first()
-                                    .map(|b| b.position.clone())
-                                    .unwrap_or(base_pos.clone());
-
-                                let mut best_candidate: Option<(f64, SelectedEntity)> = None;
-
-                                // 1. Heimatbasis
-                                let dist_home = (rel_x * rel_x + rel_y * rel_y).sqrt();
-                                if dist_home <= 34.0 {
-                                    best_candidate = Some((dist_home, SelectedEntity::Heimatbasis));
-                                }
-
-                                // 2. My ships
-                                for s in &my_current_ships {
-                                    let sx = s.position.x as f64 - b_pos.x as f64;
-                                    let sy = s.position.y as f64 - b_pos.y as f64;
-                                    let dist = ((rel_x - sx).powi(2) + (rel_y - sy).powi(2)).sqrt();
-                                    if dist <= 28.0 {
-                                        if best_candidate.as_ref().map_or(true, |(d, _)| dist < *d)
-                                        {
-                                            best_candidate =
-                                                Some((dist, SelectedEntity::MyShip(s.ship_id)));
-                                        }
-                                    }
-                                }
-
-                                // 3. Foreign drones
-                                for d in &visible_drones {
-                                    if !my_current_ships.iter().any(|s| s.ship_id == d.ship_id) {
-                                        let dx = d.position.x as f64 - b_pos.x as f64;
-                                        let dy = d.position.y as f64 - b_pos.y as f64;
-                                        let dist =
-                                            ((rel_x - dx).powi(2) + (rel_y - dy).powi(2)).sqrt();
-                                        if dist <= 28.0 {
-                                            if best_candidate
-                                                .as_ref()
-                                                .map_or(true, |(d, _)| dist < *d)
-                                            {
-                                                best_candidate = Some((
-                                                    dist,
-                                                    SelectedEntity::ForeignDrone(d.ship_id),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 4. Asteroids
-                                for ast in &visible_asteroids {
-                                    let (ix, iy) =
-                                        get_interpolated_asteroid_pos(ast, time, world_w, world_h);
-                                    let ax = ix - b_pos.x as f64;
-                                    let ay = iy - b_pos.y as f64;
-                                    let tolerance = ((ast.radius as f64) * 0.75).max(12.0) + 16.0;
-                                    let dist = ((rel_x - ax).powi(2) + (rel_y - ay).powi(2)).sqrt();
-                                    if dist <= tolerance {
-                                        if best_candidate.as_ref().map_or(true, |(d, _)| dist < *d)
-                                        {
-                                            best_candidate = Some((
-                                                dist,
-                                                SelectedEntity::Asteroid(ast.asteroid_id),
-                                            ));
-                                        }
-                                    }
-                                }
-
-                                // 5. Foreign bases
-                                for fb in &visible_bases {
-                                    if my_current_bases
-                                        .first()
-                                        .map_or(true, |b| b.base_id != fb.base_id)
-                                    {
-                                        let bx = fb.position.x as f64 - b_pos.x as f64;
-                                        let by = fb.position.y as f64 - b_pos.y as f64;
-                                        let dist =
-                                            ((rel_x - bx).powi(2) + (rel_y - by).powi(2)).sqrt();
-                                        if dist <= 32.0 {
-                                            if best_candidate
-                                                .as_ref()
-                                                .map_or(true, |(d, _)| dist < *d)
-                                            {
-                                                best_candidate = Some((
-                                                    dist,
-                                                    SelectedEntity::ForeignBase(fb.base_id),
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if let Some((_, entity)) = best_candidate {
-                                    if entity == SelectedEntity::Heimatbasis {
-                                        on_open_heimatbasis.call(());
-                                    }
-                                    selected_target.set(Some(entity));
-                                } else {
-                                    selected_target.set(None);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
+    let b_pos_x = base.position.x as f64;
+    let b_pos_y = base.position.y as f64;
+    let current_cam_x = b_pos_x + *cam_offset_x.read();
+    let current_cam_y = b_pos_y + *cam_offset_y.read();
+    let current_zoom = *zoom.read();
 
     rsx! {
         div {
@@ -1682,11 +1659,152 @@ fn BaseDashboardScreen(
 
             // Left / Main: Local Sensor Radar
             div {
-                style: "flex: 1; height: 100%; position: relative; background: #050a16; display: flex; align-items: center; justify-content: center; overflow: hidden;",
+                style: if *is_dragging.read() {
+                    "flex: 1; height: 100%; position: relative; background: #050a16; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: grabbing;"
+                } else {
+                    "flex: 1; height: 100%; position: relative; background: #050a16; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: crosshair;"
+                },
+                onmousedown: move |evt| {
+                    is_dragging.set(true);
+                    drag_start.set((evt.client_coordinates().x, evt.client_coordinates().y));
+                    drag_distance.set(0.0);
+                },
+                onmousemove: move |evt| {
+                    if *is_dragging.read() {
+                        let (sx, sy) = *drag_start.read();
+                        let cx = evt.client_coordinates().x;
+                        let cy = evt.client_coordinates().y;
+                        let dx = cx - sx;
+                        let dy = cy - sy;
+                        let cur_dist = *drag_distance.read();
+                        drag_distance.set(cur_dist + dx.hypot(dy));
+                        drag_start.set((cx, cy));
+                        let z = *zoom.read();
+                        let cur_x = *cam_offset_x.read();
+                        let cur_y = *cam_offset_y.read();
+                        cam_offset_x.set(cur_x - dx / z);
+                        cam_offset_y.set(cur_y - dy / z);
+                    }
+                },
+                onmouseup: move |evt| {
+                    let was_dragging = *is_dragging.read();
+                    is_dragging.set(false);
+                    if was_dragging && *drag_distance.read() < 6.0 {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            if let Some(w) = web_sys::window() {
+                                if let Some(doc) = w.document() {
+                                    if let Some(canvas_el) = doc.get_element_by_id("base-radar-canvas") {
+                                        if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
+                                            let rect = canvas.get_bounding_client_rect();
+                                            if rect.width() > 0.0 && rect.height() > 0.0 {
+                                                let coords = evt.client_coordinates();
+                                                let css_x = coords.x - rect.left();
+                                                let css_y = coords.y - rect.top();
+
+                                                let rel_x = css_x - (rect.width() / 2.0);
+                                                let rel_y = css_y - (rect.height() / 2.0);
+
+                                                let my_current_bases = (ctx.tables.my_base)();
+                                                let my_current_ships = (ctx.tables.my_ships)();
+                                                let visible_drones = (ctx.tables.visible_drones)();
+                                                let visible_bases = (ctx.tables.visible_bases)();
+                                                let visible_asteroids = (ctx.tables.visible_asteroids)();
+
+                                                let b_pos = my_current_bases
+                                                    .first()
+                                                    .map(|b| b.position.clone())
+                                                    .unwrap_or(base_pos.clone());
+
+                                                let z = *zoom.read();
+                                                let cam_x = b_pos.x as f64 + *cam_offset_x.read();
+                                                let cam_y = b_pos.y as f64 + *cam_offset_y.read();
+
+                                                let click_world_x = cam_x + rel_x / z;
+                                                let click_world_y = cam_y + rel_y / z;
+
+                                                let mut best_candidate: Option<(f64, SelectedEntity)> = None;
+
+                                                // 1. Heimatbasis
+                                                let dist_home = ((click_world_x - b_pos.x as f64).powi(2) + (click_world_y - b_pos.y as f64).powi(2)).sqrt() * z;
+                                                if dist_home <= 34.0 {
+                                                    best_candidate = Some((dist_home, SelectedEntity::Heimatbasis));
+                                                }
+
+                                                // 2. My ships
+                                                for s in &my_current_ships {
+                                                    let dist = ((click_world_x - s.position.x as f64).powi(2) + (click_world_y - s.position.y as f64).powi(2)).sqrt() * z;
+                                                    if dist <= 28.0 {
+                                                        if best_candidate.as_ref().map_or(true, |(d, _)| dist < *d) {
+                                                            best_candidate = Some((dist, SelectedEntity::MyShip(s.ship_id)));
+                                                        }
+                                                    }
+                                                }
+
+                                                // 3. Foreign drones
+                                                for d in &visible_drones {
+                                                    if !my_current_ships.iter().any(|s| s.ship_id == d.ship_id) {
+                                                        let dist = ((click_world_x - d.position.x as f64).powi(2) + (click_world_y - d.position.y as f64).powi(2)).sqrt() * z;
+                                                        if dist <= 28.0 {
+                                                            if best_candidate.as_ref().map_or(true, |(d, _)| dist < *d) {
+                                                                best_candidate = Some((dist, SelectedEntity::ForeignDrone(d.ship_id)));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // 4. Asteroids
+                                                for ast in &visible_asteroids {
+                                                    let dist = ((click_world_x - ast.position.x as f64).powi(2) + (click_world_y - ast.position.y as f64).powi(2)).sqrt();
+                                                    let tolerance = ((ast.radius as f64) * 0.75).max(12.0) + (16.0 / z.min(1.0));
+                                                    if dist <= tolerance {
+                                                        let dist_screen = dist * z;
+                                                        if best_candidate.as_ref().map_or(true, |(d, _)| dist_screen < *d) {
+                                                            best_candidate = Some((dist_screen, SelectedEntity::Asteroid(ast.asteroid_id)));
+                                                        }
+                                                    }
+                                                }
+
+                                                // 5. Foreign bases
+                                                for fb in &visible_bases {
+                                                    if my_current_bases.first().map_or(true, |b| b.base_id != fb.base_id) {
+                                                        let dist = ((click_world_x - fb.position.x as f64).powi(2) + (click_world_y - fb.position.y as f64).powi(2)).sqrt() * z;
+                                                        if dist <= 32.0 {
+                                                            if best_candidate.as_ref().map_or(true, |(d, _)| dist < *d) {
+                                                                best_candidate = Some((dist, SelectedEntity::ForeignBase(fb.base_id)));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                if let Some((_, entity)) = best_candidate {
+                                                    if entity == SelectedEntity::Heimatbasis {
+                                                        on_open_heimatbasis.call(());
+                                                    }
+                                                    selected_target.set(Some(entity));
+                                                } else {
+                                                    selected_target.set(None);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                onmouseleave: move |_| {
+                    is_dragging.set(false);
+                },
+                onwheel: move |evt| {
+                    let delta_y = evt.delta().strip_units().y;
+                    let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
+                    let cur_z = *zoom.read();
+                    zoom.set((cur_z * factor).clamp(0.08, 3.0));
+                },
                 canvas {
                     id: "base-radar-canvas",
-                    style: "width: 100%; height: 100%; display: block; cursor: crosshair;",
-                    onclick: on_canvas_click,
+                    style: "width: 100%; height: 100%; display: block;",
                 }
                 div {
                     style: "position: absolute; top: 16px; left: 20px; display: flex; gap: 10px;",
@@ -1698,8 +1816,53 @@ fn BaseDashboardScreen(
                     }
                 }
                 div {
-                    style: "position: absolute; bottom: 16px; left: 20px; background: rgba(10, 16, 32, 0.85); padding: 8px 14px; border-radius: 6px; font-size: 12px; color: #94a3b8; border: 1px solid rgba(80, 120, 200, 0.2);",
-                    "ℹ️ Klicke auf Asteroiden, Schiffe oder deine Heimatbasis für Telemetrie-Details."
+                    style: "position: absolute; bottom: 64px; left: 20px; background: rgba(10, 16, 32, 0.85); padding: 6px 12px; border-radius: 6px; font-size: 11px; color: #94a3b8; border: 1px solid rgba(80, 120, 200, 0.2); pointer-events: none;",
+                    "ℹ️ Ziehen zum Bewegen • Scrollen zum Zoomen • Klick wählt Ziel"
+                }
+
+                // HUD Overlay: Camera Info & Center Controls
+                div {
+                    style: "position: absolute; bottom: 16px; left: 20px; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;",
+                    span { style: "color: #8da2c0;", "POS: " }
+                    span { style: "color: #00e5ff; font-weight: 700;", "[{current_cam_x.round() as i32}, {current_cam_y.round() as i32}]" }
+                    span { style: "color: #8da2c0; margin-left: 6px;", "ZOOM: " }
+                    span { style: "color: #ffd700; font-weight: 700;", "{(current_zoom * 100.0).round() as i32}%" }
+                    button {
+                        style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
+                        onclick: move |_| {
+                            let cur_z = *zoom.read();
+                            zoom.set((cur_z * 1.25).clamp(0.08, 3.0));
+                        },
+                        "+"
+                    }
+                    button {
+                        style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
+                        onclick: move |_| {
+                            let cur_z = *zoom.read();
+                            zoom.set((cur_z * 0.8).clamp(0.08, 3.0));
+                        },
+                        "-"
+                    }
+                    button {
+                        style: "background: #0284c7; color: #fff; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 600; margin-left: 4px;",
+                        onclick: move |_| {
+                            cam_offset_x.set(0.0);
+                            cam_offset_y.set(0.0);
+                            zoom.set(0.85);
+                        },
+                        "⌂ Basis"
+                    }
+                    button {
+                        style: "background: #334155; color: #e2e8f0; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 600;",
+                        onclick: move |_| {
+                            let cur_bx = base.position.x as f64;
+                            let cur_by = base.position.y as f64;
+                            cam_offset_x.set(-cur_bx);
+                            cam_offset_y.set(-cur_by);
+                            zoom.set(0.5);
+                        },
+                        "⌂ Mega-Station"
+                    }
                 }
 
                 // Floating Target Inspector HUD

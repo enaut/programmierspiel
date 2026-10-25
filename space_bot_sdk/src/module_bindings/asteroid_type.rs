@@ -11,6 +11,8 @@ use super::vec_2_type::Vec2;
 pub struct Asteroid {
     pub asteroid_id: u32,
     pub universe: u8,
+    pub chunk_key: u64,
+    pub chunk_index: u16,
     pub position: Vec2,
     pub velocity: Vec2,
     pub resource_type: u8,
@@ -28,6 +30,8 @@ impl __sdk::InModule for Asteroid {
 pub struct AsteroidCols {
     pub asteroid_id: __sdk::__query_builder::Col<Asteroid, u32>,
     pub universe: __sdk::__query_builder::Col<Asteroid, u8>,
+    pub chunk_key: __sdk::__query_builder::Col<Asteroid, u64>,
+    pub chunk_index: __sdk::__query_builder::Col<Asteroid, u16>,
     pub position: __sdk::__query_builder::Col<Asteroid, Vec2>,
     pub velocity: __sdk::__query_builder::Col<Asteroid, Vec2>,
     pub resource_type: __sdk::__query_builder::Col<Asteroid, u8>,
@@ -41,6 +45,8 @@ impl __sdk::__query_builder::HasCols for Asteroid {
         AsteroidCols {
             asteroid_id: __sdk::__query_builder::Col::new(table_name, "asteroid_id"),
             universe: __sdk::__query_builder::Col::new(table_name, "universe"),
+            chunk_key: __sdk::__query_builder::Col::new(table_name, "chunk_key"),
+            chunk_index: __sdk::__query_builder::Col::new(table_name, "chunk_index"),
             position: __sdk::__query_builder::Col::new(table_name, "position"),
             velocity: __sdk::__query_builder::Col::new(table_name, "velocity"),
             resource_type: __sdk::__query_builder::Col::new(table_name, "resource_type"),
@@ -55,6 +61,7 @@ impl __sdk::__query_builder::HasCols for Asteroid {
 /// Provides typed access to indexed columns for query building.
 pub struct AsteroidIxCols {
     pub asteroid_id: __sdk::__query_builder::IxCol<Asteroid, u32>,
+    pub chunk_key: __sdk::__query_builder::IxCol<Asteroid, u64>,
     pub universe: __sdk::__query_builder::IxCol<Asteroid, u8>,
 }
 
@@ -63,6 +70,7 @@ impl __sdk::__query_builder::HasIxCols for Asteroid {
     fn ix_cols(table_name: &'static str) -> Self::IxCols {
         AsteroidIxCols {
             asteroid_id: __sdk::__query_builder::IxCol::new(table_name, "asteroid_id"),
+            chunk_key: __sdk::__query_builder::IxCol::new(table_name, "chunk_key"),
             universe: __sdk::__query_builder::IxCol::new(table_name, "universe"),
         }
     }

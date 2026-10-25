@@ -2,7 +2,7 @@ pub mod math;
 pub mod models;
 pub mod riddles;
 
-use math::{SimpleRng, Vec2, wrap_position};
+use math::{SimpleRng, Vec2, chunk_seed, pack_chunk_key, unpack_chunk_key};
 pub use models::*;
 use spacetimedb::{
     AnonymousViewContext, ReducerContext, ScheduleAt, SpacetimeType, Table, ViewContext, reducer,
@@ -10,15 +10,12 @@ use spacetimedb::{
 };
 use std::time::Duration;
 
-const DEFAULT_WORLD_WIDTH: f32 = 3200.0;
-const DEFAULT_WORLD_HEIGHT: f32 = 2000.0;
-const DEFAULT_MEGASTATION_POS: Vec2 = Vec2::new(1600.0, 1000.0);
+const DEFAULT_WORLD_WIDTH: f32 = 10000.0;
+const DEFAULT_WORLD_HEIGHT: f32 = 10000.0;
+const DEFAULT_MEGASTATION_POS: Vec2 = Vec2::new(0.0, 0.0);
 const DEFAULT_TICK_INTERVAL_MS: u32 = 50; // 20 Ticks/s (50ms interval)
 const DEFAULT_SIGNAL_RADIUS: f32 = 1200.0;
 const MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY: f32 = 250.0;
-const TARGET_ASTEROID_COUNT: usize = 120;
-const MIN_ASTEROID_COUNT: usize = 80;
-const ASTEROID_WRAP_MARGIN: f32 = 50.0;
 
 // ==========================================
 // Lifecycle Reducers
@@ -40,8 +37,8 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
         });
     }
 
-    // 2. Spawn initial Asteroids
-    seed_asteroids(ctx, TARGET_ASTEROID_COUNT);
+    // 2. Spawn initial procedural chunks around Mega-Station
+    update_procedural_chunks(ctx, 0);
 
     // 3. Schedule periodic Game Tick (every 50ms / 20 Ticks/s)
     ctx.db.tick_schedule().insert(TickSchedule {
@@ -51,10 +48,7 @@ pub fn init(ctx: &ReducerContext) -> Result<(), String> {
         ),
     });
 
-    log::info!(
-        "Game Server Initialized with {} asteroids and 50ms tick loop.",
-        TARGET_ASTEROID_COUNT
-    );
+    log::info!("Game Server Initialized with procedural infinite chunks and 50ms tick loop.");
     Ok(())
 }
 
@@ -862,6 +856,18 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
 
                             if asteroid.remaining_ore == 0 {
                                 ctx.db.asteroid().asteroid_id().delete(&ast_id);
+                                let cooldown_micros = 5 * 60 * 1_000_000i64; // 5 minutes
+                                let respawn_at =
+                                    spacetimedb::Timestamp::from_micros_since_unix_epoch(
+                                        ctx.timestamp.to_micros_since_unix_epoch()
+                                            + cooldown_micros,
+                                    );
+                                ctx.db.depleted_asteroid().insert(DepletedAsteroid {
+                                    id: 0,
+                                    chunk_key: asteroid.chunk_key,
+                                    chunk_index: asteroid.chunk_index,
+                                    respawn_at,
+                                });
                                 ship.target_asteroid_id = None;
                                 ship.is_mining = false;
                             } else {
@@ -933,22 +939,9 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
         ctx.db.ship().ship_id().delete(&id);
     }
 
-    // 2. Update Asteroids (Drift and Wrap-around)
-    let min_x = -ASTEROID_WRAP_MARGIN;
-    let max_x = DEFAULT_WORLD_WIDTH + ASTEROID_WRAP_MARGIN;
-    let min_y = -ASTEROID_WRAP_MARGIN;
-    let max_y = DEFAULT_WORLD_HEIGHT + ASTEROID_WRAP_MARGIN;
-
-    for mut asteroid in ctx.db.asteroid().iter() {
-        let new_pos = asteroid.position + asteroid.velocity * dt;
-        asteroid.position = wrap_position(new_pos, min_x, max_x, min_y, max_y);
-        ctx.db.asteroid().asteroid_id().update(asteroid);
-    }
-
-    // Respawn asteroids if count drops below MIN_ASTEROID_COUNT
-    let asteroid_count = ctx.db.asteroid().count() as usize;
-    if asteroid_count < MIN_ASTEROID_COUNT {
-        seed_asteroids(ctx, TARGET_ASTEROID_COUNT.saturating_sub(asteroid_count));
+    // 2. Periodic Procedural Chunk Management & Asteroid Respawns (every 20 ticks = 1 sec)
+    if tick_count % 20 == 0 {
+        update_procedural_chunks(ctx, tick_count.max(0) as u64);
     }
 
     // 250ms periodic sensor sweep (every 5 ticks of 50ms)
@@ -1241,48 +1234,239 @@ pub fn admin_all_asteroids(ctx: &ViewContext) -> Vec<Asteroid> {
 // Helper Functions
 // ==========================================
 
-fn seed_asteroids(ctx: &ReducerContext, count: usize) {
-    let mut rng = SimpleRng::new(ctx.timestamp.to_micros_since_unix_epoch() as u64);
-    let base_x = 100.0;
-    let base_y = 100.0;
-    let width = DEFAULT_WORLD_WIDTH - 200.0;
-    let height = DEFAULT_WORLD_HEIGHT - 200.0;
+pub const CHUNK_SIZE: f32 = 2000.0;
+pub const CHUNK_ACTIVATION_RADIUS: f32 = 5000.0;
+pub const ASTEROID_RESPAWN_COOLDOWN_MICROS: i64 = 5 * 60 * 1_000_000; // 5 minutes
+pub const WORLD_SEED: u64 = 0x9E3779B97F4A7C15;
 
-    let mut spawned = 0;
-    let mut attempts = 0;
-    while spawned < count && attempts < count * 10 {
-        attempts += 1;
+pub fn initial_ore_for_resource(res_type: u8) -> u32 {
+    match res_type {
+        3 => 150, // Titanium
+        2 => 100, // Ice
+        1 => 80,  // Iron
+        _ => 50,  // Generic
+    }
+}
+
+/// Deterministically determines the asteroid count for a chunk (approx 3x density: 18..=36 asteroids).
+#[inline]
+fn chunk_asteroid_count(rng: &mut SimpleRng) -> usize {
+    64 + (rng.next_u64() % 64) as usize
+}
+
+/// Deterministically generates asteroids for chunk (cx, cy) if not already present.
+fn ensure_chunk_asteroids(ctx: &ReducerContext, cx: i32, cy: i32, chunk_key: u64) {
+    let mut rng = SimpleRng::new(chunk_seed(WORLD_SEED, cx, cy));
+    let count = chunk_asteroid_count(&mut rng);
+
+    let existing_indices: std::collections::HashSet<u16> = ctx
+        .db
+        .asteroid()
+        .chunk_key()
+        .filter(&chunk_key)
+        .map(|a| a.chunk_index)
+        .collect();
+
+    let depleted_indices: std::collections::HashSet<u16> = ctx
+        .db
+        .depleted_asteroid()
+        .chunk_key()
+        .filter(&chunk_key)
+        .map(|d| d.chunk_index)
+        .collect();
+
+    for i in 0..count {
         let rx = rng.next_f32();
         let ry = rng.next_f32();
-        let pos = Vec2::new(base_x + rx * width, base_y + ry * height);
+        let pos = Vec2::new(
+            cx as f32 * CHUNK_SIZE + rx * CHUNK_SIZE,
+            cy as f32 * CHUNK_SIZE + ry * CHUNK_SIZE,
+        );
 
-        // Keep asteroids away from Megastation center initially
+        let res_type = (rng.next_u64() % 4) as u8;
+        let ore = initial_ore_for_resource(res_type);
+        let radius = 20.0 + (rng.next_u64() % 3) as f32 * 8.0;
+
+        // Skip safe zone around Mega-Station (300 units)
         if pos.distance(&DEFAULT_MEGASTATION_POS) < 300.0 {
             continue;
         }
 
-        let speed = rng.next_f32_range(10.0, 20.0);
-        let angle = rng.next_f32_range(0.0, std::f32::consts::TAU);
-        let velocity = Vec2::new(angle.cos() * speed, angle.sin() * speed);
-
-        let res_type = (rng.next_u64() % 4) as u8;
-        let ore = match res_type {
-            3 => 150, // Titanium
-            2 => 100, // Ice
-            1 => 80,  // Iron
-            _ => 50,  // Generic
-        };
+        let idx = i as u16;
+        if existing_indices.contains(&idx) || depleted_indices.contains(&idx) {
+            continue;
+        }
 
         ctx.db.asteroid().insert(Asteroid {
             asteroid_id: 0,
             universe: 0,
+            chunk_key,
+            chunk_index: idx,
             position: pos,
-            velocity,
+            velocity: Vec2::ZERO,
             resource_type: res_type,
             remaining_ore: ore,
-            radius: 20.0 + (rng.next_u64() % 3) as f32 * 8.0,
+            radius,
         });
-        spawned += 1;
+    }
+}
+
+/// Respawn a single asteroid by re-evaluating its deterministic generator properties.
+fn respawn_chunk_asteroid_by_index(
+    ctx: &ReducerContext,
+    cx: i32,
+    cy: i32,
+    chunk_key: u64,
+    target_index: u16,
+) {
+    let mut rng = SimpleRng::new(chunk_seed(WORLD_SEED, cx, cy));
+    let count = chunk_asteroid_count(&mut rng);
+    if (target_index as usize) >= count {
+        return;
+    }
+
+    for i in 0..count {
+        let rx = rng.next_f32();
+        let ry = rng.next_f32();
+        let pos = Vec2::new(
+            cx as f32 * CHUNK_SIZE + rx * CHUNK_SIZE,
+            cy as f32 * CHUNK_SIZE + ry * CHUNK_SIZE,
+        );
+
+        let res_type = (rng.next_u64() % 4) as u8;
+        let ore = initial_ore_for_resource(res_type);
+        let radius = 20.0 + (rng.next_u64() % 3) as f32 * 8.0;
+
+        if i == target_index as usize {
+            if pos.distance(&DEFAULT_MEGASTATION_POS) >= 300.0 {
+                let already = ctx
+                    .db
+                    .asteroid()
+                    .chunk_key()
+                    .filter(&chunk_key)
+                    .any(|a| a.chunk_index == target_index);
+                if !already {
+                    ctx.db.asteroid().insert(Asteroid {
+                        asteroid_id: 0,
+                        universe: 0,
+                        chunk_key,
+                        chunk_index: target_index,
+                        position: pos,
+                        velocity: Vec2::ZERO,
+                        resource_type: res_type,
+                        remaining_ore: ore,
+                        radius,
+                    });
+                }
+            }
+            break;
+        }
+    }
+}
+
+/// Periodic management of active chunks, depleted asteroid cooldowns, and memory pruning.
+fn update_procedural_chunks(ctx: &ReducerContext, tick_count: u64) {
+    // 1. Process depleted asteroid respawns
+    let now = ctx.timestamp;
+    let depleted_to_respawn: Vec<(u64, u64, u16)> = ctx
+        .db
+        .depleted_asteroid()
+        .iter()
+        .filter(|d| now >= d.respawn_at)
+        .map(|d| (d.id, d.chunk_key, d.chunk_index))
+        .collect();
+
+    for (dep_id, chunk_key, chunk_idx) in depleted_to_respawn {
+        ctx.db.depleted_asteroid().id().delete(&dep_id);
+        let (cx, cy) = unpack_chunk_key(chunk_key);
+        respawn_chunk_asteroid_by_index(ctx, cx, cy, chunk_key, chunk_idx);
+    }
+
+    // 2. Identify all active entity locations
+    let mut entity_positions = Vec::new();
+    entity_positions.push(DEFAULT_MEGASTATION_POS); // Mega-Station origin is always active
+
+    for base in ctx.db.base_station().iter() {
+        entity_positions.push(base.position);
+    }
+
+    for ship in ctx.db.ship().iter() {
+        if !ship.is_stranded {
+            entity_positions.push(ship.position);
+        }
+    }
+
+    // 3. Find all chunks required within CHUNK_ACTIVATION_RADIUS of any entity
+    let mut required_chunks = std::collections::HashSet::new();
+    for pos in &entity_positions {
+        let min_cx = ((pos.x - CHUNK_ACTIVATION_RADIUS) / CHUNK_SIZE).floor() as i32;
+        let max_cx = ((pos.x + CHUNK_ACTIVATION_RADIUS) / CHUNK_SIZE).floor() as i32;
+        let min_cy = ((pos.y - CHUNK_ACTIVATION_RADIUS) / CHUNK_SIZE).floor() as i32;
+        let max_cy = ((pos.y + CHUNK_ACTIVATION_RADIUS) / CHUNK_SIZE).floor() as i32;
+
+        for cx in min_cx..=max_cx {
+            for cy in min_cy..=max_cy {
+                let chunk_center = Vec2::new(
+                    (cx as f32 + 0.5) * CHUNK_SIZE,
+                    (cy as f32 + 0.5) * CHUNK_SIZE,
+                );
+                if pos.distance(&chunk_center) <= CHUNK_ACTIVATION_RADIUS + (CHUNK_SIZE * 0.71) {
+                    required_chunks.insert((cx, cy, pack_chunk_key(cx, cy)));
+                }
+            }
+        }
+    }
+
+    let required_keys: std::collections::HashSet<u64> =
+        required_chunks.iter().map(|(_, _, k)| *k).collect();
+
+    // 4. Activate new chunks or update last_active_tick
+    for (cx, cy, key) in required_chunks {
+        if let Some(mut active) = ctx.db.active_chunk().chunk_key().find(&key) {
+            active.last_active_tick = tick_count;
+            ctx.db.active_chunk().chunk_key().update(active);
+        } else {
+            ctx.db.active_chunk().insert(ActiveChunk {
+                chunk_key: key,
+                chunk_x: cx,
+                chunk_y: cy,
+                last_active_tick: tick_count,
+            });
+            ensure_chunk_asteroids(ctx, cx, cy, key);
+        }
+    }
+
+    // 5. Unload / prune chunks that have been inactive for > 200 ticks (10s)
+    let chunks_to_check: Vec<ActiveChunk> = ctx.db.active_chunk().iter().collect();
+    for chunk in chunks_to_check {
+        if !required_keys.contains(&chunk.chunk_key) {
+            if tick_count.saturating_sub(chunk.last_active_tick) > 200 {
+                // Prune pristine asteroids in this chunk to reclaim memory
+                let pristine_ids: Vec<u32> = ctx
+                    .db
+                    .asteroid()
+                    .chunk_key()
+                    .filter(&chunk.chunk_key)
+                    .filter(|a| a.remaining_ore == initial_ore_for_resource(a.resource_type))
+                    .map(|a| a.asteroid_id)
+                    .collect();
+
+                for ast_id in pristine_ids {
+                    ctx.db.asteroid().asteroid_id().delete(&ast_id);
+                }
+
+                // If no asteroids remain in this chunk, delete active_chunk row
+                let remaining_count = ctx
+                    .db
+                    .asteroid()
+                    .chunk_key()
+                    .filter(&chunk.chunk_key)
+                    .count();
+                if remaining_count == 0 {
+                    ctx.db.active_chunk().chunk_key().delete(&chunk.chunk_key);
+                }
+            }
+        }
     }
 }
 
@@ -1312,5 +1496,18 @@ mod tests {
 
         // Edge case: Level 0 (saturating_sub prevents underflow)
         assert_eq!(calculate_riddle_cost(0, 0), 1);
+    }
+
+    #[test]
+    fn test_chunk_asteroid_count() {
+        for s in 0..100 {
+            let mut rng = SimpleRng::new(s);
+            let count = chunk_asteroid_count(&mut rng);
+            assert!(
+                count >= 18 && count <= 36,
+                "count {} out of expected 18..=36 range",
+                count
+            );
+        }
     }
 }
