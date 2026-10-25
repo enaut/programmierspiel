@@ -25,9 +25,11 @@ pub struct TableSignals {
     pub admin_all_ships: SyncSignal<Vec<Ship>>,
     pub config: SyncSignal<Vec<Config>>,
     pub game_event: SyncSignal<Vec<GameEvent>>,
+    pub my_active_riddle: SyncSignal<Vec<PublicRiddle>>,
     pub my_base: SyncSignal<Vec<BaseStation>>,
     pub my_ships: SyncSignal<Vec<Ship>>,
     pub player: SyncSignal<Vec<Player>>,
+    pub player_achievement: SyncSignal<Vec<PlayerAchievement>>,
     pub total_players: SyncSignal<Vec<CountRow>>,
     pub unidentified_objects: SyncSignal<Vec<UnidentifiedContact>>,
     pub visible_asteroids: SyncSignal<Vec<PerceivedAsteroid>>,
@@ -213,9 +215,11 @@ pub fn use_spacetimedb_context_provider(
         admin_all_ships: use_signal_sync(Vec::new),
         config: use_signal_sync(Vec::new),
         game_event: use_signal_sync(Vec::new),
+        my_active_riddle: use_signal_sync(Vec::new),
         my_base: use_signal_sync(Vec::new),
         my_ships: use_signal_sync(Vec::new),
         player: use_signal_sync(Vec::new),
+        player_achievement: use_signal_sync(Vec::new),
         total_players: use_signal_sync(Vec::new),
         unidentified_objects: use_signal_sync(Vec::new),
         visible_asteroids: use_signal_sync(Vec::new),
@@ -351,6 +355,22 @@ pub fn use_spacetimedb_context_provider(
                             let updated: Vec<GameEvent> = ctx.db.game_event().iter().collect();
                             table_signals_on_connect.game_event.set(updated);
                         });
+                        // Populate initial rows for my_active_riddle
+                        let current: Vec<PublicRiddle> =
+                            conn.db.my_active_riddle().iter().collect();
+                        table_signals_on_connect.my_active_riddle.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.my_active_riddle().on_insert(move |ctx, _row| {
+                            let updated: Vec<PublicRiddle> =
+                                ctx.db.my_active_riddle().iter().collect();
+                            table_signals_on_connect.my_active_riddle.set(updated);
+                        });
+                        conn.db.my_active_riddle().on_delete(move |ctx, _row| {
+                            let updated: Vec<PublicRiddle> =
+                                ctx.db.my_active_riddle().iter().collect();
+                            table_signals_on_connect.my_active_riddle.set(updated);
+                        });
                         // Populate initial rows for my_base
                         let current: Vec<BaseStation> = conn.db.my_base().iter().collect();
                         table_signals_on_connect.my_base.set(current);
@@ -393,6 +413,29 @@ pub fn use_spacetimedb_context_provider(
                         conn.db.player().on_delete(move |ctx, _row| {
                             let updated: Vec<Player> = ctx.db.player().iter().collect();
                             table_signals_on_connect.player.set(updated);
+                        });
+                        // Populate initial rows for player_achievement
+                        let current: Vec<PlayerAchievement> =
+                            conn.db.player_achievement().iter().collect();
+                        table_signals_on_connect.player_achievement.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.player_achievement().on_insert(move |ctx, _row| {
+                            let updated: Vec<PlayerAchievement> =
+                                ctx.db.player_achievement().iter().collect();
+                            table_signals_on_connect.player_achievement.set(updated);
+                        });
+                        conn.db
+                            .player_achievement()
+                            .on_update(move |ctx, _old, _new| {
+                                let updated: Vec<PlayerAchievement> =
+                                    ctx.db.player_achievement().iter().collect();
+                                table_signals_on_connect.player_achievement.set(updated);
+                            });
+                        conn.db.player_achievement().on_delete(move |ctx, _row| {
+                            let updated: Vec<PlayerAchievement> =
+                                ctx.db.player_achievement().iter().collect();
+                            table_signals_on_connect.player_achievement.set(updated);
                         });
                         // Populate initial rows for total_players
                         let current: Vec<CountRow> = conn.db.total_players().iter().collect();
@@ -697,6 +740,13 @@ pub fn use_table_game_event() -> SyncSignal<Vec<GameEvent>> {
     ctx.tables.game_event
 }
 
+/// Get a reactive signal containing all rows of the `my_active_riddle` table.
+#[must_use]
+pub fn use_table_my_active_riddle() -> SyncSignal<Vec<PublicRiddle>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.my_active_riddle
+}
+
 /// Get a reactive signal containing all rows of the `my_base` table.
 #[must_use]
 pub fn use_table_my_base() -> SyncSignal<Vec<BaseStation>> {
@@ -716,6 +766,13 @@ pub fn use_table_my_ships() -> SyncSignal<Vec<Ship>> {
 pub fn use_table_player() -> SyncSignal<Vec<Player>> {
     let ctx = use_spacetimedb_context();
     ctx.tables.player
+}
+
+/// Get a reactive signal containing all rows of the `player_achievement` table.
+#[must_use]
+pub fn use_table_player_achievement() -> SyncSignal<Vec<PlayerAchievement>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.player_achievement
 }
 
 /// Get a reactive signal containing all rows of the `total_players` table.
@@ -840,6 +897,94 @@ pub fn use_reducer_admin_set_phase_async()
                     let _ = tx.send(res);
                 })
             {
+                return Err(e.to_string());
+            }
+            match rx.await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(err))) => Err(err),
+                Ok(Err(sdk_err)) => Err(sdk_err.to_string()),
+                Err(_) => Err("Request cancelled".to_string()),
+            }
+        })
+    }
+}
+
+/// Get a callback to invoke the `api_heartbeat` reducer.
+#[must_use]
+pub fn use_reducer_api_heartbeat() -> impl Fn() -> spacetimedb_sdk::Result<()> + Clone + 'static {
+    let conn_signal = use_connection();
+
+    move || {
+        if let Some(conn) = conn_signal().as_ref() {
+            conn.reducers.api_heartbeat()
+        } else {
+            Err(spacetimedb_sdk::Error::Disconnected)
+        }
+    }
+}
+
+/// Invoke the `api_heartbeat` reducer and get a reactive signal for its completion status.
+///
+/// Returns `(invoke, result)`. Calling `invoke(...)` sends the reducer invocation to the server.
+/// The `result` signal is updated to `Some(Ok(()))` on success or `Some(Err(message))`
+/// on failure once the server notifies completion.
+#[must_use]
+pub fn use_reducer_api_heartbeat_then() -> (
+    impl Fn() + Clone + 'static,
+    SyncSignal<Option<Result<(), String>>>,
+) {
+    let conn_signal = use_connection();
+    let mut result: SyncSignal<Option<Result<(), String>>> = use_signal_sync(|| None);
+
+    let invoke = move || {
+        let mut result = result;
+        result.set(None);
+        if let Some(conn) = conn_signal().as_ref() {
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.api_heartbeat_then(move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
+                result.set(Some(Err(e.to_string())));
+                return;
+            }
+            spawn(async move {
+                if let Ok(res) = rx.await {
+                    let flattened = match res {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(module_err)) => Err(module_err),
+                        Err(sdk_err) => Err(sdk_err.to_string()),
+                    };
+                    result.set(Some(flattened));
+                }
+            });
+        } else {
+            result.set(Some(Err("Disconnected from SpacetimeDB".to_string())));
+        }
+    };
+
+    (invoke, result)
+}
+
+/// Invoke the `api_heartbeat` reducer asynchronously and await its completion.
+///
+/// Returns a closure that can be called to invoke the reducer and `await` its completion directly.
+#[must_use]
+pub fn use_reducer_api_heartbeat_async()
+-> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>
++ Clone
++ 'static {
+    let conn_signal = use_connection();
+
+    move || -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> {
+        let conn = conn_signal();
+        Box::pin(async move {
+            let Some(conn) = conn.as_ref() else {
+                return Err("Disconnected from SpacetimeDB".to_string());
+            };
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.api_heartbeat_then(move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
                 return Err(e.to_string());
             }
             match rx.await {
@@ -1308,6 +1453,192 @@ pub fn use_reducer_register_player_async()
                 .register_player_then(name, color_hue, move |_ctx, res| {
                     let _ = tx.send(res);
                 })
+            {
+                return Err(e.to_string());
+            }
+            match rx.await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(err))) => Err(err),
+                Ok(Err(sdk_err)) => Err(sdk_err.to_string()),
+                Err(_) => Err("Request cancelled".to_string()),
+            }
+        })
+    }
+}
+
+/// Get a callback to invoke the `request_riddle` reducer.
+#[must_use]
+pub fn use_reducer_request_riddle() -> impl Fn(u8) -> spacetimedb_sdk::Result<()> + Clone + 'static
+{
+    let conn_signal = use_connection();
+
+    move |track: u8| {
+        if let Some(conn) = conn_signal().as_ref() {
+            conn.reducers.request_riddle(track)
+        } else {
+            Err(spacetimedb_sdk::Error::Disconnected)
+        }
+    }
+}
+
+/// Invoke the `request_riddle` reducer and get a reactive signal for its completion status.
+///
+/// Returns `(invoke, result)`. Calling `invoke(...)` sends the reducer invocation to the server.
+/// The `result` signal is updated to `Some(Ok(()))` on success or `Some(Err(message))`
+/// on failure once the server notifies completion.
+#[must_use]
+pub fn use_reducer_request_riddle_then() -> (
+    impl Fn(u8) + Clone + 'static,
+    SyncSignal<Option<Result<(), String>>>,
+) {
+    let conn_signal = use_connection();
+    let mut result: SyncSignal<Option<Result<(), String>>> = use_signal_sync(|| None);
+
+    let invoke = move |track: u8| {
+        let mut result = result;
+        result.set(None);
+        if let Some(conn) = conn_signal().as_ref() {
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.request_riddle_then(track, move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
+                result.set(Some(Err(e.to_string())));
+                return;
+            }
+            spawn(async move {
+                if let Ok(res) = rx.await {
+                    let flattened = match res {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(module_err)) => Err(module_err),
+                        Err(sdk_err) => Err(sdk_err.to_string()),
+                    };
+                    result.set(Some(flattened));
+                }
+            });
+        } else {
+            result.set(Some(Err("Disconnected from SpacetimeDB".to_string())));
+        }
+    };
+
+    (invoke, result)
+}
+
+/// Invoke the `request_riddle` reducer asynchronously and await its completion.
+///
+/// Returns a closure that can be called to invoke the reducer and `await` its completion directly.
+#[must_use]
+pub fn use_reducer_request_riddle_async()
+-> impl Fn(u8) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>
++ Clone
++ 'static {
+    let conn_signal = use_connection();
+
+    move |track: u8| -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> {
+        let conn = conn_signal();
+        Box::pin(async move {
+            let Some(conn) = conn.as_ref() else {
+                return Err("Disconnected from SpacetimeDB".to_string());
+            };
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.request_riddle_then(track, move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
+                return Err(e.to_string());
+            }
+            match rx.await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(err))) => Err(err),
+                Ok(Err(sdk_err)) => Err(sdk_err.to_string()),
+                Err(_) => Err("Request cancelled".to_string()),
+            }
+        })
+    }
+}
+
+/// Get a callback to invoke the `submit_riddle_solution` reducer.
+#[must_use]
+pub fn use_reducer_submit_riddle_solution()
+-> impl Fn(u8, String) -> spacetimedb_sdk::Result<()> + Clone + 'static {
+    let conn_signal = use_connection();
+
+    move |track: u8, solution: String| {
+        if let Some(conn) = conn_signal().as_ref() {
+            conn.reducers.submit_riddle_solution(track, solution)
+        } else {
+            Err(spacetimedb_sdk::Error::Disconnected)
+        }
+    }
+}
+
+/// Invoke the `submit_riddle_solution` reducer and get a reactive signal for its completion status.
+///
+/// Returns `(invoke, result)`. Calling `invoke(...)` sends the reducer invocation to the server.
+/// The `result` signal is updated to `Some(Ok(()))` on success or `Some(Err(message))`
+/// on failure once the server notifies completion.
+#[must_use]
+pub fn use_reducer_submit_riddle_solution_then() -> (
+    impl Fn(u8, String) + Clone + 'static,
+    SyncSignal<Option<Result<(), String>>>,
+) {
+    let conn_signal = use_connection();
+    let mut result: SyncSignal<Option<Result<(), String>>> = use_signal_sync(|| None);
+
+    let invoke = move |track: u8, solution: String| {
+        let mut result = result;
+        result.set(None);
+        if let Some(conn) = conn_signal().as_ref() {
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) =
+                conn.reducers
+                    .submit_riddle_solution_then(track, solution, move |_ctx, res| {
+                        let _ = tx.send(res);
+                    })
+            {
+                result.set(Some(Err(e.to_string())));
+                return;
+            }
+            spawn(async move {
+                if let Ok(res) = rx.await {
+                    let flattened = match res {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(module_err)) => Err(module_err),
+                        Err(sdk_err) => Err(sdk_err.to_string()),
+                    };
+                    result.set(Some(flattened));
+                }
+            });
+        } else {
+            result.set(Some(Err("Disconnected from SpacetimeDB".to_string())));
+        }
+    };
+
+    (invoke, result)
+}
+
+/// Invoke the `submit_riddle_solution` reducer asynchronously and await its completion.
+///
+/// Returns a closure that can be called to invoke the reducer and `await` its completion directly.
+#[must_use]
+pub fn use_reducer_submit_riddle_solution_async()
+-> impl Fn(u8, String) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>
++ Clone
++ 'static {
+    let conn_signal = use_connection();
+
+    move |track: u8,
+          solution: String|
+          -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> {
+        let conn = conn_signal();
+        Box::pin(async move {
+            let Some(conn) = conn.as_ref() else {
+                return Err("Disconnected from SpacetimeDB".to_string());
+            };
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) =
+                conn.reducers
+                    .submit_riddle_solution_then(track, solution, move |_ctx, res| {
+                        let _ = tx.send(res);
+                    })
             {
                 return Err(e.to_string());
             }

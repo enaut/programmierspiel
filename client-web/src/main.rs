@@ -3,14 +3,16 @@ pub mod radar;
 
 use ::dioxus::prelude::*;
 use ::dioxus::signals::SyncSignal;
+use module_bindings::build_ship_reducer::build_ship;
 use module_bindings::command_ship_reducer::command_ship;
 use module_bindings::deploy_base_station_reducer::deploy_base_station;
 use module_bindings::dioxus::{
     ConnectionState, use_spacetimedb_context, use_spacetimedb_context_provider, use_subscription,
 };
 use module_bindings::register_player_reducer::register_player;
-use module_bindings::{BaseStation, Player, Ship, ShipCommand, Vec2};
+use module_bindings::{BaseStation, Player, PlayerAchievement, Ship, ShipCommand, Vec2};
 use radar::render_player_radar;
+use spacetimedb_sdk::Identity;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
@@ -70,6 +72,7 @@ fn App() -> Element {
     use_subscription(&[
         "SELECT * FROM config",
         "SELECT * FROM player",
+        "SELECT * FROM player_achievement",
         "SELECT * FROM my_base",
         "SELECT * FROM my_ships",
         "SELECT * FROM visible_bases",
@@ -77,6 +80,7 @@ fn App() -> Element {
         "SELECT * FROM visible_asteroids",
         "SELECT * FROM unidentified_objects",
         "SELECT * FROM game_event",
+        "SELECT * FROM my_active_riddle",
     ]);
 
     let ctx = use_spacetimedb_context();
@@ -129,10 +133,16 @@ fn App() -> Element {
     let players = (ctx.tables.player)();
     let my_bases = (ctx.tables.my_base)();
     let my_ships_list = (ctx.tables.my_ships)();
+    let achievements = (ctx.tables.player_achievement)();
+    let mut show_scoreboard = use_signal(|| false);
 
     let my_player = my_identity.and_then(|id| players.iter().find(|p| p.identity == id).cloned());
     let my_base = my_bases.first().cloned();
     let my_ships: Vec<Ship> = my_ships_list;
+
+    let my_unlocked_count = my_identity
+        .map(|id| achievements.iter().filter(|a| a.player == id).count())
+        .unwrap_or(0);
 
     let reg_err_msg = use_signal_sync(|| None::<String>);
     let reg_is_submitting = use_signal_sync(|| false);
@@ -176,6 +186,12 @@ fn App() -> Element {
                             span { style: "font-weight: 600; color: #f1f5f9;", "{p.name}" }
                             span { style: "color: #ffd700; font-size: 12px; font-weight: 700;", "({p.score} Pkt)" }
                         }
+                    }
+                    button {
+                        style: "background: rgba(250, 204, 21, 0.15); border: 1px solid rgba(250, 204, 21, 0.4); color: #fde047; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;",
+                        onclick: move |_| show_scoreboard.set(!show_scoreboard()),
+                        span { "🏆" }
+                        span { "Scoreboard ({my_unlocked_count}/5)" }
                     }
                     span {
                         style: "padding: 3px 10px; border-radius: 10px; font-size: 11px; font-weight: 600; background: rgba(255, 255, 255, 0.08);",
@@ -244,7 +260,18 @@ fn App() -> Element {
                         player: my_player.unwrap(),
                         base: my_base.unwrap(),
                         ships: my_ships,
+                        achievements: achievements.clone(),
                     }
+                }
+            }
+
+            // Scoreboard & Achievements Modal Overlay
+            if show_scoreboard() {
+                ScoreboardModal {
+                    my_identity,
+                    players: players.clone(),
+                    achievements: achievements.clone(),
+                    on_close: move |_| show_scoreboard.set(false),
                 }
             }
         }
@@ -757,10 +784,44 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
 // ==========================================
 
 #[component]
-fn BaseDashboardScreen(player: Player, base: BaseStation, ships: Vec<Ship>) -> Element {
+fn BaseDashboardScreen(
+    player: Player,
+    base: BaseStation,
+    ships: Vec<Ship>,
+    achievements: Vec<PlayerAchievement>,
+) -> Element {
     let ctx = use_spacetimedb_context();
     let state = (ctx.state)();
     let mut copied = use_signal(|| false);
+    let mut show_token = use_signal(|| false);
+
+    // Periodic tick to refresh elapsed time reactively (for 30s API active window)
+    let mut time_tick = use_signal(|| 0u32);
+    use_effect(move || {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(w) = web_sys::window() {
+                let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+                    time_tick += 1;
+                });
+                let _ = w.set_interval_with_callback_and_timeout_and_arguments_0(
+                    closure.as_ref().unchecked_ref(),
+                    1000,
+                );
+                closure.forget();
+            }
+        }
+    });
+
+    let _ = time_tick();
+    let is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
+        let ts_sec = (ts.to_micros_since_unix_epoch() / 1_000_000) as f64;
+        let now_sec = js_sys::Date::now() / 1000.0;
+        (now_sec - ts_sec) <= 30.0
+    });
+
+    let active_riddles = (ctx.tables.my_active_riddle)();
+    let current_riddle = active_riddles.first().cloned();
 
     let token = match state {
         ConnectionState::Connected(_, ref t) => t.clone(),
@@ -898,52 +959,85 @@ fn BaseDashboardScreen(player: Player, base: BaseStation, ships: Vec<Ship>) -> E
             aside {
                 style: "width: 440px; height: 100%; background: #0a1020; border-left: 1px solid rgba(80, 120, 200, 0.2); padding: 24px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px; overflow-y: auto;",
 
-                // Header Notification
-                div {
-                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.3); border-radius: 12px; padding: 20px;",
+                // Header Notification: Hidden as long as in the last 30 sec something was connected via api
+                if !is_api_recently_active {
                     div {
-                        style: "display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; background: rgba(0, 230, 118, 0.15); border: 1px solid rgba(0, 230, 118, 0.3); font-size: 11px; font-weight: 700; color: #00e676; letter-spacing: 0.5px; margin-bottom: 10px;",
-                        "✔ BASIS ETABLIERT"
-                    }
-                    h2 {
-                        style: "margin: 0 0 8px 0; font-size: 18px; font-weight: 700; color: #ffd700;",
-                        "🎉 Heimatbasis aktiv!"
-                    }
-                    p {
-                        style: "margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.4;",
-                        "Die manuelle Maussteuerung ist beendet. Steuere deine Flotte ab jetzt über "
-                        strong { style: "color: #00e5ff;", "Rust-Code im Zed-Editor" }
-                        " via SpacetimeDB!"
+                        style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.3); border-radius: 12px; padding: 20px;",
+                        div {
+                            style: "display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; background: rgba(0, 230, 118, 0.15); border: 1px solid rgba(0, 230, 118, 0.3); font-size: 11px; font-weight: 700; color: #00e676; letter-spacing: 0.5px; margin-bottom: 10px;",
+                            "✔ BASIS ETABLIERT"
+                        }
+                        h2 {
+                            style: "margin: 0 0 8px 0; font-size: 18px; font-weight: 700; color: #ffd700;",
+                            "🎉 Heimatbasis aktiv!"
+                        }
+                        p {
+                            style: "margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.4;",
+                            "Die manuelle Maussteuerung ist beendet. Steuere deine Flotte ab jetzt über "
+                            strong { style: "color: #00e5ff;", "Rust-Code im Zed-Editor" }
+                            " via SpacetimeDB!"
+                        }
                     }
                 }
 
-                // Token One-Click-Copy Box
-                div {
-                    style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 18px;",
-                    label {
-                        style: "display: block; font-size: 11px; font-weight: 700; color: #8da2c0; margin-bottom: 8px; letter-spacing: 0.5px;",
-                        "DEIN PERSÖNLICHER API-IDENTITÄTS-TOKEN:"
-                    }
+                // Token Box: Hidden once API has connected, with a toggle button to reveal it
+                if player.has_api_connected && !show_token() {
                     div {
-                        style: "display: flex; gap: 8px;",
-                        input {
-                            readonly: true,
-                            style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none;",
-                            value: "{token}",
+                        style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;",
+                        div {
+                            style: "display: flex; align-items: center; gap: 8px;",
+                            span { style: "color: #00e676; font-size: 14px;", "●" }
+                            span { style: "font-size: 12px; font-weight: 600; color: #cbd5e1;", "API-Client verbunden" }
+                            if is_api_recently_active {
+                                span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); font-weight: 600;", "Aktiv (<30s)" }
+                            } else {
+                                span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); font-weight: 600;", "Inaktiv (>30s)" }
+                            }
                         }
                         button {
-                            style: if copied() {
-                                "background: #059669; color: #fff; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;"
-                            } else {
-                                "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;"
-                            },
-                            onclick: copy_token,
-                            if copied() { "✔ Kopiert!" } else { "📋 Kopieren" }
+                            style: "background: rgba(255, 255, 255, 0.08); hover:background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.2); color: #cbd5e1; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s;",
+                            onclick: move |_| show_token.set(true),
+                            "📋 Token anzeigen"
                         }
                     }
+                } else {
                     div {
-                        style: "font-size: 11px; color: #64748b; margin-top: 8px;",
-                        "Füge diesen Token in die " code { style: "color: #38bdf8;", "config.toml" } " deines Zed-Bot-Projekts ein."
+                        style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 18px;",
+                        div {
+                            style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+                            label {
+                                style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px;",
+                                "DEIN PERSÖNLICHER API-IDENTITÄTS-TOKEN:"
+                            }
+                            if player.has_api_connected {
+                                button {
+                                    style: "background: transparent; border: none; color: #94a3b8; font-size: 11px; cursor: pointer; padding: 0 4px;",
+                                    onclick: move |_| show_token.set(false),
+                                    "Ausblenden ✕"
+                                }
+                            }
+                        }
+                        div {
+                            style: "display: flex; gap: 8px;",
+                            input {
+                                readonly: true,
+                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 10px 12px; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none;",
+                                value: "{token}",
+                            }
+                            button {
+                                style: if copied() {
+                                    "background: #059669; color: #fff; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;"
+                                } else {
+                                    "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s;"
+                                },
+                                onclick: copy_token,
+                                if copied() { "✔ Kopiert!" } else { "📋 Kopieren" }
+                            }
+                        }
+                        div {
+                            style: "font-size: 11px; color: #64748b; margin-top: 8px;",
+                            "Füge diesen Token in die " code { style: "color: #38bdf8;", "config.toml" } " deines Zed-Bot-Projekts ein."
+                        }
                     }
                 }
 
@@ -980,53 +1074,487 @@ fn BaseDashboardScreen(player: Player, base: BaseStation, ships: Vec<Ship>) -> E
                     }
                 }
 
-                // Zed Steps Instructions
+                // Research & Sensor Upgrades Card
                 div {
-                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
-                    h3 { style: "margin: 0 0 10px 0; font-size: 14px; font-weight: 700; color: #00e5ff;", "🚀 Nächste Schritte in Zed:" }
-                    ol {
-                        style: "margin: 0; padding-left: 20px; font-size: 13px; color: #cbd5e1; display: flex; flex-direction: column; gap: 6px; line-height: 1.4;",
-                        li { "Öffne das Projekt über den Launcher (" strong { "uhlaunch" } ") in Zed." }
-                        li { "Füge den kopierten Token in die " code { style: "background: #1e293b; color: #38bdf8; padding: 2px 4px; border-radius: 4px;", "config.toml" } " ein." }
-                        li { "Schreibe deine Bot-Logik in " code { style: "background: #1e293b; color: #38bdf8; padding: 2px 4px; border-radius: 4px;", "src/ai.rs" } "." }
-                        li { "Starte deinen Drohnenschwarm mit: " code { style: "background: #1e293b; color: #00e676; padding: 2px 4px; border-radius: 4px;", "cargo run" } }
+                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; padding: 18px; box-shadow: 0 4px 20px rgba(0, 229, 255, 0.08);",
+                    div {
+                        style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;",
+                        h3 { style: "margin: 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🧪 Sensor-Forschungszentrum" }
+                        span {
+                            style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);",
+                            "⚠️ 50% Reset-Risiko"
+                        }
+                    }
+                    p {
+                        style: "margin: 0 0 14px 0; font-size: 11px; color: #94a3b8; line-height: 1.3;",
+                        "100 Rätsel pro Stufe • 1 Erz pro Versuch. Falsche Antworten bergen 50% Durchbrenn-Risiko!"
+                    }
+
+                    // Track 1: Drone Scanner
+                    div {
+                        style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                        div {
+                            style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
+                            span { style: "color: #cbd5e1; font-weight: 600;", "🛸 Drohnen-Scan (Sortieren)" }
+                            span { style: "color: #00e5ff; font-weight: 700;", "Stufe {base.drone_scanner_level}/5 ({150 + (base.drone_scanner_level.saturating_sub(1) as u32 * 50)} px)" }
+                        }
+                        div {
+                            style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
+                            div {
+                                style: "height: 100%; width: {base.drone_scanner_progress}%; background: linear-gradient(90deg, #0284c7, #00e5ff); border-radius: 4px; transition: width 0.3s;"
+                            }
+                        }
+                        div {
+                            style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
+                            span { "Fortschritt" }
+                            span { "{base.drone_scanner_progress}% (100 Puzzles nötig)" }
+                        }
+                    }
+
+                    // Track 2: Base & Asteroid Range
+                    div {
+                        style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                        div {
+                            style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
+                            span { style: "color: #cbd5e1; font-weight: 600;", "☄️ Basen- & Asteroiden (Distanz)" }
+                            span { style: "color: #38bdf8; font-weight: 700;", "Stufe {base.base_scanner_level}/5 ({300 + (base.base_scanner_level.saturating_sub(1) as u32 * 100)} px)" }
+                        }
+                        div {
+                            style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
+                            div {
+                                style: "height: 100%; width: {base.base_scanner_progress}%; background: linear-gradient(90deg, #0369a1, #38bdf8); border-radius: 4px; transition: width 0.3s;"
+                            }
+                        }
+                        div {
+                            style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
+                            span { "Fortschritt" }
+                            span { "{base.base_scanner_progress}% (100 Puzzles nötig)" }
+                        }
+                    }
+
+                    // Track 3: Radar Horizon
+                    div {
+                        style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 10px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+                        div {
+                            style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
+                            span { style: "color: #cbd5e1; font-weight: 600;", "📡 Radar-Horizont (Denoise)" }
+                            span { style: "color: #a855f7; font-weight: 700;", "Stufe {base.radar_horizon_level}/5 ({600 + (base.radar_horizon_level.saturating_sub(1) as u32 * 150)} px)" }
+                        }
+                        div {
+                            style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
+                            div {
+                                style: "height: 100%; width: {base.radar_horizon_progress}%; background: linear-gradient(90deg, #7e22ce, #c084fc); border-radius: 4px; transition: width 0.3s;"
+                            }
+                        }
+                        div {
+                            style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
+                            span { "Fortschritt" }
+                            span { "{base.radar_horizon_progress}% (100 Puzzles nötig)" }
+                        }
+                    }
+
+                    // Active Riddle Status
+                    if let Some(ref r) = current_riddle {
+                        div {
+                            style: "padding: 8px 12px; background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; font-size: 11px; color: #fef08a;",
+                            "⏳ Aktives Rätsel: Track {r.track} (Ziel-Stufe {r.target_level}) • Wird in Zed gelöst."
+                        }
                     }
                 }
 
-                // Active Ships Fleet List
-                div {
-                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
-                    h3 { style: "margin: 0 0 12px 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🚀 Deine Flotte ({ships.len()} Schiffe)" }
-                    div {
-                        style: "display: flex; flex-direction: column; gap: 8px;",
-                        for s in ships {
+                // Dynamic Guided Next Steps
+                {
+                    struct StepInfo {
+                        title: &'static str,
+                        desc: &'static str,
+                        cmd: Option<&'static str>,
+                        is_done: bool,
+                    }
+
+                    let has_api = player.has_api_connected;
+                    let has_ore = base.stored_ore > 0
+                        || ships.iter().any(|s| s.cargo_ore > 0 || s.is_mining)
+                        || achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "FIRST_ORE");
+                    let has_research = achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "FIRST_RESEARCH")
+                        || base.drone_scanner_progress > 0
+                        || base.base_scanner_progress > 0
+                        || base.radar_horizon_progress > 0
+                        || base.drone_scanner_level > 1
+                        || base.base_scanner_level > 1
+                        || base.radar_horizon_level > 1;
+                    let has_scanner_upgrade = base.drone_scanner_level >= 2
+                        || base.base_scanner_level >= 2
+                        || base.radar_horizon_level >= 2
+                        || achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "SCANNER_UPGRADE");
+                    let has_fleet_expanded = ships.len() >= 2
+                        || achievements.iter().any(|a| a.player == player.identity && a.achievement_key == "FLEET_EXPANDED");
+
+                    let steps = [
+                        StepInfo {
+                            title: "Heimatbasis etablieren",
+                            desc: "Bauschiff aus der Mega-Station navigiert und Basis errichtet.",
+                            cmd: None,
+                            is_done: true,
+                        },
+                        StepInfo {
+                            title: "Bot-Verbindung aufbauen",
+                            desc: "Kopiere deinen Token und trage ihn in die config.toml deines Zed-Projekts ein.",
+                            cmd: None,
+                            is_done: has_api,
+                        },
+                        StepInfo {
+                            title: "Drohnen-Bergbau starten",
+                            desc: "Starte die Flotten-KI und baue Asteroiden ab, um Erz zu gewinnen.",
+                            cmd: Some("cargo run -p command_center --bin drones"),
+                            is_done: has_ore,
+                        },
+                        StepInfo {
+                            title: "Basis-Forschung aktivieren",
+                            desc: "Starte die Stationsforschung und löse Telemetrie-Puzzles per Rust-Code.",
+                            cmd: Some("cargo run -p command_center --bin base"),
+                            is_done: has_research,
+                        },
+                        StepInfo {
+                            title: "Sensoren auf Stufe 2 ausbauen",
+                            desc: "Löse 100 Rätsel in einem Upgrade-Zweig für verbesserte Radarreichweite.",
+                            cmd: None,
+                            is_done: has_scanner_upgrade,
+                        },
+                        StepInfo {
+                            title: "Flotte erweitern",
+                            desc: "Sammle 50 Erz und baue eine zusätzliche Drohne per API.",
+                            cmd: None,
+                            is_done: has_fleet_expanded,
+                        },
+                    ];
+
+                    let current_idx = steps.iter().position(|s| !s.is_done).unwrap_or(steps.len());
+                    let done_count = steps.iter().filter(|s| s.is_done).count();
+
+                    rsx! {
+                        div {
+                            style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
                             div {
-                                key: "{s.ship_id}",
-                                style: "padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; border-left: 3px solid #00e5ff;",
-                                div {
-                                    style: "display: flex; justify-content: space-between; margin-bottom: 4px;",
-                                    span { style: "font-weight: 700; font-size: 13px;", "Drohne #{s.ship_id} (Tier {s.ship_tier})" }
-                                    span {
-                                        style: if s.is_stranded {
-                                            "color: #ef4444; font-weight: 700; font-size: 11px;"
-                                        } else if s.is_mining {
-                                            "color: #00e5ff; font-weight: 700; font-size: 11px;"
-                                        } else {
-                                            "color: #00e676; font-size: 11px;"
-                                        },
-                                        if s.is_stranded {
-                                            "GESTRANDET"
-                                        } else if s.is_mining {
-                                            "BAUT AB ⛏️"
-                                        } else {
-                                            "BEREIT (API)"
+                                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
+                                h3 { style: "margin: 0; font-size: 14px; font-weight: 700; color: #00e5ff;", "🚀 Missions-Leitfaden (Nächste Schritte):" }
+                                span {
+                                    style: "font-size: 11px; color: #94a3b8; font-weight: 600;",
+                                    "{done_count} / {steps.len()} erledigt"
+                                }
+                            }
+                            div {
+                                style: "display: flex; flex-direction: column; gap: 8px;",
+                                for (idx, step) in steps.iter().enumerate() {
+                                    {
+                                        let is_current = idx == current_idx;
+                                        rsx! {
+                                            div {
+                                                key: "{step.title}",
+                                                style: if step.is_done {
+                                                    "background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px; padding: 10px 12px;"
+                                                } else if is_current {
+                                                    "background: rgba(0, 229, 255, 0.08); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 8px; padding: 12px; box-shadow: 0 0 12px rgba(0, 229, 255, 0.08);"
+                                                } else {
+                                                    "background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 10px 12px; opacity: 0.5;"
+                                                },
+                                                div {
+                                                    style: "display: flex; align-items: center; justify-content: space-between;",
+                                                    div {
+                                                        style: "display: flex; align-items: center; gap: 8px;",
+                                                        span {
+                                                            style: if step.is_done {
+                                                                "color: #00e676; font-size: 13px; font-weight: 700;"
+                                                            } else if is_current {
+                                                                "color: #00e5ff; font-size: 13px; font-weight: 700;"
+                                                            } else {
+                                                                "color: #64748b; font-size: 13px;"
+                                                            },
+                                                            if step.is_done { "✔" } else if is_current { "👉" } else { "○" }
+                                                        }
+                                                        span {
+                                                            style: if step.is_done {
+                                                                "font-size: 13px; font-weight: 600; color: #a7f3d0; text-decoration: line-through;"
+                                                            } else if is_current {
+                                                                "font-size: 13px; font-weight: 700; color: #00e5ff;"
+                                                            } else {
+                                                                "font-size: 13px; color: #94a3b8;"
+                                                            },
+                                                            "{step.title}"
+                                                        }
+                                                    }
+                                                    if is_current {
+                                                        span {
+                                                            style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.2); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.4);",
+                                                            "AKTUELL"
+                                                        }
+                                                    }
+                                                }
+                                                div {
+                                                    style: "font-size: 12px; color: if is_current { \"#cbd5e1\" } else { \"#64748b\" }; margin-top: 4px; margin-left: 21px; line-height: 1.4;",
+                                                    "{step.desc}"
+                                                }
+                                                if is_current {
+                                                    if let Some(cmd) = step.cmd {
+                                                        div {
+                                                            style: "margin-top: 8px; margin-left: 21px; background: #020617; border: 1px solid #1e293b; border-radius: 6px; padding: 6px 10px; font-family: monospace; font-size: 11px; color: #38bdf8;",
+                                                            "{cmd}"
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Active Ships Fleet List & Emergency Rebuild
+                div {
+                    style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
+                    div {
+                        style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
+                        h3 { style: "margin: 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🚀 Deine Flotte ({ships.len()} Schiffe)" }
+                    }
+                    if ships.is_empty() {
+                        div {
+                            style: "background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 10px; padding: 16px; text-align: center; display: flex; flex-direction: column; gap: 10px;",
+                            div {
+                                style: "display: flex; align-items: center; justify-content: center; gap: 8px; color: #fca5a5; font-size: 14px; font-weight: 700;",
+                                span { "🚨" }
+                                span { "Alle Drohnen verloren!" }
+                            }
+                            p {
+                                style: "margin: 0; font-size: 12px; color: #cbd5e1; line-height: 1.4;",
+                                "Du besitzt aktuell keine einsatzbereiten Schiffe mehr im All. Deine Heimatbasis stellt dir sofort eine kostenlose Notfall-Drohne bereit."
+                            }
+                            button {
+                                style: "background: #dc2626; hover:background: #b91c1c; color: #fff; border: none; padding: 12px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);",
+                                onclick: move |_| {
+                                    if let Some(conn) = (ctx.connection)() {
+                                        let _ = conn.reducers.build_ship(1);
+                                    }
+                                },
+                                "🛸 Notfall-Drohne anfordern (Kostenlos)"
+                            }
+                        }
+                    } else {
+                        div {
+                            style: "display: flex; flex-direction: column; gap: 8px;",
+                            for s in ships {
                                 div {
-                                    style: "font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;",
-                                    span { "Fracht: {s.cargo_ore}/{s.max_cargo} Erz" }
-                                    span { "Energie: {s.energy as u32}/{s.max_energy as u32}" }
+                                    key: "{s.ship_id}",
+                                    style: "padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; border-left: 3px solid #00e5ff;",
+                                    div {
+                                        style: "display: flex; justify-content: space-between; margin-bottom: 4px;",
+                                        span { style: "font-weight: 700; font-size: 13px;", "Drohne #{s.ship_id} (Tier {s.ship_tier})" }
+                                        span {
+                                            style: if s.is_stranded {
+                                                "color: #ef4444; font-weight: 700; font-size: 11px;"
+                                            } else if s.is_mining {
+                                                "color: #00e5ff; font-weight: 700; font-size: 11px;"
+                                            } else {
+                                                "color: #00e676; font-size: 11px;"
+                                            },
+                                            if s.is_stranded {
+                                                "GESTRANDET"
+                                            } else if s.is_mining {
+                                                "BAUT AB ⛏️"
+                                            } else {
+                                                "BEREIT (API)"
+                                            }
+                                        }
+                                    }
+                                    div {
+                                        style: "font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between;",
+                                        span { "Fracht: {s.cargo_ore}/{s.max_cargo} Erz" }
+                                        span { "Energie: {s.energy as u32}/{s.max_energy as u32}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// Scoreboard & Achievements Modal
+// ==========================================
+
+#[component]
+fn ScoreboardModal(
+    my_identity: Option<Identity>,
+    players: Vec<Player>,
+    achievements: Vec<PlayerAchievement>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let mut sorted_players = players;
+    sorted_players.sort_by(|a, b| b.score.cmp(&a.score));
+
+    let milestones = [
+        (
+            "BASE_DEPLOYED",
+            "🏛️",
+            "Pionier",
+            "Heimatbasis im All errichtet",
+        ),
+        (
+            "FIRST_ORE",
+            "⛏️",
+            "Asteroiden-Schürfer",
+            "Erstes Erz abgebaut & geliefert",
+        ),
+        (
+            "FIRST_RESEARCH",
+            "🧪",
+            "Akademiker",
+            "Erstes Telemetrie-Forschungsrätsel gelöst",
+        ),
+        (
+            "SCANNER_UPGRADE",
+            "📡",
+            "Scharfe Augen",
+            "Scanner-Zweig auf Stufe 2 ausgebaut",
+        ),
+        (
+            "FLEET_EXPANDED",
+            "🛸",
+            "Flottenadmiral",
+            "Flotte auf mehrere Drohnen vergrößert",
+        ),
+    ];
+
+    rsx! {
+        div {
+            style: "position: fixed; inset: 0; background: rgba(3, 7, 18, 0.85); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px;",
+            onclick: move |_| on_close.call(()),
+            div {
+                style: "background: #0b1329; border: 1px solid rgba(80, 120, 200, 0.4); border-radius: 16px; width: 100%; max-width: 820px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.8); display: flex; flex-direction: column;",
+                onclick: move |e| e.stop_propagation(),
+
+                // Header
+                div {
+                    style: "padding: 20px 24px; border-bottom: 1px solid rgba(80, 120, 200, 0.2); display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6);",
+                    div {
+                        style: "display: flex; align-items: center; gap: 10px;",
+                        span { style: "font-size: 24px;", "🏆" }
+                        h2 { style: "margin: 0; font-size: 18px; font-weight: 700; color: #ffd700;", "Sektor-Scoreboard & Erfolge" }
+                    }
+                    button {
+                        style: "background: rgba(255, 255, 255, 0.08); hover:background: rgba(255, 255, 255, 0.2); border: none; color: #cbd5e1; font-size: 16px; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;",
+                        onclick: move |_| on_close.call(()),
+                        "✕"
+                    }
+                }
+
+                // Body
+                div {
+                    style: "padding: 24px; display: flex; flex-direction: column; gap: 24px;",
+
+                    // Leaderboard Section
+                    div {
+                        h3 { style: "margin: 0 0 12px 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "📊 Piloten-Rangliste" }
+                        div {
+                            style: "background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(80, 120, 200, 0.2); border-radius: 10px; overflow: hidden;",
+                            table {
+                                style: "width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;",
+                                thead {
+                                    style: "background: rgba(255, 255, 255, 0.03); color: #8da2c0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;",
+                                    tr {
+                                        th { style: "padding: 10px 16px; width: 60px;", "Rang" }
+                                        th { style: "padding: 10px 16px;", "Pilot" }
+                                        th { style: "padding: 10px 16px; text-align: right;", "Punkte" }
+                                        th { style: "padding: 10px 16px; text-align: center; width: 140px;", "Erfolge" }
+                                    }
+                                }
+                                tbody {
+                                    for (rank, p) in sorted_players.iter().enumerate() {
+                                        {
+                                            let is_me = my_identity.map_or(false, |id| id == p.identity);
+                                            let p_unlocked = achievements.iter().filter(|a| a.player == p.identity).count();
+                                            rsx! {
+                                                tr {
+                                                    key: "{p.identity}",
+                                                    style: if is_me {
+                                                        "background: rgba(0, 229, 255, 0.08); border-bottom: 1px solid rgba(80, 120, 200, 0.15);"
+                                                    } else {
+                                                        "border-bottom: 1px solid rgba(80, 120, 200, 0.1);"
+                                                    },
+                                                    td {
+                                                        style: "padding: 12px 16px; font-weight: 700;",
+                                                        match rank {
+                                                            0 => rsx! { span { style: "color: #ffd700; font-size: 14px;", "🥇 #1" } },
+                                                            1 => rsx! { span { style: "color: #cbd5e1; font-size: 14px;", "🥈 #2" } },
+                                                            2 => rsx! { span { style: "color: #cd7f32; font-size: 14px;", "🥉 #3" } },
+                                                            _ => rsx! { span { style: "color: #64748b;", "#{rank + 1}" } },
+                                                        }
+                                                    }
+                                                    td {
+                                                        style: "padding: 12px 16px;",
+                                                        div {
+                                                            style: "display: flex; align-items: center; gap: 8px;",
+                                                            span { style: "width: 10px; height: 10px; border-radius: 50%; background: hsl({p.color_hue}, 90%, 55%); box-shadow: 0 0 6px hsl({p.color_hue}, 90%, 55%);" }
+                                                            span { style: "font-weight: 600; color: #f1f5f9;", "{p.name}" }
+                                                            if is_me {
+                                                                span { style: "font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.2); color: #00e5ff; font-weight: 700;", "Du" }
+                                                            }
+                                                        }
+                                                    }
+                                                    td {
+                                                        style: "padding: 12px 16px; text-align: right; font-weight: 700; color: #ffd700; font-mono;",
+                                                        "{p.score} Pkt"
+                                                    }
+                                                    td {
+                                                        style: "padding: 12px 16px; text-align: center;",
+                                                        span {
+                                                            style: "display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; background: rgba(250, 204, 21, 0.1); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3);",
+                                                            "⭐ {p_unlocked} / 5"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Personal Achievements Section
+                    div {
+                        h3 { style: "margin: 0 0 12px 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "⭐ Deine Meilensteine & Erfolge" }
+                        div {
+                            style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;",
+                            for (key, icon, title, desc) in milestones {
+                                {
+                                    let is_unlocked = my_identity.map_or(false, |id| {
+                                        achievements.iter().any(|a| a.player == id && a.achievement_key == key)
+                                    });
+                                    rsx! {
+                                        div {
+                                            key: "{key}",
+                                            style: if is_unlocked {
+                                                "background: linear-gradient(135deg, rgba(250, 204, 21, 0.08) 0%, rgba(15, 23, 42, 0.9) 100%); border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 10px; padding: 14px; box-shadow: 0 4px 12px rgba(250, 204, 21, 0.06);"
+                                            } else {
+                                                "background: rgba(15, 23, 42, 0.5); border: 1px dashed rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 14px; opacity: 0.55;"
+                                            },
+                                            div {
+                                                style: "display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;",
+                                                span { style: "font-size: 24px;", "{icon}" }
+                                                if is_unlocked {
+                                                    span { style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.2); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.4);", "✔ FREIGESCHALTET" }
+                                                } else {
+                                                    span { style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.1);", "🔒 GESPERRT" }
+                                                }
+                                            }
+                                            div { style: "font-size: 13px; font-weight: 700; color: if is_unlocked { \"#ffd700\" } else { \"#cbd5e1\" }; margin-bottom: 4px;", "{title}" }
+                                            div { style: "font-size: 11px; color: #94a3b8; line-height: 1.3;", "{desc}" }
+                                        }
+                                    }
                                 }
                             }
                         }

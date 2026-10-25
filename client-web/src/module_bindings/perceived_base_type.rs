@@ -16,6 +16,9 @@ pub struct PerceivedBase {
     pub position: Vec2,
     pub signal_radius: f32,
     pub level: u8,
+    pub drone_scanner_level: u8,
+    pub base_scanner_level: u8,
+    pub radar_horizon_level: u8,
 }
 
 impl __sdk::InModule for PerceivedBase {
@@ -33,6 +36,9 @@ pub struct PerceivedBaseCols {
     pub position: __sdk::__query_builder::Col<PerceivedBase, Vec2>,
     pub signal_radius: __sdk::__query_builder::Col<PerceivedBase, f32>,
     pub level: __sdk::__query_builder::Col<PerceivedBase, u8>,
+    pub drone_scanner_level: __sdk::__query_builder::Col<PerceivedBase, u8>,
+    pub base_scanner_level: __sdk::__query_builder::Col<PerceivedBase, u8>,
+    pub radar_horizon_level: __sdk::__query_builder::Col<PerceivedBase, u8>,
 }
 
 impl __sdk::__query_builder::HasCols for PerceivedBase {
@@ -46,6 +52,15 @@ impl __sdk::__query_builder::HasCols for PerceivedBase {
             position: __sdk::__query_builder::Col::new(table_name, "position"),
             signal_radius: __sdk::__query_builder::Col::new(table_name, "signal_radius"),
             level: __sdk::__query_builder::Col::new(table_name, "level"),
+            drone_scanner_level: __sdk::__query_builder::Col::new(
+                table_name,
+                "drone_scanner_level",
+            ),
+            base_scanner_level: __sdk::__query_builder::Col::new(table_name, "base_scanner_level"),
+            radar_horizon_level: __sdk::__query_builder::Col::new(
+                table_name,
+                "radar_horizon_level",
+            ),
         }
     }
 }

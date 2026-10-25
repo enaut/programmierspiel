@@ -8,11 +8,13 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 
 pub mod dioxus;
 
+pub mod active_riddle_type;
 pub mod admin_all_asteroids_table;
 pub mod admin_all_bases_table;
 pub mod admin_all_ships_table;
 pub mod admin_set_phase_reducer;
 pub mod admin_user_type;
+pub mod api_heartbeat_reducer;
 pub mod asteroid_type;
 pub mod authenticate_admin_reducer;
 pub mod base_station_type;
@@ -24,16 +26,22 @@ pub mod count_row_type;
 pub mod deploy_base_station_reducer;
 pub mod game_event_table;
 pub mod game_event_type;
+pub mod my_active_riddle_table;
 pub mod my_base_table;
 pub mod my_ships_table;
 pub mod perceived_asteroid_type;
 pub mod perceived_base_type;
 pub mod perceived_drone_type;
+pub mod player_achievement_table;
+pub mod player_achievement_type;
 pub mod player_table;
 pub mod player_type;
+pub mod public_riddle_type;
 pub mod register_player_reducer;
+pub mod request_riddle_reducer;
 pub mod ship_command_type;
 pub mod ship_type;
+pub mod submit_riddle_solution_reducer;
 pub mod tick_schedule_type;
 pub mod total_players_table;
 pub mod unidentified_contact_type;
@@ -43,11 +51,13 @@ pub mod visible_asteroids_table;
 pub mod visible_bases_table;
 pub mod visible_drones_table;
 
+pub use active_riddle_type::ActiveRiddle;
 pub use admin_all_asteroids_table::*;
 pub use admin_all_bases_table::*;
 pub use admin_all_ships_table::*;
 pub use admin_set_phase_reducer::admin_set_phase;
 pub use admin_user_type::AdminUser;
+pub use api_heartbeat_reducer::api_heartbeat;
 pub use asteroid_type::Asteroid;
 pub use authenticate_admin_reducer::authenticate_admin;
 pub use base_station_type::BaseStation;
@@ -59,16 +69,22 @@ pub use count_row_type::CountRow;
 pub use deploy_base_station_reducer::deploy_base_station;
 pub use game_event_table::*;
 pub use game_event_type::GameEvent;
+pub use my_active_riddle_table::*;
 pub use my_base_table::*;
 pub use my_ships_table::*;
 pub use perceived_asteroid_type::PerceivedAsteroid;
 pub use perceived_base_type::PerceivedBase;
 pub use perceived_drone_type::PerceivedDrone;
+pub use player_achievement_table::*;
+pub use player_achievement_type::PlayerAchievement;
 pub use player_table::*;
 pub use player_type::Player;
+pub use public_riddle_type::PublicRiddle;
 pub use register_player_reducer::register_player;
+pub use request_riddle_reducer::request_riddle;
 pub use ship_command_type::ShipCommand;
 pub use ship_type::Ship;
+pub use submit_riddle_solution_reducer::submit_riddle_solution;
 pub use tick_schedule_type::TickSchedule;
 pub use total_players_table::*;
 pub use unidentified_contact_type::UnidentifiedContact;
@@ -87,11 +103,14 @@ pub use visible_drones_table::*;
 
 pub enum Reducer {
     AdminSetPhase { level: u8, paused: bool },
+    ApiHeartbeat,
     AuthenticateAdmin { password: String },
     BuildShip { tier: u8 },
     CommandShip { ship_id: u32, cmd: ShipCommand },
     DeployBaseStation { ship_id: u32 },
     RegisterPlayer { name: String, color_hue: u16 },
+    RequestRiddle { track: u8 },
+    SubmitRiddleSolution { track: u8, solution: String },
 }
 
 impl __sdk::InModule for Reducer {
@@ -102,11 +121,14 @@ impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
             Reducer::AdminSetPhase { .. } => "admin_set_phase",
+            Reducer::ApiHeartbeat => "api_heartbeat",
             Reducer::AuthenticateAdmin { .. } => "authenticate_admin",
             Reducer::BuildShip { .. } => "build_ship",
             Reducer::CommandShip { .. } => "command_ship",
             Reducer::DeployBaseStation { .. } => "deploy_base_station",
             Reducer::RegisterPlayer { .. } => "register_player",
+            Reducer::RequestRiddle { .. } => "request_riddle",
+            Reducer::SubmitRiddleSolution { .. } => "submit_riddle_solution",
             _ => unreachable!(),
         }
     }
@@ -118,6 +140,9 @@ impl __sdk::Reducer for Reducer {
                     level: level.clone(),
                     paused: paused.clone(),
                 })
+            }
+            Reducer::ApiHeartbeat => {
+                __sats::bsatn::to_vec(&api_heartbeat_reducer::ApiHeartbeatArgs {})
             }
             Reducer::AuthenticateAdmin { password } => {
                 __sats::bsatn::to_vec(&authenticate_admin_reducer::AuthenticateAdminArgs {
@@ -144,6 +169,17 @@ impl __sdk::Reducer for Reducer {
                     color_hue: color_hue.clone(),
                 })
             }
+            Reducer::RequestRiddle { track } => {
+                __sats::bsatn::to_vec(&request_riddle_reducer::RequestRiddleArgs {
+                    track: track.clone(),
+                })
+            }
+            Reducer::SubmitRiddleSolution { track, solution } => {
+                __sats::bsatn::to_vec(&submit_riddle_solution_reducer::SubmitRiddleSolutionArgs {
+                    track: track.clone(),
+                    solution: solution.clone(),
+                })
+            }
             _ => unreachable!(),
         }
     }
@@ -158,9 +194,11 @@ pub struct DbUpdate {
     admin_all_ships: __sdk::TableUpdate<Ship>,
     config: __sdk::TableUpdate<Config>,
     game_event: __sdk::TableUpdate<GameEvent>,
+    my_active_riddle: __sdk::TableUpdate<PublicRiddle>,
     my_base: __sdk::TableUpdate<BaseStation>,
     my_ships: __sdk::TableUpdate<Ship>,
     player: __sdk::TableUpdate<Player>,
+    player_achievement: __sdk::TableUpdate<PlayerAchievement>,
     total_players: __sdk::TableUpdate<CountRow>,
     unidentified_objects: __sdk::TableUpdate<UnidentifiedContact>,
     visible_asteroids: __sdk::TableUpdate<PerceivedAsteroid>,
@@ -189,6 +227,9 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "game_event" => db_update
                     .game_event
                     .append(game_event_table::parse_table_update(table_update)?),
+                "my_active_riddle" => db_update
+                    .my_active_riddle
+                    .append(my_active_riddle_table::parse_table_update(table_update)?),
                 "my_base" => db_update
                     .my_base
                     .append(my_base_table::parse_table_update(table_update)?),
@@ -198,6 +239,9 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "player" => db_update
                     .player
                     .append(player_table::parse_table_update(table_update)?),
+                "player_achievement" => db_update
+                    .player_achievement
+                    .append(player_achievement_table::parse_table_update(table_update)?),
                 "total_players" => db_update
                     .total_players
                     .append(total_players_table::parse_table_update(table_update)?),
@@ -248,12 +292,20 @@ impl __sdk::DbUpdate for DbUpdate {
         diff.player = cache
             .apply_diff_to_table::<Player>("player", &self.player)
             .with_updates_by_pk(|row| &row.identity);
+        diff.player_achievement = cache
+            .apply_diff_to_table::<PlayerAchievement>(
+                "player_achievement",
+                &self.player_achievement,
+            )
+            .with_updates_by_pk(|row| &row.id);
         diff.admin_all_asteroids =
             cache.apply_diff_to_table::<Asteroid>("admin_all_asteroids", &self.admin_all_asteroids);
         diff.admin_all_bases =
             cache.apply_diff_to_table::<BaseStation>("admin_all_bases", &self.admin_all_bases);
         diff.admin_all_ships =
             cache.apply_diff_to_table::<Ship>("admin_all_ships", &self.admin_all_ships);
+        diff.my_active_riddle =
+            cache.apply_diff_to_table::<PublicRiddle>("my_active_riddle", &self.my_active_riddle);
         diff.my_base = cache.apply_diff_to_table::<BaseStation>("my_base", &self.my_base);
         diff.my_ships = cache.apply_diff_to_table::<Ship>("my_ships", &self.my_ships);
         diff.total_players =
@@ -290,6 +342,9 @@ impl __sdk::DbUpdate for DbUpdate {
                 "game_event" => db_update
                     .game_event
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "my_active_riddle" => db_update
+                    .my_active_riddle
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "my_base" => db_update
                     .my_base
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
@@ -298,6 +353,9 @@ impl __sdk::DbUpdate for DbUpdate {
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "player" => db_update
                     .player
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "player_achievement" => db_update
+                    .player_achievement
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "total_players" => db_update
                     .total_players
@@ -342,6 +400,9 @@ impl __sdk::DbUpdate for DbUpdate {
                 "game_event" => db_update
                     .game_event
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "my_active_riddle" => db_update
+                    .my_active_riddle
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "my_base" => db_update
                     .my_base
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -350,6 +411,9 @@ impl __sdk::DbUpdate for DbUpdate {
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "player" => db_update
                     .player
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "player_achievement" => db_update
+                    .player_achievement
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "total_players" => db_update
                     .total_players
@@ -386,9 +450,11 @@ pub struct AppliedDiff<'r> {
     admin_all_ships: __sdk::TableAppliedDiff<'r, Ship>,
     config: __sdk::TableAppliedDiff<'r, Config>,
     game_event: __sdk::TableAppliedDiff<'r, GameEvent>,
+    my_active_riddle: __sdk::TableAppliedDiff<'r, PublicRiddle>,
     my_base: __sdk::TableAppliedDiff<'r, BaseStation>,
     my_ships: __sdk::TableAppliedDiff<'r, Ship>,
     player: __sdk::TableAppliedDiff<'r, Player>,
+    player_achievement: __sdk::TableAppliedDiff<'r, PlayerAchievement>,
     total_players: __sdk::TableAppliedDiff<'r, CountRow>,
     unidentified_objects: __sdk::TableAppliedDiff<'r, UnidentifiedContact>,
     visible_asteroids: __sdk::TableAppliedDiff<'r, PerceivedAsteroid>,
@@ -424,9 +490,19 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         );
         callbacks.invoke_table_row_callbacks::<Config>("config", &self.config, event);
         callbacks.invoke_table_row_callbacks::<GameEvent>("game_event", &self.game_event, event);
+        callbacks.invoke_table_row_callbacks::<PublicRiddle>(
+            "my_active_riddle",
+            &self.my_active_riddle,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<BaseStation>("my_base", &self.my_base, event);
         callbacks.invoke_table_row_callbacks::<Ship>("my_ships", &self.my_ships, event);
         callbacks.invoke_table_row_callbacks::<Player>("player", &self.player, event);
+        callbacks.invoke_table_row_callbacks::<PlayerAchievement>(
+            "player_achievement",
+            &self.player_achievement,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<CountRow>(
             "total_players",
             &self.total_players,
@@ -1117,9 +1193,11 @@ impl __sdk::SpacetimeModule for RemoteModule {
         admin_all_ships_table::register_table(client_cache);
         config_table::register_table(client_cache);
         game_event_table::register_table(client_cache);
+        my_active_riddle_table::register_table(client_cache);
         my_base_table::register_table(client_cache);
         my_ships_table::register_table(client_cache);
         player_table::register_table(client_cache);
+        player_achievement_table::register_table(client_cache);
         total_players_table::register_table(client_cache);
         unidentified_objects_table::register_table(client_cache);
         visible_asteroids_table::register_table(client_cache);
@@ -1132,9 +1210,11 @@ impl __sdk::SpacetimeModule for RemoteModule {
         "admin_all_ships",
         "config",
         "game_event",
+        "my_active_riddle",
         "my_base",
         "my_ships",
         "player",
+        "player_achievement",
         "total_players",
         "unidentified_objects",
         "visible_asteroids",

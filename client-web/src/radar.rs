@@ -43,16 +43,42 @@ pub fn render_player_radar(
         // Precompute player lookup (identity -> player)
         let player_map: HashMap<_, _> = players.iter().map(|p| (p.identity, p)).collect();
 
-        // Radar sensor range rings: 150m (Drone ID), 300m (Base/Asteroid ID), 600m (Radar Horizon)
+        // Dynamic radar sensor range rings based on Base Station upgrades
+        let drone_scan_r = my_base.map_or(150.0, |b| {
+            150.0 + (b.drone_scanner_level.saturating_sub(1) as f64 * 50.0)
+        });
+        let base_scan_r = my_base.map_or(300.0, |b| {
+            300.0 + (b.base_scanner_level.saturating_sub(1) as f64 * 100.0)
+        });
+        let horizon_r = my_base.map_or(600.0, |b| {
+            600.0 + (b.radar_horizon_level.saturating_sub(1) as f64 * 150.0)
+        });
+
+        let drone_label = format!(
+            "{:.0}m Drohnen-Scan (Stufe {})",
+            drone_scan_r,
+            my_base.map_or(1, |b| b.drone_scanner_level)
+        );
+        let base_label = format!(
+            "{:.0}m Basen & Asteroiden (Stufe {})",
+            base_scan_r,
+            my_base.map_or(1, |b| b.base_scanner_level)
+        );
+        let horizon_label = format!(
+            "{:.0}m Radar-Horizont (Stufe {})",
+            horizon_r,
+            my_base.map_or(1, |b| b.radar_horizon_level)
+        );
+
         let rings = [
-            (150.0, "150m Drohnen-Scan", "rgba(0, 229, 255, 0.15)"),
-            (300.0, "300m Basen & Asteroiden", "rgba(0, 229, 255, 0.18)"),
-            (600.0, "600m Radar-Horizont", "rgba(0, 229, 255, 0.25)"),
+            (drone_scan_r, drone_label, "rgba(0, 229, 255, 0.15)"),
+            (base_scan_r, base_label, "rgba(0, 229, 255, 0.18)"),
+            (horizon_r, horizon_label, "rgba(0, 229, 255, 0.25)"),
         ];
 
-        for (r, label, stroke_color) in rings {
+        for (r, label, stroke_color) in &rings {
             ctx.begin_path();
-            let _ = ctx.arc(0.0, 0.0, r, 0.0, std::f64::consts::TAU);
+            let _ = ctx.arc(0.0, 0.0, *r, 0.0, std::f64::consts::TAU);
             ctx.set_stroke_style(&JsValue::from_str(stroke_color));
             ctx.set_line_width(1.0);
             ctx.stroke();
@@ -295,7 +321,10 @@ pub fn render_player_radar(
             // Mining laser beam if currently mining
             if s.is_mining {
                 if let Some(target_id) = s.target_asteroid_id {
-                    if let Some(ast) = visible_asteroids.iter().find(|a| a.asteroid_id == target_id) {
+                    if let Some(ast) = visible_asteroids
+                        .iter()
+                        .find(|a| a.asteroid_id == target_id)
+                    {
                         let ast_x = ast.position.x as f64 - center_x;
                         let ast_y = ast.position.y as f64 - center_y;
                         ctx.begin_path();

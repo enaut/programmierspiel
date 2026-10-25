@@ -12,6 +12,8 @@ pub struct Player {
     pub color_hue: u16,
     pub score: u64,
     pub created_at: __sdk::Timestamp,
+    pub last_api_activity: Option<__sdk::Timestamp>,
+    pub has_api_connected: bool,
 }
 
 impl __sdk::InModule for Player {
@@ -27,6 +29,8 @@ pub struct PlayerCols {
     pub color_hue: __sdk::__query_builder::Col<Player, u16>,
     pub score: __sdk::__query_builder::Col<Player, u64>,
     pub created_at: __sdk::__query_builder::Col<Player, __sdk::Timestamp>,
+    pub last_api_activity: __sdk::__query_builder::Col<Player, Option<__sdk::Timestamp>>,
+    pub has_api_connected: __sdk::__query_builder::Col<Player, bool>,
 }
 
 impl __sdk::__query_builder::HasCols for Player {
@@ -38,6 +42,8 @@ impl __sdk::__query_builder::HasCols for Player {
             color_hue: __sdk::__query_builder::Col::new(table_name, "color_hue"),
             score: __sdk::__query_builder::Col::new(table_name, "score"),
             created_at: __sdk::__query_builder::Col::new(table_name, "created_at"),
+            last_api_activity: __sdk::__query_builder::Col::new(table_name, "last_api_activity"),
+            has_api_connected: __sdk::__query_builder::Col::new(table_name, "has_api_connected"),
         }
     }
 }

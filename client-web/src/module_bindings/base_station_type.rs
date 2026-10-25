@@ -17,6 +17,12 @@ pub struct BaseStation {
     pub stored_ore: u32,
     pub stored_energy: u32,
     pub level: u8,
+    pub drone_scanner_level: u8,
+    pub drone_scanner_progress: u8,
+    pub base_scanner_level: u8,
+    pub base_scanner_progress: u8,
+    pub radar_horizon_level: u8,
+    pub radar_horizon_progress: u8,
 }
 
 impl __sdk::InModule for BaseStation {
@@ -35,6 +41,12 @@ pub struct BaseStationCols {
     pub stored_ore: __sdk::__query_builder::Col<BaseStation, u32>,
     pub stored_energy: __sdk::__query_builder::Col<BaseStation, u32>,
     pub level: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub drone_scanner_level: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub drone_scanner_progress: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub base_scanner_level: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub base_scanner_progress: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub radar_horizon_level: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub radar_horizon_progress: __sdk::__query_builder::Col<BaseStation, u8>,
 }
 
 impl __sdk::__query_builder::HasCols for BaseStation {
@@ -49,6 +61,27 @@ impl __sdk::__query_builder::HasCols for BaseStation {
             stored_ore: __sdk::__query_builder::Col::new(table_name, "stored_ore"),
             stored_energy: __sdk::__query_builder::Col::new(table_name, "stored_energy"),
             level: __sdk::__query_builder::Col::new(table_name, "level"),
+            drone_scanner_level: __sdk::__query_builder::Col::new(
+                table_name,
+                "drone_scanner_level",
+            ),
+            drone_scanner_progress: __sdk::__query_builder::Col::new(
+                table_name,
+                "drone_scanner_progress",
+            ),
+            base_scanner_level: __sdk::__query_builder::Col::new(table_name, "base_scanner_level"),
+            base_scanner_progress: __sdk::__query_builder::Col::new(
+                table_name,
+                "base_scanner_progress",
+            ),
+            radar_horizon_level: __sdk::__query_builder::Col::new(
+                table_name,
+                "radar_horizon_level",
+            ),
+            radar_horizon_progress: __sdk::__query_builder::Col::new(
+                table_name,
+                "radar_horizon_progress",
+            ),
         }
     }
 }

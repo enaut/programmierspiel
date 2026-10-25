@@ -39,6 +39,8 @@ pub struct Player {
     pub color_hue: u16, // 0..360 for color wheel
     pub score: u64,
     pub created_at: Timestamp,
+    pub last_api_activity: Option<Timestamp>,
+    pub has_api_connected: bool,
 }
 
 #[table(accessor = base_station)]
@@ -56,6 +58,12 @@ pub struct BaseStation {
     pub stored_ore: u32,
     pub stored_energy: u32,
     pub level: u8,
+    pub drone_scanner_level: u8,
+    pub drone_scanner_progress: u8,
+    pub base_scanner_level: u8,
+    pub base_scanner_progress: u8,
+    pub radar_horizon_level: u8,
+    pub radar_horizon_progress: u8,
 }
 
 #[table(accessor = ship)]
@@ -137,6 +145,30 @@ pub struct PerceivedBase {
     pub position: Vec2,
     pub signal_radius: f32,
     pub level: u8,
+    pub drone_scanner_level: u8,
+    pub base_scanner_level: u8,
+    pub radar_horizon_level: u8,
+}
+
+#[table(accessor = active_riddle)]
+#[derive(Debug, Clone)]
+pub struct ActiveRiddle {
+    #[primary_key]
+    pub owner: Identity,
+    pub puzzle_id: u64,
+    pub track: u8,
+    pub target_level: u8,
+    pub payload: String,
+    pub expected_solution: String,
+    pub created_at: Timestamp,
+}
+
+#[derive(SpacetimeType, Debug, Clone)]
+pub struct PublicRiddle {
+    pub puzzle_id: u64,
+    pub track: u8,
+    pub target_level: u8,
+    pub payload: String,
 }
 
 #[table(accessor = perceived_asteroid)]
@@ -176,6 +208,21 @@ pub struct GameEvent {
     pub event_type: String,
     pub message: String,
     pub timestamp: Timestamp,
+}
+
+#[table(accessor = player_achievement, public)]
+#[derive(Debug, Clone)]
+pub struct PlayerAchievement {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub player: Identity,
+    pub achievement_key: String,
+    pub title: String,
+    pub description: String,
+    pub icon: String,
+    pub unlocked_at: Timestamp,
 }
 
 #[table(accessor = tick_schedule, scheduled(game_tick))]

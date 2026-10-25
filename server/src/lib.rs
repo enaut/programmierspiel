@@ -1,5 +1,6 @@
 pub mod math;
 pub mod models;
+pub mod riddles;
 
 use math::Vec2;
 pub use models::*;
@@ -62,6 +63,71 @@ pub fn on_client_disconnected(ctx: &ReducerContext) {
 }
 
 // ==========================================
+// Helper Functions for API & Achievements
+// ==========================================
+
+fn record_api_activity(ctx: &ReducerContext, sender: spacetimedb::Identity) {
+    if let Some(mut player) = ctx.db.player().identity().find(&sender) {
+        player.last_api_activity = Some(ctx.timestamp);
+        player.has_api_connected = true;
+        ctx.db.player().identity().update(player);
+    }
+}
+
+fn unlock_achievement(
+    ctx: &ReducerContext,
+    player: spacetimedb::Identity,
+    achievement_key: &str,
+    title: &str,
+    description: &str,
+    icon: &str,
+) {
+    let already_unlocked = ctx
+        .db
+        .player_achievement()
+        .player()
+        .filter(&player)
+        .any(|a| a.achievement_key == achievement_key);
+
+    if !already_unlocked {
+        ctx.db.player_achievement().insert(PlayerAchievement {
+            id: 0,
+            player,
+            achievement_key: achievement_key.to_string(),
+            title: title.to_string(),
+            description: description.to_string(),
+            icon: icon.to_string(),
+            unlocked_at: ctx.timestamp,
+        });
+
+        ctx.db.game_event().insert(GameEvent {
+            event_id: 0,
+            player,
+            event_type: "ACHIEVEMENT_UNLOCKED".to_string(),
+            message: format!("🏆 Erfolg freigeschaltet: {} ({})", title, description),
+            timestamp: ctx.timestamp,
+        });
+
+        log::info!(
+            "Player {:?} unlocked achievement '{}' ({})",
+            player,
+            achievement_key,
+            title
+        );
+    }
+}
+
+#[reducer]
+pub fn api_heartbeat(ctx: &ReducerContext) -> Result<(), String> {
+    let sender = ctx.sender();
+    if ctx.db.player().identity().find(&sender).is_none() {
+        return Err("Player not registered".to_string());
+    }
+    record_api_activity(ctx, sender);
+    Ok(())
+}
+
+// ==========================================
 // Player & Station Reducers
 // ==========================================
 
@@ -86,6 +152,8 @@ pub fn register_player(ctx: &ReducerContext, name: String, color_hue: u16) -> Re
         color_hue: color_hue % 360,
         score: 0,
         created_at: ctx.timestamp,
+        last_api_activity: None,
+        has_api_connected: false,
     });
 
     // 2. Spawn Tier-0 Builder Ship at Megastation
@@ -176,6 +244,12 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         stored_ore: 0,
         stored_energy: 500,
         level: 1,
+        drone_scanner_level: 1,
+        drone_scanner_progress: 0,
+        base_scanner_level: 1,
+        base_scanner_progress: 0,
+        radar_horizon_level: 1,
+        radar_horizon_progress: 0,
     });
 
     // Consume the builder ship and replace with first Tier-1 Miner
@@ -210,6 +284,15 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         timestamp: ctx.timestamp,
     });
 
+    unlock_achievement(
+        ctx,
+        sender,
+        "BASE_DEPLOYED",
+        "Pionier",
+        "Heimatbasis im All errichtet",
+        "🏛️",
+    );
+
     log::info!(
         "Player {:?} established Base Station at {:?}.",
         sender,
@@ -221,6 +304,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
 #[reducer]
 pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
     let sender = ctx.sender();
+    record_api_activity(ctx, sender);
     let mut base = ctx
         .db
         .base_station()
@@ -228,8 +312,11 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         .find(&sender)
         .ok_or("Deploy a Base Station first before building ships")?;
 
+    let existing_ships_count = ctx.db.ship().owner().filter(&sender).count();
+    let is_emergency = existing_ships_count == 0 && tier == 1;
+
     let (cost, max_speed, max_energy, max_cargo) = match tier {
-        1 => (50, 120.0, 100.0, 50),
+        1 => (if is_emergency { 0 } else { 50 }, 120.0, 100.0, 50),
         2 => (150, 150.0, 200.0, 150),
         _ => return Err("Invalid ship tier".to_string()),
     };
@@ -241,8 +328,10 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         ));
     }
 
-    base.stored_ore -= cost;
-    ctx.db.base_station().owner().update(base.clone());
+    if cost > 0 {
+        base.stored_ore -= cost;
+        ctx.db.base_station().owner().update(base.clone());
+    }
 
     ctx.db.ship().insert(Ship {
         ship_id: 0,
@@ -265,11 +354,26 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         signal_countdown: 20, // 20 seconds buffer
     });
 
+    if existing_ships_count >= 1 {
+        unlock_achievement(
+            ctx,
+            sender,
+            "FLEET_EXPANDED",
+            "Flottenadmiral",
+            "Zusätzliche Drohne gebaut und Flotte erweitert",
+            "🛸",
+        );
+    }
+
     ctx.db.game_event().insert(GameEvent {
         event_id: 0,
         player: sender,
         event_type: "SHIP_BUILT".to_string(),
-        message: format!("Built Tier-{} ship", tier),
+        message: if is_emergency {
+            "Emergency Tier-1 drone constructed (0 ore)".to_string()
+        } else {
+            format!("Built Tier-{} ship", tier)
+        },
         timestamp: ctx.timestamp,
     });
 
@@ -283,6 +387,10 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
 #[reducer]
 pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Result<(), String> {
     let sender = ctx.sender();
+    record_api_activity(ctx, sender);
+    if ctx.db.base_station().owner().find(&sender).is_some() {
+        record_api_activity(ctx, sender);
+    }
     let mut ship = ctx
         .db
         .ship()
@@ -344,6 +452,240 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
 }
 
 // ==========================================
+// Base Station Research & Upgrades Reducers
+// ==========================================
+
+#[reducer]
+pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
+    if !(1..=3).contains(&track) {
+        return Err("Invalid upgrade track. Must be 1 (Drone Scanner), 2 (Base & Asteroid), or 3 (Radar Horizon)".to_string());
+    }
+
+    let sender = ctx.sender();
+    record_api_activity(ctx, sender);
+    let base = ctx
+        .db
+        .base_station()
+        .owner()
+        .find(&sender)
+        .ok_or("Deploy a Base Station first before conducting research")?;
+
+    let (current_level, _) = match track {
+        1 => (base.drone_scanner_level, base.drone_scanner_progress),
+        2 => (base.base_scanner_level, base.base_scanner_progress),
+        3 => (base.radar_horizon_level, base.radar_horizon_progress),
+        _ => unreachable!(),
+    };
+
+    if current_level >= 5 {
+        return Err(format!(
+            "Upgrade track {} is already at maximum Level 5",
+            track
+        ));
+    }
+
+    if base.stored_ore < 1 {
+        return Err("Base Station must store at least 1 ore to conduct research".to_string());
+    }
+
+    // If an active riddle for this track already exists, keep it
+    if let Some(existing) = ctx.db.active_riddle().owner().find(&sender) {
+        if existing.track == track {
+            return Ok(());
+        } else {
+            // Replace with newly requested track
+            ctx.db.active_riddle().owner().delete(&sender);
+        }
+    }
+
+    let target_level = current_level + 1;
+    let seed = ctx.timestamp.to_micros_since_unix_epoch() as u64;
+    let puzzle_id = seed;
+    let (payload, expected_solution) =
+        riddles::generate_riddle(track, target_level, base.position, seed);
+
+    ctx.db.active_riddle().insert(ActiveRiddle {
+        owner: sender,
+        puzzle_id,
+        track,
+        target_level,
+        payload,
+        expected_solution,
+        created_at: ctx.timestamp,
+    });
+
+    ctx.db.game_event().insert(GameEvent {
+        event_id: 0,
+        player: sender,
+        event_type: "RIDDLE_ISSUED".to_string(),
+        message: format!(
+            "Research riddle issued for Track {} towards Level {}",
+            track, target_level
+        ),
+        timestamp: ctx.timestamp,
+    });
+
+    Ok(())
+}
+
+#[reducer]
+pub fn submit_riddle_solution(
+    ctx: &ReducerContext,
+    track: u8,
+    solution: String,
+) -> Result<(), String> {
+    let sender = ctx.sender();
+    record_api_activity(ctx, sender);
+    let mut base = ctx
+        .db
+        .base_station()
+        .owner()
+        .find(&sender)
+        .ok_or("Deploy a Base Station first before submitting research solutions")?;
+
+    let riddle = ctx
+        .db
+        .active_riddle()
+        .owner()
+        .find(&sender)
+        .ok_or("No active riddle found. Call request_riddle first")?;
+
+    if riddle.track != track {
+        return Err(format!(
+            "Active riddle is for track {}, but solution was submitted for track {}",
+            riddle.track, track
+        ));
+    }
+
+    if base.stored_ore < 1 {
+        return Err("Base Station ran out of ore. 1 ore required per research attempt".to_string());
+    }
+
+    // Always consume 1 ore per puzzle attempt
+    base.stored_ore -= 1;
+
+    let is_correct =
+        riddles::verify_solution(track, &riddle.payload, &riddle.expected_solution, &solution);
+
+    // Remove active riddle
+    ctx.db.active_riddle().owner().delete(&sender);
+
+    if is_correct {
+        unlock_achievement(
+            ctx,
+            sender,
+            "FIRST_RESEARCH",
+            "Akademiker",
+            "Erstes Telemetrie-Forschungsrätsel gelöst",
+            "🧪",
+        );
+
+        let (level, progress) = match track {
+            1 => (
+                &mut base.drone_scanner_level,
+                &mut base.drone_scanner_progress,
+            ),
+            2 => (
+                &mut base.base_scanner_level,
+                &mut base.base_scanner_progress,
+            ),
+            3 => (
+                &mut base.radar_horizon_level,
+                &mut base.radar_horizon_progress,
+            ),
+            _ => unreachable!(),
+        };
+
+        *progress += 1;
+        if *progress >= 100 {
+            *progress = 0;
+            *level += 1;
+            let new_level = *level;
+            ctx.db.base_station().owner().update(base);
+
+            let track_name = match track {
+                1 => "Drone Scanner Range",
+                2 => "Base & Asteroid Range",
+                3 => "Radar Horizon",
+                _ => "Sensor",
+            };
+
+            ctx.db.game_event().insert(GameEvent {
+                event_id: 0,
+                player: sender,
+                event_type: "UPGRADE_UNLOCKED".to_string(),
+                message: format!(
+                    "🎉 Upgrade Complete! {} is now Level {}!",
+                    track_name, new_level
+                ),
+                timestamp: ctx.timestamp,
+            });
+
+            if new_level >= 2 {
+                unlock_achievement(
+                    ctx,
+                    sender,
+                    "SCANNER_UPGRADE",
+                    "Scharfe Augen",
+                    "Scanner-Zweig auf Stufe 2 ausgebaut",
+                    "📡",
+                );
+            }
+        } else {
+            let current_prog = *progress;
+            ctx.db.base_station().owner().update(base);
+
+            ctx.db.game_event().insert(GameEvent {
+                event_id: 0,
+                player: sender,
+                event_type: "RIDDLE_SOLVED".to_string(),
+                message: format!("Research progress on Track {}: {}/100", track, current_prog),
+                timestamp: ctx.timestamp,
+            });
+        }
+    } else {
+        // Incorrect answer!
+        // 50% probability of burnout (module burnout resets progress to 0)
+        let roll = (ctx.timestamp.to_micros_since_unix_epoch() as u64 ^ riddle.puzzle_id) % 2;
+        if roll == 0 {
+            match track {
+                1 => base.drone_scanner_progress = 0,
+                2 => base.base_scanner_progress = 0,
+                3 => base.radar_horizon_progress = 0,
+                _ => unreachable!(),
+            }
+            ctx.db.base_station().owner().update(base);
+
+            ctx.db.game_event().insert(GameEvent {
+                event_id: 0,
+                player: sender,
+                event_type: "MODULE_BURNOUT".to_string(),
+                message: format!(
+                    "⚠️ Research module burnout on Track {}! Progress reset to 0%!",
+                    track
+                ),
+                timestamp: ctx.timestamp,
+            });
+        } else {
+            ctx.db.base_station().owner().update(base);
+
+            ctx.db.game_event().insert(GameEvent {
+                event_id: 0,
+                player: sender,
+                event_type: "PUZZLE_FAILED".to_string(),
+                message: format!(
+                    "❌ Incorrect solution on Track {}. Ore consumed, module spared.",
+                    track
+                ),
+                timestamp: ctx.timestamp,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+// ==========================================
 // Admin Reducers (Teacher Controls)
 // ==========================================
 
@@ -369,6 +711,7 @@ pub fn authenticate_admin(ctx: &ReducerContext, password: String) -> Result<(), 
         return Err("Invalid admin password".to_string());
     }
     let sender = ctx.sender();
+    record_api_activity(ctx, sender);
     if ctx.db.admin_user().identity().find(&sender).is_none() {
         ctx.db.admin_user().insert(AdminUser {
             identity: sender,
@@ -451,6 +794,14 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 ctx.db.player().identity().update(player);
                             }
                             ship.cargo_ore = 0;
+                            unlock_achievement(
+                                ctx,
+                                ship.owner,
+                                "FIRST_ORE",
+                                "Asteroiden-Schürfer",
+                                "Erstes Erz abgebaut und erfolgreich an die Heimatbasis geliefert",
+                                "⛏️",
+                            );
                         }
                         // Recharge energy
                         ship.energy = ship.max_energy;
@@ -626,19 +977,24 @@ fn update_radar_sensors(ctx: &ReducerContext) {
             ctx.db.unidentified_contact().id().delete(&id);
         }
 
-        // 2. Identify Primary Hub
-        let hub_pos = ctx
-            .db
-            .base_station()
-            .owner()
-            .find(&p_id)
-            .map(|b| b.position)
-            .or_else(|| {
-                all_ships
-                    .iter()
-                    .find(|s| s.owner == p_id && s.ship_tier == 0)
-                    .map(|s| s.position)
-            });
+        // 2. Identify Primary Hub & Sensor Ranges
+        let player_base = ctx.db.base_station().owner().find(&p_id);
+        let hub_pos = player_base.as_ref().map(|b| b.position).or_else(|| {
+            all_ships
+                .iter()
+                .find(|s| s.owner == p_id && s.ship_tier == 0)
+                .map(|s| s.position)
+        });
+
+        let drone_scan_range = player_base.as_ref().map_or(150.0, |b| {
+            150.0 + (b.drone_scanner_level.saturating_sub(1) as f32 * 50.0)
+        });
+        let base_scan_range = player_base.as_ref().map_or(300.0, |b| {
+            300.0 + (b.base_scanner_level.saturating_sub(1) as f32 * 100.0)
+        });
+        let radar_horizon_range = player_base.as_ref().map_or(600.0, |b| {
+            600.0 + (b.radar_horizon_level.saturating_sub(1) as f32 * 150.0)
+        });
 
         // 3. Identify Own Drones
         let own_drones: Vec<&Ship> = all_ships.iter().filter(|s| s.owner == p_id).collect();
@@ -662,7 +1018,7 @@ fn update_radar_sensors(ctx: &ReducerContext) {
             let dist_drone = get_dist_to_drones(&s.position);
 
             let is_in_drone_id_range =
-                dist_hub.map_or(false, |d| d <= 150.0) || dist_drone <= 150.0;
+                dist_hub.map_or(false, |d| d <= drone_scan_range) || dist_drone <= drone_scan_range;
 
             if is_in_drone_id_range {
                 ctx.db.perceived_drone().insert(PerceivedDrone {
@@ -676,7 +1032,7 @@ fn update_radar_sensors(ctx: &ReducerContext) {
                     speed: s.speed,
                     is_mining: s.is_mining,
                 });
-            } else if s.owner != p_id && dist_hub.map_or(false, |d| d <= 600.0) {
+            } else if s.owner != p_id && dist_hub.map_or(false, |d| d <= radar_horizon_range) {
                 ctx.db.unidentified_contact().insert(UnidentifiedContact {
                     id: 0,
                     viewer: p_id,
@@ -689,7 +1045,7 @@ fn update_radar_sensors(ctx: &ReducerContext) {
         // B. Bases
         for b in &all_bases {
             let dist_hub = get_dist_to_hub(&b.position);
-            let is_in_base_id_range = dist_hub.map_or(false, |d| d <= 300.0);
+            let is_in_base_id_range = dist_hub.map_or(false, |d| d <= base_scan_range);
 
             if is_in_base_id_range {
                 ctx.db.perceived_base().insert(PerceivedBase {
@@ -700,8 +1056,11 @@ fn update_radar_sensors(ctx: &ReducerContext) {
                     position: b.position,
                     signal_radius: b.signal_radius,
                     level: b.level,
+                    drone_scanner_level: b.drone_scanner_level,
+                    base_scanner_level: b.base_scanner_level,
+                    radar_horizon_level: b.radar_horizon_level,
                 });
-            } else if b.owner != p_id && dist_hub.map_or(false, |d| d <= 600.0) {
+            } else if b.owner != p_id && dist_hub.map_or(false, |d| d <= radar_horizon_range) {
                 ctx.db.unidentified_contact().insert(UnidentifiedContact {
                     id: 0,
                     viewer: p_id,
@@ -717,7 +1076,7 @@ fn update_radar_sensors(ctx: &ReducerContext) {
             let dist_drone = get_dist_to_drones(&ast.position);
 
             let is_in_asteroid_id_range =
-                dist_hub.map_or(false, |d| d <= 300.0) || dist_drone <= 150.0;
+                dist_hub.map_or(false, |d| d <= base_scan_range) || dist_drone <= drone_scan_range;
 
             if is_in_asteroid_id_range {
                 ctx.db.perceived_asteroid().insert(PerceivedAsteroid {
@@ -729,7 +1088,7 @@ fn update_radar_sensors(ctx: &ReducerContext) {
                     remaining_ore: ast.remaining_ore,
                     radius: ast.radius,
                 });
-            } else if dist_hub.map_or(false, |d| d <= 600.0) {
+            } else if dist_hub.map_or(false, |d| d <= radar_horizon_range) {
                 ctx.db.unidentified_contact().insert(UnidentifiedContact {
                     id: 0,
                     viewer: p_id,
@@ -765,6 +1124,20 @@ pub fn my_ships(ctx: &ViewContext) -> Vec<Ship> {
 #[view(accessor = my_base, public)]
 pub fn my_base(ctx: &ViewContext) -> Option<BaseStation> {
     ctx.db.base_station().owner().find(&ctx.sender())
+}
+
+#[view(accessor = my_active_riddle, public)]
+pub fn my_active_riddle(ctx: &ViewContext) -> Option<PublicRiddle> {
+    ctx.db
+        .active_riddle()
+        .owner()
+        .find(&ctx.sender())
+        .map(|r| PublicRiddle {
+            puzzle_id: r.puzzle_id,
+            track: r.track,
+            target_level: r.target_level,
+            payload: r.payload,
+        })
 }
 
 #[view(accessor = visible_drones, public)]
