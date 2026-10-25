@@ -4,4 +4,6 @@ members = [
     "server",
     "admin",
     "client-web",
+    "space_bot_sdk",
+    "testclient",
 ]

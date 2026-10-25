@@ -1,0 +1,15 @@
+# ==============================================================================
+# Space Programming Game - Bot-Konfiguration
+# ==============================================================================
+#
+# ANLEITUNG:
+# 1. Öffne das Web-Dashboard (client-web) im Browser: http://127.0.0.1:8080
+# 2. Fliege mit dem Bauschiff hinaus und baue deine Heimatbasis.
+# 3. Klicke im Dashboard auf "DEIN PERSÖNLICHER API-IDENTITÄTS-TOKEN" (Kopieren).
+# 4. Ersetze unten "DEIN_TOKEN_HIER" durch deinen kopierten Token.
+# 5. Starte deinen Bot mit 'cargo run' (oder in Zed per Task 'Run Bot').
+# ==============================================================================
+
+server_url = "http://127.0.0.1:3000"
+module_name = "server"
+auth_token = "DEIN_TOKEN_HIER"
