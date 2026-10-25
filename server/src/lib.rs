@@ -455,6 +455,15 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
 // Base Station Research & Upgrades Reducers
 // ==========================================
 
+/// Calculates ore cost for conducting research on a riddle:
+/// Stufe 1: 1..100 Erz
+/// Stufe 2: 101..200 Erz
+/// Stufe 3: 201..300 Erz
+/// Stufe 4: 301..400 Erz
+pub fn calculate_riddle_cost(level: u8, progress: u8) -> u32 {
+    (level.saturating_sub(1) as u32) * 100 + (progress as u32) + 1
+}
+
 #[reducer]
 pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
     if !(1..=3).contains(&track) {
@@ -463,14 +472,14 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
 
     let sender = ctx.sender();
     record_api_activity(ctx, sender);
-    let base = ctx
+    let mut base = ctx
         .db
         .base_station()
         .owner()
         .find(&sender)
         .ok_or("Deploy a Base Station first before conducting research")?;
 
-    let (current_level, _) = match track {
+    let (current_level, current_progress) = match track {
         1 => (base.drone_scanner_level, base.drone_scanner_progress),
         2 => (base.base_scanner_level, base.base_scanner_progress),
         3 => (base.radar_horizon_level, base.radar_horizon_progress),
@@ -484,10 +493,6 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         ));
     }
 
-    if base.stored_ore < 1 {
-        return Err("Base Station must store at least 1 ore to conduct research".to_string());
-    }
-
     // If an active riddle for this track already exists, keep it
     if let Some(existing) = ctx.db.active_riddle().owner().find(&sender) {
         if existing.track == track {
@@ -497,6 +502,18 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
             ctx.db.active_riddle().owner().delete(&sender);
         }
     }
+
+    let cost = calculate_riddle_cost(current_level, current_progress);
+    if base.stored_ore < cost {
+        return Err(format!(
+            "Base Station must store at least {} ore to conduct research on track {} (currently has {})",
+            cost, track, base.stored_ore
+        ));
+    }
+
+    // Deduct cost upfront upon requesting riddle
+    base.stored_ore -= cost;
+    ctx.db.base_station().owner().update(base.clone());
 
     let target_level = current_level + 1;
     let seed = ctx.timestamp.to_micros_since_unix_epoch() as u64;
@@ -519,8 +536,8 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         player: sender,
         event_type: "RIDDLE_ISSUED".to_string(),
         message: format!(
-            "Research riddle issued for Track {} towards Level {}",
-            track, target_level
+            "Research riddle issued for Track {} towards Level {} (Cost: {} Ore)",
+            track, target_level, cost
         ),
         timestamp: ctx.timestamp,
     });
@@ -556,13 +573,6 @@ pub fn submit_riddle_solution(
             riddle.track, track
         ));
     }
-
-    if base.stored_ore < 1 {
-        return Err("Base Station ran out of ore. 1 ore required per research attempt".to_string());
-    }
-
-    // Always consume 1 ore per puzzle attempt
-    base.stored_ore -= 1;
 
     let is_correct =
         riddles::verify_solution(track, &riddle.payload, &riddle.expected_solution, &solution);
@@ -1239,5 +1249,34 @@ fn seed_asteroids(ctx: &ReducerContext, count: usize) {
             remaining_ore: ore,
             radius: 20.0 + (i % 3) as f32 * 8.0,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_calculate_riddle_cost() {
+        // Level 1: 1..100
+        assert_eq!(calculate_riddle_cost(1, 0), 1);
+        assert_eq!(calculate_riddle_cost(1, 1), 2);
+        assert_eq!(calculate_riddle_cost(1, 99), 100);
+
+        // Level 2: 101..200
+        assert_eq!(calculate_riddle_cost(2, 0), 101);
+        assert_eq!(calculate_riddle_cost(2, 1), 102);
+        assert_eq!(calculate_riddle_cost(2, 99), 200);
+
+        // Level 3: 201..300
+        assert_eq!(calculate_riddle_cost(3, 0), 201);
+        assert_eq!(calculate_riddle_cost(3, 99), 300);
+
+        // Level 4: 301..400
+        assert_eq!(calculate_riddle_cost(4, 0), 301);
+        assert_eq!(calculate_riddle_cost(4, 99), 400);
+
+        // Edge case: Level 0 (saturating_sub prevents underflow)
+        assert_eq!(calculate_riddle_cost(0, 0), 1);
     }
 }

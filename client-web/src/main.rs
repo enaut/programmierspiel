@@ -830,6 +830,31 @@ fn BaseDashboardScreen(
 
     let p_hue = player.color_hue;
     let base_pos = base.position.clone();
+    let cost_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
+        + base.drone_scanner_progress as u32
+        + 1;
+    let cost_t2 = (base.base_scanner_level.saturating_sub(1) as u32) * 100
+        + base.base_scanner_progress as u32
+        + 1;
+    let cost_t3 = (base.radar_horizon_level.saturating_sub(1) as u32) * 100
+        + base.radar_horizon_progress as u32
+        + 1;
+
+    let cost_t1_text = if base.drone_scanner_level >= 5 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t1)
+    };
+    let cost_t2_text = if base.base_scanner_level >= 5 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t2)
+    };
+    let cost_t3_text = if base.radar_horizon_level >= 5 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t3)
+    };
 
     let mut resize_trigger = use_signal(|| 0u32);
 
@@ -1087,7 +1112,7 @@ fn BaseDashboardScreen(
                     }
                     p {
                         style: "margin: 0 0 14px 0; font-size: 11px; color: #94a3b8; line-height: 1.3;",
-                        "100 Rätsel pro Stufe • 1 Erz pro Versuch. Falsche Antworten bergen 50% Durchbrenn-Risiko!"
+                        "100 Rätsel pro Stufe • Steigende Erzkosten • Falsche Antworten bergen 50% Durchbrenn-Risiko!"
                     }
 
                     // Track 1: Drone Scanner
@@ -1106,8 +1131,8 @@ fn BaseDashboardScreen(
                         }
                         div {
                             style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                            span { "Fortschritt" }
-                            span { "{base.drone_scanner_progress}% (100 Puzzles nötig)" }
+                            span { "Fortschritt: {base.drone_scanner_progress}%" }
+                            span { "{cost_t1_text}" }
                         }
                     }
 
@@ -1127,8 +1152,8 @@ fn BaseDashboardScreen(
                         }
                         div {
                             style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                            span { "Fortschritt" }
-                            span { "{base.base_scanner_progress}% (100 Puzzles nötig)" }
+                            span { "Fortschritt: {base.base_scanner_progress}%" }
+                            span { "{cost_t2_text}" }
                         }
                     }
 
@@ -1148,8 +1173,8 @@ fn BaseDashboardScreen(
                         }
                         div {
                             style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                            span { "Fortschritt" }
-                            span { "{base.radar_horizon_progress}% (100 Puzzles nötig)" }
+                            span { "Fortschritt: {base.radar_horizon_progress}%" }
+                            span { "{cost_t3_text}" }
                         }
                     }
 

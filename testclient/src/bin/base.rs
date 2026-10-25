@@ -92,6 +92,7 @@ fn main() {
 
     let mut last_event_id: u64 = 0;
     let mut last_status_time = std::time::Instant::now();
+    let mut last_ore_warning = std::time::Instant::now();
     let mut request_in_flight = false;
     let mut last_heartbeat = std::time::Instant::now()
         .checked_sub(Duration::from_secs(60))
@@ -173,10 +174,12 @@ fn main() {
             None => select_next_track(&base),
         };
 
-        let current_level = match active_track {
-            UpgradeTrack::DroneScanner => base.drone_scanner_level,
-            UpgradeTrack::BaseAsteroidScanner => base.base_scanner_level,
-            UpgradeTrack::RadarHorizon => base.radar_horizon_level,
+        let (current_level, current_progress) = match active_track {
+            UpgradeTrack::DroneScanner => (base.drone_scanner_level, base.drone_scanner_progress),
+            UpgradeTrack::BaseAsteroidScanner => {
+                (base.base_scanner_level, base.base_scanner_progress)
+            }
+            UpgradeTrack::RadarHorizon => (base.radar_horizon_level, base.radar_horizon_progress),
         };
 
         if current_level >= 5 {
@@ -194,8 +197,20 @@ fn main() {
             continue;
         }
 
+        // Benötigtes Erz für das nächste Rätsel berechnen
+        // Formel: (Stufe - 1) * 100 + Fortschritt + 1
+        let required_ore =
+            (current_level.saturating_sub(1) as u32) * 100 + (current_progress as u32) + 1;
+
         // Prüfen, ob ausreichend Erz im Basislager vorhanden ist
-        if base.stored_ore < 1 {
+        if base.stored_ore < required_ore {
+            if last_ore_warning.elapsed().as_secs() >= 6 {
+                last_ore_warning = std::time::Instant::now();
+                println!(
+                    "⏳ [BASE STATION] Warte auf Erz für Forschung ({:?} Stufe {}): {}/{} Erz vorhanden...",
+                    active_track, current_level, base.stored_ore, required_ore
+                );
+            }
             continue;
         }
 
