@@ -39,17 +39,25 @@ pub fn decide(ship: &Ship, radar: &Radar) -> Action {
     // fliege zurück zur Basis zum Entladen und Auftanken:
     //
     if ship.cargo_is_full() || ship.energy_percent() < 0.1 {
+        println!("Full - docking");
         return Action::dock();
+    }
+
+    println!("{:?}", radar.unidentified_contacts);
+
+    if let Some(asteroid) = radar.closest_asteroid_with_ore(&ship.position) {
+        println!("mining");
+        return Action::mine(asteroid.asteroid_id);
+    }
+    if let Some(x) = radar.unidentified_contacts.iter().next() {
+        println!("searching");
+        return Action::fly_to(x.position.clone());
     }
 
     if radar.closest_asteroid_with_ore(&ship.position).is_none() {
+        println!("nothing of interest");
         return Action::dock();
     }
-
-    if let Some(asteroid) = radar.closest_asteroid_with_ore(&ship.position) {
-        return Action::mine(asteroid.asteroid_id);
-    }
-
     // -------------------------------------------------------------------------
     // 💡 BEISPIEL STUFE 3: Eigene Asteroidensuche mit Schleifen (for / if)
     // -------------------------------------------------------------------------
@@ -80,5 +88,8 @@ pub fn decide(ship: &Ship, radar: &Radar) -> Action {
     //     }
     // }
 
-    Action::stop()
+    Action::fly_to(Vec2::new(
+        ship.ship_id as f32 * 800.,
+        -1.0 * ship.ship_id as f32 * 800.,
+    ))
 }

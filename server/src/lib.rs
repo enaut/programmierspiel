@@ -619,13 +619,13 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         return Err("Invalid upgrade track. Must be 1 (Drone Scanner), 2 (Base & Asteroid), or 3 (Radar Horizon)".to_string());
     }
 
-    let sender = ctx.sender();
-    record_api_activity(ctx, sender);
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    record_api_activity(ctx, owner);
     let mut base = ctx
         .db
         .base_station()
         .owner()
-        .find(&sender)
+        .find(&owner)
         .ok_or("Deploy a Base Station first before conducting research")?;
 
     let (current_level, current_progress) = match track {
@@ -643,12 +643,12 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
     }
 
     // If an active riddle for this track already exists, keep it
-    if let Some(existing) = ctx.db.active_riddle().owner().find(&sender) {
+    if let Some(existing) = ctx.db.active_riddle().owner().find(&owner) {
         if existing.track == track {
             return Ok(());
         } else {
             // Replace with newly requested track
-            ctx.db.active_riddle().owner().delete(&sender);
+            ctx.db.active_riddle().owner().delete(&owner);
         }
     }
 
@@ -671,7 +671,7 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         riddles::generate_riddle(track, target_level, base.position, seed);
 
     ctx.db.active_riddle().insert(ActiveRiddle {
-        owner: sender,
+        owner,
         puzzle_id,
         track,
         target_level,
@@ -682,7 +682,7 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
 
     ctx.db.game_event().insert(GameEvent {
         event_id: 0,
-        player: sender,
+        player: owner,
         event_type: "RIDDLE_ISSUED".to_string(),
         message: format!(
             "Research riddle issued for Track {} towards Level {} (Cost: {} Ore)",
@@ -700,20 +700,20 @@ pub fn submit_riddle_solution(
     track: u8,
     solution: String,
 ) -> Result<(), String> {
-    let sender = ctx.sender();
-    record_api_activity(ctx, sender);
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    record_api_activity(ctx, owner);
     let mut base = ctx
         .db
         .base_station()
         .owner()
-        .find(&sender)
+        .find(&owner)
         .ok_or("Deploy a Base Station first before submitting research solutions")?;
 
     let riddle = ctx
         .db
         .active_riddle()
         .owner()
-        .find(&sender)
+        .find(&owner)
         .ok_or("No active riddle found. Call request_riddle first")?;
 
     if riddle.track != track {
@@ -727,12 +727,12 @@ pub fn submit_riddle_solution(
         riddles::verify_solution(track, &riddle.payload, &riddle.expected_solution, &solution);
 
     // Remove active riddle
-    ctx.db.active_riddle().owner().delete(&sender);
+    ctx.db.active_riddle().owner().delete(&owner);
 
     if is_correct {
         unlock_achievement(
             ctx,
-            sender,
+            owner,
             "FIRST_RESEARCH",
             "Akademiker",
             "Erstes Telemetrie-Forschungsrätsel gelöst",
@@ -771,7 +771,7 @@ pub fn submit_riddle_solution(
 
             ctx.db.game_event().insert(GameEvent {
                 event_id: 0,
-                player: sender,
+                player: owner,
                 event_type: "UPGRADE_UNLOCKED".to_string(),
                 message: format!(
                     "🎉 Upgrade Complete! {} is now Level {}!",
@@ -783,7 +783,7 @@ pub fn submit_riddle_solution(
             if new_level >= 2 {
                 unlock_achievement(
                     ctx,
-                    sender,
+                    owner,
                     "SCANNER_UPGRADE",
                     "Scharfe Augen",
                     "Scanner-Zweig auf Stufe 2 ausgebaut",
@@ -796,7 +796,7 @@ pub fn submit_riddle_solution(
 
             ctx.db.game_event().insert(GameEvent {
                 event_id: 0,
-                player: sender,
+                player: owner,
                 event_type: "RIDDLE_SOLVED".to_string(),
                 message: format!("Research progress on Track {}: {}/100", track, current_prog),
                 timestamp: ctx.timestamp,
@@ -817,7 +817,7 @@ pub fn submit_riddle_solution(
 
             ctx.db.game_event().insert(GameEvent {
                 event_id: 0,
-                player: sender,
+                player: owner,
                 event_type: "MODULE_BURNOUT".to_string(),
                 message: format!(
                     "⚠️ Research module burnout on Track {}! Progress reset to 0%!",
@@ -830,7 +830,7 @@ pub fn submit_riddle_solution(
 
             ctx.db.game_event().insert(GameEvent {
                 event_id: 0,
-                player: sender,
+                player: owner,
                 event_type: "PUZZLE_FAILED".to_string(),
                 message: format!(
                     "❌ Incorrect solution on Track {}. Ore consumed, module spared.",
@@ -1372,10 +1372,19 @@ pub fn my_ai_agents(ctx: &ViewContext) -> Vec<AiAgent> {
 
 #[view(accessor = my_active_riddle, public)]
 pub fn my_active_riddle(ctx: &ViewContext) -> Option<PublicRiddle> {
+    let sender = ctx.sender();
+    let owner = if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return None;
+        }
+        agent.owner
+    } else {
+        sender
+    };
     ctx.db
         .active_riddle()
         .owner()
-        .find(&ctx.sender())
+        .find(&owner)
         .map(|r| PublicRiddle {
             puzzle_id: r.puzzle_id,
             track: r.track,
@@ -1425,11 +1434,41 @@ pub fn visible_drones(ctx: &ViewContext) -> Vec<PerceivedDrone> {
 
 #[view(accessor = visible_bases, public)]
 pub fn visible_bases(ctx: &ViewContext) -> Vec<PerceivedBase> {
-    ctx.db
-        .perceived_base()
-        .viewer()
-        .filter(&ctx.sender())
-        .collect()
+    let sender = ctx.sender();
+    if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Vec::new();
+        }
+        let rows: Vec<PerceivedBase> = ctx
+            .db
+            .perceived_base()
+            .viewer()
+            .filter(&agent.owner)
+            .collect();
+        match agent.role {
+            0 => {
+                if let Some(base) = ctx.db.base_station().base_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|b| b.position.distance(&base.position) <= base.signal_radius)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            1 => {
+                if let Some(ship) = ctx.db.ship().ship_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|b| b.position.distance(&ship.position) <= 800.0)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => rows,
+        }
+    } else {
+        ctx.db.perceived_base().viewer().filter(&sender).collect()
+    }
 }
 
 #[view(accessor = visible_asteroids, public)]
@@ -1477,11 +1516,45 @@ pub fn visible_asteroids(ctx: &ViewContext) -> Vec<PerceivedAsteroid> {
 
 #[view(accessor = unidentified_objects, public)]
 pub fn unidentified_objects(ctx: &ViewContext) -> Vec<UnidentifiedContact> {
-    ctx.db
-        .unidentified_contact()
-        .viewer()
-        .filter(&ctx.sender())
-        .collect()
+    let sender = ctx.sender();
+    if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Vec::new();
+        }
+        let rows: Vec<UnidentifiedContact> = ctx
+            .db
+            .unidentified_contact()
+            .viewer()
+            .filter(&agent.owner)
+            .collect();
+        match agent.role {
+            0 => {
+                if let Some(base) = ctx.db.base_station().base_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|u| u.position.distance(&base.position) <= base.signal_radius)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            1 => {
+                if let Some(ship) = ctx.db.ship().ship_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|u| u.position.distance(&ship.position) <= 800.0)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => rows,
+        }
+    } else {
+        ctx.db
+            .unidentified_contact()
+            .viewer()
+            .filter(&sender)
+            .collect()
+    }
 }
 
 #[view(accessor = admin_all_ships, public)]
@@ -1782,8 +1855,8 @@ mod tests {
             let mut rng = SimpleRng::new(s);
             let count = chunk_asteroid_count(&mut rng);
             assert!(
-                count >= 18 && count <= 36,
-                "count {} out of expected 18..=36 range",
+                count >= 64 && count <= 128,
+                "count {} out of expected 64..=128 range",
                 count
             );
         }

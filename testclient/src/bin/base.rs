@@ -25,7 +25,7 @@ use testclient::research::{self, UpgradeTrack};
 const TARGET_TRACK: Option<UpgradeTrack> = None;
 
 /// Maximale Anzahl an Drohnen, die die Heimatbasis automatisch bauen soll.
-const TARGET_FLEET_SIZE: usize = 5;
+const TARGET_FLEET_SIZE: usize = 35;
 
 fn main() {
     println!("================================================================================");
@@ -168,6 +168,23 @@ fn main() {
 
         let current_ships_count = conn.db.my_ships().iter().count();
 
+        // Flottenerweiterung: Wenn Erz-Überschuss über dem nächsten Rätsel vorhanden ist
+        if current_ships_count < TARGET_FLEET_SIZE
+            && base.stored_ore >= DRONE_TIER_1_COST
+            && last_drone_build.elapsed() >= Duration::from_secs(3)
+        {
+            last_drone_build = std::time::Instant::now();
+            println!(
+                "🛸 [BASE STATION] Erz-Überschuss vorhanden! Baue Drohne #{}/{} (Erz: {})...",
+                current_ships_count + 1,
+                TARGET_FLEET_SIZE,
+                base.stored_ore
+            );
+            if let Err(e) = build_drone(&conn, 2) {
+                eprintln!("⚠️ [BASE STATION] Fehler beim Bauen der Drohne: {}", e);
+            }
+        }
+
         // Periodischer Statusbericht
         if last_status_time.elapsed().as_secs() >= 8 {
             last_status_time = std::time::Instant::now();
@@ -210,23 +227,6 @@ fn main() {
         } else {
             (current_level.saturating_sub(1) as u32) * 100 + (current_progress as u32) + 1
         };
-
-        // Flottenerweiterung: Wenn Erz-Überschuss über dem nächsten Rätsel vorhanden ist
-        if current_ships_count < TARGET_FLEET_SIZE
-            && base.stored_ore >= required_ore + DRONE_TIER_1_COST
-            && last_drone_build.elapsed() >= Duration::from_secs(3)
-        {
-            last_drone_build = std::time::Instant::now();
-            println!(
-                "🛸 [BASE STATION] Erz-Überschuss vorhanden! Baue Drohne #{}/{} (Erz: {})...",
-                current_ships_count + 1,
-                TARGET_FLEET_SIZE,
-                base.stored_ore
-            );
-            if let Err(e) = build_drone(&conn, 1) {
-                eprintln!("⚠️ [BASE STATION] Fehler beim Bauen der Drohne: {}", e);
-            }
-        }
 
         if all_research_maxed {
             if last_status_time.elapsed().as_secs() >= 10 {
