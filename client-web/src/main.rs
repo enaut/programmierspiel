@@ -10,7 +10,9 @@ use module_bindings::deploy_base_station_reducer::deploy_base_station;
 use module_bindings::dioxus::{
     ConnectionState, use_spacetimedb_context, use_spacetimedb_context_provider, use_subscription,
 };
+use module_bindings::register_ai_agent_reducer::register_ai_agent;
 use module_bindings::register_player_reducer::register_player;
+use module_bindings::revoke_ai_agent_reducer::revoke_ai_agent;
 use module_bindings::{
     BaseStation, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, PlayerAchievement,
     PublicRiddle, Ship, ShipCommand, Vec2,
@@ -413,6 +415,7 @@ fn CockpitApp() -> Element {
         "SELECT * FROM unidentified_objects",
         "SELECT * FROM game_event",
         "SELECT * FROM my_active_riddle",
+        "SELECT * FROM my_ai_agents",
     ]);
 
     let ctx = use_spacetimedb_context();
@@ -432,7 +435,7 @@ fn CockpitApp() -> Element {
         }
     });
 
-    // Persist token upon connection
+    // Persist token upon connection only if no session token already exists in storage
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         {
@@ -440,7 +443,14 @@ fn CockpitApp() -> Element {
             if let ConnectionState::Connected(_, ref token) = current_state {
                 if let Some(w) = web_sys::window() {
                     if let Ok(Some(storage)) = w.local_storage() {
-                        let _ = storage.set_item("spacetimedb_token", token);
+                        if storage
+                            .get_item("spacetimedb_token")
+                            .ok()
+                            .flatten()
+                            .is_none()
+                        {
+                            let _ = storage.set_item("spacetimedb_token", token);
+                        }
                     }
                 }
             }
@@ -690,6 +700,7 @@ fn CockpitApp() -> Element {
                             player: p.clone(),
                             base: b.clone(),
                             token: token.clone(),
+                            stdb_url: stdb_url.clone(),
                             current_riddle: current_riddle.clone(),
                             on_close: move |_| show_heimatbasis_modal.set(false),
                         }
@@ -1632,21 +1643,6 @@ fn BaseDashboardScreen(
         }
     });
 
-    let copy_token = {
-        let t = token.clone();
-        move |_| {
-            #[cfg(target_arch = "wasm32")]
-            {
-                if let Some(w) = web_sys::window() {
-                    let nav = w.navigator();
-                    let clipboard = nav.clipboard();
-                    let _ = clipboard.write_text(&t);
-                    copied.set(true);
-                }
-            }
-        }
-    };
-
     let b_pos_x = base.position.x as f64;
     let b_pos_y = base.position.y as f64;
     let current_cam_x = b_pos_x + *cam_offset_x.read();
@@ -1906,32 +1902,69 @@ fn BaseDashboardScreen(
                     }
 
                     // Token Box: Shown until API connects
-                    div {
-                        style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px;",
-                        div {
-                            style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px; margin-bottom: 8px;",
-                            "DEIN PERSÖNLICHER API-TOKEN:"
-                        }
-                        div {
-                            style: "display: flex; gap: 8px;",
-                            input {
-                                readonly: true,
-                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; outline: none; min-width: 0;",
-                                value: "{token}",
+                    {
+                        let bot_token = {
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                oauth::get_local_storage()
+                                    .and_then(|s| s.get_item("base_ai_token").ok().flatten())
+                                    .unwrap_or_else(|| token.clone())
                             }
-                            button {
-                                style: if copied() {
-                                    "background: #059669; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                } else {
-                                    "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                },
-                                onclick: copy_token,
-                                if copied() { "✔" } else { "📋" }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                token.clone()
                             }
-                        }
-                        div {
-                            style: "font-size: 11px; color: #64748b; margin-top: 6px;",
-                            "In " code { style: "color: #38bdf8;", "config.toml" } " deines Zed-Projekts einfügen."
+                        };
+                        let is_perm = bot_token != token;
+                        let copy_bot_token = {
+                            let t = bot_token.clone();
+                            move |_| {
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    if let Some(w) = web_sys::window() {
+                                        let nav = w.navigator();
+                                        let clipboard = nav.clipboard();
+                                        let _ = clipboard.write_text(&t);
+                                        copied.set(true);
+                                    }
+                                }
+                            }
+                        };
+                        rsx! {
+                            div {
+                                style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px;",
+                                div {
+                                    style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+                                    div {
+                                        style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px;",
+                                        if is_perm { "🤖 DEIN PERMANENTER BASE-AI TOKEN:" } else { "DEIN PERSÖNLICHER API-TOKEN:" }
+                                    }
+                                    if is_perm {
+                                        span { style: "font-size: 10px; color: #00e676; font-weight: 600;", "✔ Permanent (kein 60s Timeout)" }
+                                    }
+                                }
+                                div {
+                                    style: "display: flex; gap: 8px;",
+                                    input {
+                                        readonly: true,
+                                        style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; outline: none; min-width: 0;",
+                                        value: "{bot_token}",
+                                    }
+                                    button {
+                                        style: if copied() {
+                                            "background: #059669; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
+                                        } else {
+                                            "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
+                                        },
+                                        onclick: copy_bot_token,
+                                        if copied() { "✔" } else { "📋" }
+                                    }
+                                }
+                                div {
+                                    style: "font-size: 11px; color: #64748b; margin-top: 6px;",
+                                    "In " code { style: "color: #38bdf8;", "config.toml" } " deines Zed-Projekts einfügen (oder in Heimatbasis verwalten)."
+                                }
+                            }
                         }
                     }
                 }
@@ -2293,10 +2326,40 @@ fn HeimatbasisModal(
     player: Player,
     base: BaseStation,
     token: String,
+    stdb_url: String,
     current_riddle: Option<PublicRiddle>,
     on_close: EventHandler<()>,
 ) -> Element {
+    let ctx = use_spacetimedb_context();
+    let my_ai_agents_list = (ctx.tables.my_ai_agents)();
+    let active_base_agent = my_ai_agents_list
+        .iter()
+        .find(|a| a.role == 0 && a.bound_entity_id == base.base_id && !a.is_revoked)
+        .cloned();
+
+    let mut base_ai_token = use_signal(|| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            oauth::get_local_storage()
+                .and_then(|s| s.get_item("base_ai_token").ok().flatten())
+                .unwrap_or_default()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            String::new()
+        }
+    });
+
+    let mut is_generating = use_signal(|| false);
+    let mut gen_error = use_signal(|| Option::<String>::None);
     let mut copied = use_signal(|| false);
+
+    let effective_token = if !base_ai_token().is_empty() {
+        base_ai_token()
+    } else {
+        token.clone()
+    };
+    let is_permanent = !base_ai_token().is_empty();
 
     let is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
         let ts_sec = (ts.to_micros_since_unix_epoch() / 1_000_000) as f64;
@@ -2305,7 +2368,7 @@ fn HeimatbasisModal(
     });
 
     let copy_token = {
-        let t = token.clone();
+        let t = effective_token.clone();
         move |_| {
             #[cfg(target_arch = "wasm32")]
             {
@@ -2315,6 +2378,65 @@ fn HeimatbasisModal(
                     let _ = clipboard.write_text(&t);
                     copied.set(true);
                 }
+            }
+        }
+    };
+
+    let generate_new_ai_token = {
+        let stdb = stdb_url.clone();
+        let base_id = base.base_id;
+        let conn_opt = (ctx.connection)();
+        move |_| {
+            let stdb = stdb.clone();
+            let conn_opt = conn_opt.clone();
+            spawn(async move {
+                is_generating.set(true);
+                gen_error.set(None);
+                match oauth::request_ai_token(
+                    &stdb,
+                    Some("base"),
+                    Some(base_id),
+                    Some("Heimatbasis AI"),
+                )
+                .await
+                {
+                    Ok(resp) => {
+                        if let Ok(agent_id) = Identity::from_hex(&resp.identity) {
+                            if let Some(ref conn) = conn_opt {
+                                let _ = conn.reducers.register_ai_agent(
+                                    agent_id,
+                                    0,
+                                    base_id,
+                                    "Heimatbasis AI".to_string(),
+                                );
+                            }
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(storage) = oauth::get_local_storage() {
+                            let _ = storage.set_item("base_ai_token", &resp.token);
+                        }
+                        base_ai_token.set(resp.token);
+                    }
+                    Err(e) => {
+                        gen_error.set(Some(e));
+                    }
+                }
+                is_generating.set(false);
+            });
+        }
+    };
+
+    let revoke_token = {
+        let conn_opt = (ctx.connection)();
+        let agent_opt = active_base_agent.clone();
+        move |_| {
+            if let (Some(conn), Some(agent)) = (&conn_opt, &agent_opt) {
+                let _ = conn.reducers.revoke_ai_agent(agent.agent_identity);
+                #[cfg(target_arch = "wasm32")]
+                if let Some(storage) = oauth::get_local_storage() {
+                    let _ = storage.remove_item("base_ai_token");
+                }
+                base_ai_token.set(String::new());
             }
         }
     };
@@ -2375,40 +2497,82 @@ fn HeimatbasisModal(
                 div {
                     style: "padding: 24px; display: flex; flex-direction: column; gap: 20px;",
 
-                    // 1. Token Box (Moved into popup)
-                    if player.has_api_connected {
+                    // 1. Bot & AI Token Management Panel
+                    div {
+                        style: "background: #0f172a; border: 1px solid rgba(0, 229, 255, 0.25); border-radius: 12px; padding: 18px;",
                         div {
-                            style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px 18px;",
+                            style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
                             div {
-                                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
-                                div {
-                                    style: "display: flex; align-items: center; gap: 8px;",
-                                    span { style: "color: #00e676; font-size: 14px;", "●" }
-                                    span { style: "font-size: 12px; font-weight: 600; color: #cbd5e1;", "API-Client verbunden" }
-                                    if is_api_recently_active {
-                                        span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); font-weight: 600;", "Aktiv (<30s)" }
-                                    } else {
-                                        span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); font-weight: 600;", "Inaktiv (>30s)" }
-                                    }
+                                style: "display: flex; align-items: center; gap: 8px;",
+                                span { style: "font-size: 16px;", "🤖" }
+                                span { style: "font-size: 14px; font-weight: 700; color: #00e5ff;", "Heimatbasis-AI Token" }
+                                if is_permanent {
+                                    span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); font-weight: 600;", "✔ Permanent (kein 60s Timeout)" }
+                                } else {
+                                    span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); font-weight: 600;", "Temporärer WebSocket-Token" }
                                 }
-                                span { style: "font-size: 11px; color: #64748b;", "Zed config.toml" }
+                            }
+                            div {
+                                style: "display: flex; align-items: center; gap: 8px;",
+                                if player.has_api_connected {
+                                    span { style: "color: #00e676; font-size: 12px;", "●" }
+                                    span { style: "font-size: 11px; color: #cbd5e1;", "Bot verbunden" }
+                                    if is_api_recently_active {
+                                        span { style: "font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 230, 118, 0.15); color: #00e676; font-weight: 600;", "Aktiv" }
+                                    }
+                                } else {
+                                    span { style: "color: #94a3b8; font-size: 12px;", "○" }
+                                    span { style: "font-size: 11px; color: #94a3b8;", "Wartet auf Bot" }
+                                }
+                            }
+                        }
+
+                        div {
+                            style: "display: flex; gap: 8px;",
+                            input {
+                                readonly: true,
+                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 11px; outline: none; min-width: 0;",
+                                value: "{effective_token}",
+                            }
+                            button {
+                                style: if copied() {
+                                    "background: #059669; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
+                                } else {
+                                    "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
+                                },
+                                onclick: copy_token,
+                                if copied() { "✔ Kopiert!" } else { "📋 Kopieren" }
+                            }
+                        }
+
+                        div {
+                            style: "display: flex; justify-content: space-between; align-items: center; margin-top: 10px;",
+                            div {
+                                style: "font-size: 11px; color: #94a3b8;",
+                                "In " code { style: "color: #38bdf8;", "testclients/config.toml" } " einfügen, um deinen Bot dauerhaft zu starten."
                             }
                             div {
                                 style: "display: flex; gap: 8px;",
-                                input {
-                                    readonly: true,
-                                    style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 12px; outline: none;",
-                                    value: "{token}",
-                                }
                                 button {
-                                    style: if copied() {
-                                        "background: #059669; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                    } else {
-                                        "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                    },
-                                    onclick: copy_token,
-                                    if copied() { "✔ Kopiert!" } else { "📋 Kopieren" }
+                                    style: "background: rgba(0, 229, 255, 0.12); hover:background: rgba(0, 229, 255, 0.25); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;",
+                                    disabled: is_generating(),
+                                    onclick: generate_new_ai_token,
+                                    if is_generating() { "Generiere..." } else if is_permanent { "🔄 Neuer Token" } else { "✨ Permanenten Token erzeugen" }
                                 }
+                                if is_permanent {
+                                    button {
+                                        style: "background: rgba(239, 68, 68, 0.12); hover:background: rgba(239, 68, 68, 0.25); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;",
+                                        onclick: revoke_token,
+                                        "🛑 Widerrufen"
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(ref err) = gen_error() {
+                            div {
+                                style: "color: #f87171; font-size: 11px; margin-top: 6px;",
+                                "Fehler: {err}"
                             }
                         }
                     }

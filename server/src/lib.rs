@@ -5,8 +5,8 @@ pub mod riddles;
 use math::{SimpleRng, Vec2, chunk_seed, pack_chunk_key, unpack_chunk_key};
 pub use models::*;
 use spacetimedb::{
-    AnonymousViewContext, ReducerContext, ScheduleAt, SpacetimeType, Table, ViewContext, reducer,
-    view,
+    AnonymousViewContext, Identity, ReducerContext, ScheduleAt, SpacetimeType, Table, ViewContext,
+    reducer, view,
 };
 use std::time::Duration;
 
@@ -117,13 +117,118 @@ fn unlock_achievement(
     }
 }
 
+/// Helper function to resolve the effective owner and active AI agent for the current reducer caller
+fn resolve_sender_identity(ctx: &ReducerContext) -> Result<(Identity, Option<AiAgent>), String> {
+    let sender = ctx.sender();
+    if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Err("This AI agent token has been revoked".to_string());
+        }
+        Ok((agent.owner, Some(agent)))
+    } else {
+        Ok((sender, None))
+    }
+}
+
 #[reducer]
-pub fn api_heartbeat(ctx: &ReducerContext) -> Result<(), String> {
+pub fn register_ai_agent(
+    ctx: &ReducerContext,
+    agent_identity: Identity,
+    role: u8,
+    bound_entity_id: u32,
+    label: String,
+) -> Result<(), String> {
     let sender = ctx.sender();
     if ctx.db.player().identity().find(&sender).is_none() {
+        return Err("Only registered players can register AI agents".to_string());
+    }
+
+    match role {
+        0 => {
+            // Base AI: verify bound_entity_id is owned by sender
+            let base = ctx
+                .db
+                .base_station()
+                .base_id()
+                .find(&bound_entity_id)
+                .ok_or("Base station not found")?;
+            if base.owner != sender {
+                return Err("You do not own this base station".to_string());
+            }
+        }
+        1 | 2 => {
+            // DroneShip / Drone AI: verify ship is owned by sender
+            let ship = ctx
+                .db
+                .ship()
+                .ship_id()
+                .find(&bound_entity_id)
+                .ok_or("Ship not found")?;
+            if ship.owner != sender {
+                return Err("You do not own this ship".to_string());
+            }
+        }
+        _ => return Err("Invalid agent role (0 = Base, 1 = DroneShip, 2 = Drone)".to_string()),
+    }
+
+    if let Some(mut existing) = ctx.db.ai_agent().agent_identity().find(&agent_identity) {
+        if existing.owner != sender {
+            return Err("Identity already bound to another player".to_string());
+        }
+        existing.is_revoked = false;
+        existing.role = role;
+        existing.bound_entity_id = bound_entity_id;
+        existing.label = label;
+        ctx.db.ai_agent().agent_identity().update(existing);
+    } else {
+        ctx.db.ai_agent().insert(AiAgent {
+            agent_identity,
+            owner: sender,
+            role,
+            bound_entity_id,
+            label,
+            created_at: ctx.timestamp,
+            is_revoked: false,
+        });
+    }
+
+    log::info!(
+        "Player {:?} registered AI agent {:?} (role: {}, bound_entity: {})",
+        sender,
+        agent_identity,
+        role,
+        bound_entity_id
+    );
+    Ok(())
+}
+
+#[reducer]
+pub fn revoke_ai_agent(ctx: &ReducerContext, agent_identity: Identity) -> Result<(), String> {
+    let sender = ctx.sender();
+    let mut agent = ctx
+        .db
+        .ai_agent()
+        .agent_identity()
+        .find(&agent_identity)
+        .ok_or("AI agent not found")?;
+
+    if agent.owner != sender {
+        return Err("You do not own this AI agent".to_string());
+    }
+
+    agent.is_revoked = true;
+    ctx.db.ai_agent().agent_identity().update(agent);
+    log::info!("Player {:?} revoked AI agent {:?}", sender, agent_identity);
+    Ok(())
+}
+
+#[reducer]
+pub fn api_heartbeat(ctx: &ReducerContext) -> Result<(), String> {
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    if ctx.db.player().identity().find(&owner).is_none() {
         return Err("Player not registered".to_string());
     }
-    record_api_activity(ctx, sender);
+    record_api_activity(ctx, owner);
     Ok(())
 }
 
@@ -303,16 +408,16 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
 
 #[reducer]
 pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
-    let sender = ctx.sender();
-    record_api_activity(ctx, sender);
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    record_api_activity(ctx, owner);
     let mut base = ctx
         .db
         .base_station()
         .owner()
-        .find(&sender)
+        .find(&owner)
         .ok_or("Deploy a Base Station first before building ships")?;
 
-    let existing_ships_count = ctx.db.ship().owner().filter(&sender).count();
+    let existing_ships_count = ctx.db.ship().owner().filter(&owner).count();
     let is_emergency = existing_ships_count == 0 && tier == 1;
 
     let (cost, max_speed, max_energy, max_cargo) = match tier {
@@ -336,7 +441,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
     ctx.db.ship().insert(Ship {
         ship_id: 0,
         universe: 0,
-        owner: sender,
+        owner,
         ship_tier: tier,
         position: base.position + Vec2::new(25.0, 25.0),
         velocity: Vec2::ZERO,
@@ -357,7 +462,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
     if existing_ships_count >= 1 {
         unlock_achievement(
             ctx,
-            sender,
+            owner,
             "FLEET_EXPANDED",
             "Flottenadmiral",
             "Zusätzliche Drohne gebaut und Flotte erweitert",
@@ -367,7 +472,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
 
     ctx.db.game_event().insert(GameEvent {
         event_id: 0,
-        player: sender,
+        player: owner,
         event_type: "SHIP_BUILT".to_string(),
         message: if is_emergency {
             "Emergency Tier-1 drone constructed (0 ore)".to_string()
@@ -386,11 +491,9 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
 
 #[reducer]
 pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Result<(), String> {
-    let sender = ctx.sender();
-    record_api_activity(ctx, sender);
-    if ctx.db.base_station().owner().find(&sender).is_some() {
-        record_api_activity(ctx, sender);
-    }
+    let (owner, maybe_agent) = resolve_sender_identity(ctx)?;
+    record_api_activity(ctx, owner);
+
     let mut ship = ctx
         .db
         .ship()
@@ -398,7 +501,7 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
         .find(&ship_id)
         .ok_or("Ship not found")?;
 
-    if ship.owner != sender {
+    if ship.owner != owner {
         return Err("You do not own this ship".to_string());
     }
 
@@ -406,6 +509,52 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
         return Err(
             "Ship is stranded without signal/energy and cannot accept commands".to_string(),
         );
+    }
+
+    // Role-separated signal radius validation for AI agents
+    if let Some(ref agent) = maybe_agent {
+        match agent.role {
+            0 => {
+                // Base AI: ship must currently be within Base Station's signal radius
+                let base = ctx
+                    .db
+                    .base_station()
+                    .base_id()
+                    .find(&agent.bound_entity_id)
+                    .ok_or("Bound Base Station not found")?;
+                let dist = ship.position.distance(&base.position);
+                if dist > base.signal_radius {
+                    return Err(format!(
+                        "Drone #{} is outside Base signal radius ({:.1} > {:.1})",
+                        ship_id, dist, base.signal_radius
+                    ));
+                }
+            }
+            1 => {
+                // DroneShip AI: ship must currently be within Droneship's signal radius
+                let droneship = ctx
+                    .db
+                    .ship()
+                    .ship_id()
+                    .find(&agent.bound_entity_id)
+                    .ok_or("Bound Droneship not found")?;
+                let dist = ship.position.distance(&droneship.position);
+                let radius = 800.0;
+                if dist > radius {
+                    return Err(format!(
+                        "Drone #{} is outside Droneship signal radius ({:.1} > {:.1})",
+                        ship_id, dist, radius
+                    ));
+                }
+            }
+            2 => {
+                // Drone self AI: can only command itself
+                if ship.ship_id != agent.bound_entity_id {
+                    return Err("Drone AI can only command its own drone".to_string());
+                }
+            }
+            _ => return Err("Unknown AI agent role".to_string()),
+        }
     }
 
     match cmd {
@@ -438,7 +587,7 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
                 .db
                 .base_station()
                 .owner()
-                .find(&sender)
+                .find(&owner)
                 .ok_or("Base station not found to dock at")?;
 
             ship.target_position = Some(base.position);
@@ -891,7 +1040,19 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
         if let Some(base) = ctx.db.base_station().owner().find(&ship.owner) {
             let dist_to_base = ship.position.distance(&base.position);
             if dist_to_base > base.signal_radius {
-                // Outside signal!
+                // Outside signal! Continuous signal tether: halt immediately upon leaving controller signal bubble
+                if ship.speed > 0.0
+                    || ship.velocity != Vec2::ZERO
+                    || ship.target_position.is_some()
+                    || ship.is_mining
+                {
+                    ship.speed = 0.0;
+                    ship.velocity = Vec2::ZERO;
+                    ship.target_position = None;
+                    ship.is_mining = false;
+                    ship.target_asteroid_id = None;
+                }
+
                 if ship.ship_tier <= 1 {
                     let is_second_tick = tick_count % ticks_per_sec == 0;
                     if is_second_tick {
@@ -1148,12 +1309,65 @@ pub fn total_players(ctx: &AnonymousViewContext) -> Vec<CountRow> {
 
 #[view(accessor = my_ships, public)]
 pub fn my_ships(ctx: &ViewContext) -> Vec<Ship> {
-    ctx.db.ship().owner().filter(&ctx.sender()).collect()
+    let sender = ctx.sender();
+    if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Vec::new();
+        }
+        let all_ships: Vec<Ship> = ctx.db.ship().owner().filter(&agent.owner).collect();
+        match agent.role {
+            0 => {
+                // Base AI: only ships within base signal radius
+                if let Some(base) = ctx.db.base_station().base_id().find(&agent.bound_entity_id) {
+                    all_ships
+                        .into_iter()
+                        .filter(|s| s.position.distance(&base.position) <= base.signal_radius)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            1 => {
+                // Droneship AI: only ships within droneship range
+                if let Some(droneship) = ctx.db.ship().ship_id().find(&agent.bound_entity_id) {
+                    all_ships
+                        .into_iter()
+                        .filter(|s| s.position.distance(&droneship.position) <= 800.0)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            2 => {
+                // Drone AI: only itself
+                all_ships
+                    .into_iter()
+                    .filter(|s| s.ship_id == agent.bound_entity_id)
+                    .collect()
+            }
+            _ => Vec::new(),
+        }
+    } else {
+        ctx.db.ship().owner().filter(&sender).collect()
+    }
 }
 
 #[view(accessor = my_base, public)]
 pub fn my_base(ctx: &ViewContext) -> Option<BaseStation> {
-    ctx.db.base_station().owner().find(&ctx.sender())
+    let sender = ctx.sender();
+    if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return None;
+        }
+        ctx.db.base_station().owner().find(&agent.owner)
+    } else {
+        ctx.db.base_station().owner().find(&sender)
+    }
+}
+
+#[view(accessor = my_ai_agents, public)]
+pub fn my_ai_agents(ctx: &ViewContext) -> Vec<AiAgent> {
+    ctx.db.ai_agent().owner().filter(&ctx.sender()).collect()
 }
 
 #[view(accessor = my_active_riddle, public)]
@@ -1172,11 +1386,41 @@ pub fn my_active_riddle(ctx: &ViewContext) -> Option<PublicRiddle> {
 
 #[view(accessor = visible_drones, public)]
 pub fn visible_drones(ctx: &ViewContext) -> Vec<PerceivedDrone> {
-    ctx.db
-        .perceived_drone()
-        .viewer()
-        .filter(&ctx.sender())
-        .collect()
+    let sender = ctx.sender();
+    if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Vec::new();
+        }
+        let rows: Vec<PerceivedDrone> = ctx
+            .db
+            .perceived_drone()
+            .viewer()
+            .filter(&agent.owner)
+            .collect();
+        match agent.role {
+            0 => {
+                if let Some(base) = ctx.db.base_station().base_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|d| d.position.distance(&base.position) <= base.signal_radius)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            1 => {
+                if let Some(ship) = ctx.db.ship().ship_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|d| d.position.distance(&ship.position) <= 800.0)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => rows,
+        }
+    } else {
+        ctx.db.perceived_drone().viewer().filter(&sender).collect()
+    }
 }
 
 #[view(accessor = visible_bases, public)]
@@ -1190,11 +1434,45 @@ pub fn visible_bases(ctx: &ViewContext) -> Vec<PerceivedBase> {
 
 #[view(accessor = visible_asteroids, public)]
 pub fn visible_asteroids(ctx: &ViewContext) -> Vec<PerceivedAsteroid> {
-    ctx.db
-        .perceived_asteroid()
-        .viewer()
-        .filter(&ctx.sender())
-        .collect()
+    let sender = ctx.sender();
+    if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Vec::new();
+        }
+        let rows: Vec<PerceivedAsteroid> = ctx
+            .db
+            .perceived_asteroid()
+            .viewer()
+            .filter(&agent.owner)
+            .collect();
+        match agent.role {
+            0 => {
+                if let Some(base) = ctx.db.base_station().base_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|a| a.position.distance(&base.position) <= base.signal_radius)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            1 => {
+                if let Some(ship) = ctx.db.ship().ship_id().find(&agent.bound_entity_id) {
+                    rows.into_iter()
+                        .filter(|a| a.position.distance(&ship.position) <= 800.0)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => rows,
+        }
+    } else {
+        ctx.db
+            .perceived_asteroid()
+            .viewer()
+            .filter(&sender)
+            .collect()
+    }
 }
 
 #[view(accessor = unidentified_objects, public)]

@@ -262,6 +262,82 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, 
         .map_err(|e| format!("Fehler beim Parsen der Refresh-Antwort: {e}"))
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateApiTokenRequest {
+    pub role: Option<String>,
+    pub entity_id: Option<u32>,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CreateApiTokenResponse {
+    pub identity: String,
+    pub token: String,
+}
+
+/// Requests a permanent, long-lived API token for a sub-AI from the SpacetimeDB host
+#[cfg(target_arch = "wasm32")]
+pub async fn request_ai_token(
+    stdb_url: &str,
+    role: Option<&str>,
+    entity_id: Option<u32>,
+    label: Option<&str>,
+) -> Result<CreateApiTokenResponse, String> {
+    let endpoint = format!("{}/v1/identity/api-token", stdb_url.trim_end_matches('/'));
+    let session_token = get_saved_token().ok_or("Nicht eingeloggt (kein Session-Token)")?;
+
+    let payload = CreateApiTokenRequest {
+        role: role.map(|s| s.to_string()),
+        entity_id,
+        label: label.map(|s| s.to_string()),
+    };
+    let json_body = serde_json::to_string(&payload)
+        .map_err(|e| format!("Fehler beim Serialisieren des Requests: {e}"))?;
+
+    let opts = web_sys::RequestInit::new();
+    opts.set_method("POST");
+    opts.set_body(&wasm_bindgen::JsValue::from_str(&json_body));
+
+    let headers = web_sys::Headers::new().map_err(|e| format!("Header-Fehler: {e:?}"))?;
+    headers
+        .set("Content-Type", "application/json")
+        .map_err(|e| format!("Header-Fehler: {e:?}"))?;
+    headers
+        .set("Authorization", &format!("Bearer {session_token}"))
+        .map_err(|e| format!("Header-Fehler: {e:?}"))?;
+    opts.set_headers(&headers);
+
+    let request = web_sys::Request::new_with_str_and_init(&endpoint, &opts)
+        .map_err(|e| format!("Netzwerkfehler beim Erstellen des Requests: {e:?}"))?;
+
+    let window = web_sys::window().ok_or("Kein Window-Objekt verfügbar")?;
+    let resp_val = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| format!("Netzwerkfehler beim Abrufen des AI-Tokens: {e:?}"))?;
+
+    let resp: web_sys::Response = resp_val
+        .dyn_into()
+        .map_err(|e| format!("Unerwartete Antwort: {e:?}"))?;
+
+    let status = resp.status();
+    let text_promise = resp
+        .text()
+        .map_err(|e| format!("Fehler beim Lesen des Bodys: {e:?}"))?;
+    let text_val = wasm_bindgen_futures::JsFuture::from(text_promise)
+        .await
+        .map_err(|e| format!("Fehler beim Lesen des Antworttexts: {e:?}"))?;
+    let body_text = text_val.as_string().unwrap_or_default();
+
+    if !resp.ok() {
+        return Err(format!(
+            "AI-Token Generierung fehlgeschlagen ({status}): {body_text}"
+        ));
+    }
+
+    serde_json::from_str::<CreateApiTokenResponse>(&body_text)
+        .map_err(|e| format!("Fehler beim Parsen der AI-Token-Antwort: {e}"))
+}
+
 // ==========================================
 // Local Storage Session Management
 // ==========================================

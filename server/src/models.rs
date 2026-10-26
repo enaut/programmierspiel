@@ -141,6 +141,20 @@ pub struct AdminUser {
     pub authenticated_at: Timestamp,
 }
 
+#[table(accessor = ai_agent, public)]
+#[derive(Debug, Clone)]
+pub struct AiAgent {
+    #[primary_key]
+    pub agent_identity: Identity,
+    #[index(btree)]
+    pub owner: Identity,
+    pub role: u8,             // 0: Base, 1: DroneShip, 2: Drone
+    pub bound_entity_id: u32, // base_id or ship_id
+    pub label: String,
+    pub created_at: Timestamp,
+    pub is_revoked: bool,
+}
+
 #[table(accessor = perceived_drone)]
 #[derive(Debug, Clone)]
 pub struct PerceivedDrone {
