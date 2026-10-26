@@ -311,7 +311,7 @@ fn SpaceViewport(camera_target: Signal<Option<(f64, f64)>>) -> Element {
                 let delta_y = evt.delta().strip_units().y;
                 let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
                 let cur_z = *zoom.read();
-                let new_z = (cur_z * factor).clamp(0.04, 3.5);
+                let new_z = (cur_z * factor).clamp(0.04, 6.0);
                 zoom.set(new_z);
             },
             canvas {
@@ -342,7 +342,7 @@ fn SpaceViewport(camera_target: Signal<Option<(f64, f64)>>) -> Element {
                     style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: 6px;",
                     onclick: move |_| {
                         let cur_z = *zoom.read();
-                        let new_z = (cur_z * 1.25).clamp(0.04, 3.5);
+                        let new_z = (cur_z * 1.25).clamp(0.04, 6.0);
                         zoom.set(new_z);
                     },
                     "+"
@@ -351,7 +351,7 @@ fn SpaceViewport(camera_target: Signal<Option<(f64, f64)>>) -> Element {
                     style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px;",
                     onclick: move |_| {
                         let cur_z = *zoom.read();
-                        let new_z = (cur_z * 0.8).clamp(0.04, 3.5);
+                        let new_z = (cur_z * 0.8).clamp(0.04, 6.0);
                         zoom.set(new_z);
                     },
                     "-"

@@ -1254,7 +1254,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                     let delta_y = evt.delta().strip_units().y;
                     let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
                     let cur_z = *zoom.read();
-                    zoom.set((cur_z * factor).clamp(0.08, 3.0));
+                    zoom.set((cur_z * factor).clamp(0.08, 6.0));
                 },
                 canvas {
                     id: "radar-canvas",
@@ -1272,7 +1272,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                         style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
                         onclick: move |_| {
                             let cur_z = *zoom.read();
-                            zoom.set((cur_z * 1.25).clamp(0.08, 3.0));
+                            zoom.set((cur_z * 1.25).clamp(0.08, 6.0));
                         },
                         "+"
                     }
@@ -1280,7 +1280,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                         style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
                         onclick: move |_| {
                             let cur_z = *zoom.read();
-                            zoom.set((cur_z * 0.8).clamp(0.08, 3.0));
+                            zoom.set((cur_z * 0.8).clamp(0.08, 6.0));
                         },
                         "-"
                     }
@@ -1834,7 +1834,7 @@ fn BaseDashboardScreen(
                     let delta_y = evt.delta().strip_units().y;
                     let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
                     let cur_z = *zoom.read();
-                    zoom.set((cur_z * factor).clamp(0.08, 3.0));
+                    zoom.set((cur_z * factor).clamp(0.08, 6.0));
                 },
                 canvas {
                     id: "base-radar-canvas",
@@ -1865,7 +1865,7 @@ fn BaseDashboardScreen(
                         style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
                         onclick: move |_| {
                             let cur_z = *zoom.read();
-                            zoom.set((cur_z * 1.25).clamp(0.08, 3.0));
+                            zoom.set((cur_z * 1.25).clamp(0.08, 6.0));
                         },
                         "+"
                     }
@@ -1873,7 +1873,7 @@ fn BaseDashboardScreen(
                         style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 2px 7px; border-radius: 4px; cursor: pointer;",
                         onclick: move |_| {
                             let cur_z = *zoom.read();
-                            zoom.set((cur_z * 0.8).clamp(0.08, 3.0));
+                            zoom.set((cur_z * 0.8).clamp(0.08, 6.0));
                         },
                         "-"
                     }
