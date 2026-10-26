@@ -9,6 +9,7 @@ use spacetimedb_sdk::__codegen::{self as __sdk, __lib, __sats, __ws};
 pub(super) struct RegisterPlayerArgs {
     pub name: String,
     pub color_hue: u16,
+    pub secondary_color_hue: u16,
 }
 
 impl From<RegisterPlayerArgs> for super::Reducer {
@@ -16,6 +17,7 @@ impl From<RegisterPlayerArgs> for super::Reducer {
         Self::RegisterPlayer {
             name: args.name,
             color_hue: args.color_hue,
+            secondary_color_hue: args.secondary_color_hue,
         }
     }
 }
@@ -35,8 +37,13 @@ pub trait register_player {
     /// The reducer will run asynchronously in the future,
     ///  and this method provides no way to listen for its completion status.
     /// /// Use [`register_player:register_player_then`] to run a callback after the reducer completes.
-    fn register_player(&self, name: String, color_hue: u16) -> __sdk::Result<()> {
-        self.register_player_then(name, color_hue, |_, _| {})
+    fn register_player(
+        &self,
+        name: String,
+        color_hue: u16,
+        secondary_color_hue: u16,
+    ) -> __sdk::Result<()> {
+        self.register_player_then(name, color_hue, secondary_color_hue, |_, _| {})
     }
 
     /// Request that the remote module invoke the reducer `register_player` to run as soon as possible,
@@ -49,6 +56,7 @@ pub trait register_player {
         &self,
         name: String,
         color_hue: u16,
+        secondary_color_hue: u16,
 
         callback: impl FnOnce(
             &super::ReducerEventContext,
@@ -63,6 +71,7 @@ impl register_player for super::RemoteReducers {
         &self,
         name: String,
         color_hue: u16,
+        secondary_color_hue: u16,
 
         callback: impl FnOnce(
             &super::ReducerEventContext,
@@ -70,7 +79,13 @@ impl register_player for super::RemoteReducers {
         ) + Send
         + 'static,
     ) -> __sdk::Result<()> {
-        self.imp
-            .invoke_reducer_with_callback(RegisterPlayerArgs { name, color_hue }, callback)
+        self.imp.invoke_reducer_with_callback(
+            RegisterPlayerArgs {
+                name,
+                color_hue,
+                secondary_color_hue,
+            },
+            callback,
+        )
     }
 }

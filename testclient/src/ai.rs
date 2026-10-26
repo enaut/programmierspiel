@@ -49,7 +49,11 @@ pub fn decide(ship: &Ship, radar: &Radar) -> Action {
         println!("mining");
         return Action::mine(asteroid.asteroid_id);
     }
-    if let Some(x) = radar.unidentified_contacts.iter().next() {
+    if let Some(x) = radar.unidentified_contacts.iter().min_by(|a, b| {
+        (a.id - ship.ship_id as u64)
+            .partial_cmp(&(b.id - (ship.ship_id as u64)))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }) {
         println!("searching");
         return Action::fly_to(x.position.clone());
     }

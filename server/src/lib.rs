@@ -237,7 +237,12 @@ pub fn api_heartbeat(ctx: &ReducerContext) -> Result<(), String> {
 // ==========================================
 
 #[reducer]
-pub fn register_player(ctx: &ReducerContext, name: String, color_hue: u16) -> Result<(), String> {
+pub fn register_player(
+    ctx: &ReducerContext,
+    name: String,
+    color_hue: u16,
+    secondary_color_hue: u16,
+) -> Result<(), String> {
     let sender = ctx.sender();
     if ctx.db.player().identity().find(&sender).is_some() {
         return Err("Player is already registered".to_string());
@@ -255,6 +260,7 @@ pub fn register_player(ctx: &ReducerContext, name: String, color_hue: u16) -> Re
         identity: sender,
         name: clean_name.clone(),
         color_hue: color_hue % 360,
+        secondary_color_hue: secondary_color_hue % 360,
         score: 0,
         created_at: ctx.timestamp,
         last_api_activity: None,
@@ -301,6 +307,39 @@ pub fn register_player(ctx: &ReducerContext, name: String, color_hue: u16) -> Re
         "Registered player '{}' with Tier-0 Builder Ship.",
         clean_name
     );
+    Ok(())
+}
+
+#[reducer]
+pub fn update_player_colors(
+    ctx: &ReducerContext,
+    color_hue: u16,
+    secondary_color_hue: u16,
+) -> Result<(), String> {
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    let mut player = ctx
+        .db
+        .player()
+        .identity()
+        .find(&owner)
+        .ok_or("Player not found")?;
+
+    player.color_hue = color_hue % 360;
+    player.secondary_color_hue = secondary_color_hue % 360;
+    ctx.db.player().identity().update(player);
+
+    ctx.db.game_event().insert(GameEvent {
+        event_id: 0,
+        player: owner,
+        event_type: "COLORS_UPDATED".to_string(),
+        message: format!(
+            "Player team colors updated to Primary: {}°, Secondary: {}°",
+            color_hue % 360,
+            secondary_color_hue % 360
+        ),
+        timestamp: ctx.timestamp,
+    });
+
     Ok(())
 }
 

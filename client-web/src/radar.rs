@@ -21,13 +21,34 @@ static ASTEROID2_MASK_ASSET: Asset = asset!("/assets/asteroid2-mask.png");
 #[cfg(target_arch = "wasm32")]
 static PLAYER_STATION_BASE_ASSET: Asset = asset!("/assets/player-station.png");
 #[cfg(target_arch = "wasm32")]
-static PLAYER_STATION_MASK_ASSET: Asset = asset!("/assets/player-station-mask.png");
+static PLAYER_STATION_MASK1_ASSET: Asset = asset!("/assets/player-station-mask1.png");
+#[cfg(target_arch = "wasm32")]
+static PLAYER_STATION_MASK2_ASSET: Asset = asset!("/assets/player-station-mask2.png");
+#[cfg(target_arch = "wasm32")]
+static DRONE1_BASE_ASSET: Asset = asset!("/assets/drone1.png");
+#[cfg(target_arch = "wasm32")]
+static DRONE1_MASK1_ASSET: Asset = asset!("/assets/drone1-mask1.png");
+#[cfg(target_arch = "wasm32")]
+static DRONE1_MASK2_ASSET: Asset = asset!("/assets/drone1-mask2.png");
+#[cfg(target_arch = "wasm32")]
+static DRONE_TIER2_BASE_ASSET: Asset = asset!("/assets/drone-tier2.png");
+#[cfg(target_arch = "wasm32")]
+static DRONE_TIER2_MASK1_ASSET: Asset = asset!("/assets/drone-tier2-mask1.png");
+#[cfg(target_arch = "wasm32")]
+static DRONE_TIER2_MASK2_ASSET: Asset = asset!("/assets/drone-tier2-mask2.png");
 
 #[cfg(target_arch = "wasm32")]
 struct SpriteAssetPair {
     base_asset: &'static Asset,
     mask_asset: &'static Asset,
 }
+
+#[cfg(target_arch = "wasm32")]
+type DualMaskImages = (
+    web_sys::HtmlImageElement,
+    web_sys::HtmlImageElement,
+    web_sys::HtmlImageElement,
+);
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -41,8 +62,14 @@ thread_local! {
     static ASTEROID_IMAGES: RefCell<[Option<(web_sys::HtmlImageElement, web_sys::HtmlImageElement)>; 2]> = const { RefCell::new([None, None]) };
     static ASTEROID_CANVAS_CACHE: RefCell<HashMap<(u8, u8), web_sys::HtmlCanvasElement>> = RefCell::new(HashMap::new());
 
-    static PLAYER_STATION_IMAGES: RefCell<Option<(web_sys::HtmlImageElement, web_sys::HtmlImageElement)>> = const { RefCell::new(None) };
-    static PLAYER_STATION_CANVAS_CACHE: RefCell<HashMap<u16, web_sys::HtmlCanvasElement>> = RefCell::new(HashMap::new());
+    static PLAYER_STATION_IMAGES: RefCell<Option<DualMaskImages>> = const { RefCell::new(None) };
+    static PLAYER_STATION_CANVAS_CACHE: RefCell<HashMap<(u16, u16), web_sys::HtmlCanvasElement>> = RefCell::new(HashMap::new());
+
+    static DRONE1_IMAGES: RefCell<Option<DualMaskImages>> = const { RefCell::new(None) };
+    static DRONE1_CANVAS_CACHE: RefCell<HashMap<(u16, u16), web_sys::HtmlCanvasElement>> = RefCell::new(HashMap::new());
+
+    static DRONE_TIER2_IMAGES: RefCell<Option<DualMaskImages>> = const { RefCell::new(None) };
+    static DRONE_TIER2_CANVAS_CACHE: RefCell<HashMap<(u16, u16), web_sys::HtmlCanvasElement>> = RefCell::new(HashMap::new());
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -111,21 +138,71 @@ fn get_asteroid_images(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn get_player_station_images() -> Option<(web_sys::HtmlImageElement, web_sys::HtmlImageElement)> {
+fn get_player_station_images() -> Option<DualMaskImages> {
     PLAYER_STATION_IMAGES.with(|cell| {
         let mut opt = cell.borrow_mut();
-        if let Some(ref pair) = *opt {
-            return Some(pair.clone());
+        if let Some(ref trio) = *opt {
+            return Some(trio.clone());
         }
-        if let (Ok(base_img), Ok(mask_img)) = (
+        if let (Ok(base_img), Ok(mask1_img), Ok(mask2_img)) = (
+            web_sys::HtmlImageElement::new(),
             web_sys::HtmlImageElement::new(),
             web_sys::HtmlImageElement::new(),
         ) {
             base_img.set_src(&PLAYER_STATION_BASE_ASSET.to_string());
-            mask_img.set_src(&PLAYER_STATION_MASK_ASSET.to_string());
-            let pair = (base_img, mask_img);
-            *opt = Some(pair.clone());
-            Some(pair)
+            mask1_img.set_src(&PLAYER_STATION_MASK1_ASSET.to_string());
+            mask2_img.set_src(&PLAYER_STATION_MASK2_ASSET.to_string());
+            let trio = (base_img, mask1_img, mask2_img);
+            *opt = Some(trio.clone());
+            Some(trio)
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_drone1_images() -> Option<DualMaskImages> {
+    DRONE1_IMAGES.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some(ref trio) = *opt {
+            return Some(trio.clone());
+        }
+        if let (Ok(base_img), Ok(mask1_img), Ok(mask2_img)) = (
+            web_sys::HtmlImageElement::new(),
+            web_sys::HtmlImageElement::new(),
+            web_sys::HtmlImageElement::new(),
+        ) {
+            base_img.set_src(&DRONE1_BASE_ASSET.to_string());
+            mask1_img.set_src(&DRONE1_MASK1_ASSET.to_string());
+            mask2_img.set_src(&DRONE1_MASK2_ASSET.to_string());
+            let trio = (base_img, mask1_img, mask2_img);
+            *opt = Some(trio.clone());
+            Some(trio)
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_drone_tier2_images() -> Option<DualMaskImages> {
+    DRONE_TIER2_IMAGES.with(|cell| {
+        let mut opt = cell.borrow_mut();
+        if let Some(ref trio) = *opt {
+            return Some(trio.clone());
+        }
+        if let (Ok(base_img), Ok(mask1_img), Ok(mask2_img)) = (
+            web_sys::HtmlImageElement::new(),
+            web_sys::HtmlImageElement::new(),
+            web_sys::HtmlImageElement::new(),
+        ) {
+            base_img.set_src(&DRONE_TIER2_BASE_ASSET.to_string());
+            mask1_img.set_src(&DRONE_TIER2_MASK1_ASSET.to_string());
+            mask2_img.set_src(&DRONE_TIER2_MASK2_ASSET.to_string());
+            let trio = (base_img, mask1_img, mask2_img);
+            *opt = Some(trio.clone());
+            Some(trio)
         } else {
             None
         }
@@ -197,6 +274,94 @@ fn render_tinted_sprite(
 }
 
 #[cfg(target_arch = "wasm32")]
+fn render_dual_tinted_sprite(
+    base_img: &web_sys::HtmlImageElement,
+    mask1_img: &web_sys::HtmlImageElement,
+    mask2_img: &web_sys::HtmlImageElement,
+    color1: &str,
+    color2: &str,
+) -> Option<web_sys::HtmlCanvasElement> {
+    use wasm_bindgen::JsCast;
+
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let size = 512.0;
+
+    let result_canvas: web_sys::HtmlCanvasElement =
+        document.create_element("canvas").ok()?.dyn_into().ok()?;
+    result_canvas.set_width(512);
+    result_canvas.set_height(512);
+    let result_ctx: web_sys::CanvasRenderingContext2d =
+        result_canvas.get_context("2d").ok()??.dyn_into().ok()?;
+
+    let _ =
+        result_ctx.draw_image_with_html_image_element_and_dw_and_dh(base_img, 0.0, 0.0, size, size);
+
+    let scratch_canvas: web_sys::HtmlCanvasElement =
+        document.create_element("canvas").ok()?.dyn_into().ok()?;
+    scratch_canvas.set_width(512);
+    scratch_canvas.set_height(512);
+    let scratch_ctx: web_sys::CanvasRenderingContext2d =
+        scratch_canvas.get_context("2d").ok()??.dyn_into().ok()?;
+
+    // 1. Primary Tint (Mask 1)
+    scratch_ctx.set_fill_style(&JsValue::from_str(color1));
+    scratch_ctx.fill_rect(0.0, 0.0, size, size);
+    let _ = scratch_ctx.set_global_composite_operation("destination-in");
+    let _ = scratch_ctx
+        .draw_image_with_html_image_element_and_dw_and_dh(mask1_img, 0.0, 0.0, size, size);
+
+    let _ = result_ctx.set_global_composite_operation("multiply");
+    let _ = result_ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+        &scratch_canvas,
+        0.0,
+        0.0,
+        size,
+        size,
+    );
+    let _ = result_ctx.set_global_composite_operation("source-over");
+    result_ctx.set_global_alpha(0.35);
+    let _ = result_ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+        &scratch_canvas,
+        0.0,
+        0.0,
+        size,
+        size,
+    );
+    result_ctx.set_global_alpha(1.0);
+
+    // 2. Secondary Tint (Mask 2)
+    let _ = scratch_ctx.set_global_composite_operation("source-over");
+    scratch_ctx.clear_rect(0.0, 0.0, size, size);
+    scratch_ctx.set_fill_style(&JsValue::from_str(color2));
+    scratch_ctx.fill_rect(0.0, 0.0, size, size);
+    let _ = scratch_ctx.set_global_composite_operation("destination-in");
+    let _ = scratch_ctx
+        .draw_image_with_html_image_element_and_dw_and_dh(mask2_img, 0.0, 0.0, size, size);
+
+    let _ = result_ctx.set_global_composite_operation("multiply");
+    let _ = result_ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+        &scratch_canvas,
+        0.0,
+        0.0,
+        size,
+        size,
+    );
+    let _ = result_ctx.set_global_composite_operation("source-over");
+    result_ctx.set_global_alpha(0.35);
+    let _ = result_ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+        &scratch_canvas,
+        0.0,
+        0.0,
+        size,
+        size,
+    );
+    result_ctx.set_global_alpha(1.0);
+
+    Some(result_canvas)
+}
+
+#[cfg(target_arch = "wasm32")]
 fn get_tinted_asteroid_canvas(model: u8, resource_type: u8) -> Option<web_sys::HtmlCanvasElement> {
     let key = (model % 2, resource_type);
     ASTEROID_CANVAS_CACHE.with(|cache_cell| {
@@ -224,21 +389,73 @@ fn get_tinted_asteroid_canvas(model: u8, resource_type: u8) -> Option<web_sys::H
 }
 
 #[cfg(target_arch = "wasm32")]
-fn get_tinted_player_station_canvas(hue: u16) -> Option<web_sys::HtmlCanvasElement> {
+fn get_tinted_player_station_canvas(hue1: u16, hue2: u16) -> Option<web_sys::HtmlCanvasElement> {
+    let key = (hue1, hue2);
     PLAYER_STATION_CANVAS_CACHE.with(|cache_cell| {
         let mut cache = cache_cell.borrow_mut();
-        if let Some(canvas) = cache.get(&hue) {
+        if let Some(canvas) = cache.get(&key) {
             return Some(canvas.clone());
         }
 
-        let (base_img, mask_img) = get_player_station_images()?;
-        if !is_image_ready(&base_img) || !is_image_ready(&mask_img) {
+        let (base_img, mask1_img, mask2_img) = get_player_station_images()?;
+        if !is_image_ready(&base_img) || !is_image_ready(&mask1_img) || !is_image_ready(&mask2_img)
+        {
             return None;
         }
 
-        let color = format!("hsl({}, 90%, 55%)", hue);
-        let canvas = render_tinted_sprite(&base_img, &mask_img, &color)?;
-        cache.insert(hue, canvas.clone());
+        let color1 = format!("hsl({}, 90%, 55%)", hue1);
+        let color2 = format!("hsl({}, 90%, 55%)", hue2);
+        let canvas =
+            render_dual_tinted_sprite(&base_img, &mask1_img, &mask2_img, &color1, &color2)?;
+        cache.insert(key, canvas.clone());
+        Some(canvas)
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_tinted_drone1_canvas(hue1: u16, hue2: u16) -> Option<web_sys::HtmlCanvasElement> {
+    let key = (hue1, hue2);
+    DRONE1_CANVAS_CACHE.with(|cache_cell| {
+        let mut cache = cache_cell.borrow_mut();
+        if let Some(canvas) = cache.get(&key) {
+            return Some(canvas.clone());
+        }
+
+        let (base_img, mask1_img, mask2_img) = get_drone1_images()?;
+        if !is_image_ready(&base_img) || !is_image_ready(&mask1_img) || !is_image_ready(&mask2_img)
+        {
+            return None;
+        }
+
+        let color1 = format!("hsl({}, 90%, 55%)", hue1);
+        let color2 = format!("hsl({}, 90%, 55%)", hue2);
+        let canvas =
+            render_dual_tinted_sprite(&base_img, &mask1_img, &mask2_img, &color1, &color2)?;
+        cache.insert(key, canvas.clone());
+        Some(canvas)
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_tinted_drone_tier2_canvas(hue1: u16, hue2: u16) -> Option<web_sys::HtmlCanvasElement> {
+    let key = (hue1, hue2);
+    DRONE_TIER2_CANVAS_CACHE.with(|cache_cell| {
+        let mut cache = cache_cell.borrow_mut();
+        if let Some(canvas) = cache.get(&key) {
+            return Some(canvas.clone());
+        }
+
+        let (base_img, mask1_img, mask2_img) = get_drone_tier2_images()?;
+        if !is_image_ready(&base_img) || !is_image_ready(&mask1_img) || !is_image_ready(&mask2_img)
+        {
+            return None;
+        }
+
+        let color1 = format!("hsl({}, 90%, 55%)", hue1);
+        let color2 = format!("hsl({}, 90%, 55%)", hue2);
+        let canvas =
+            render_dual_tinted_sprite(&base_img, &mask1_img, &mask2_img, &color1, &color2)?;
+        cache.insert(key, canvas.clone());
         Some(canvas)
     })
 }
@@ -459,6 +676,7 @@ pub fn render_player_radar(
     zoom: f64,
     sensor_hub_pos: Vec2,
     color_hue: u16,
+    secondary_color_hue: u16,
     config: Option<&Config>,
     my_ships: &[Ship],
     my_base: Option<&BaseStation>,
@@ -644,7 +862,15 @@ pub fn render_player_radar(
         // 4. Draw Identified Asteroids
         let mut asteroid_pos_map = HashMap::new();
 
-        for ast in visible_asteroids {
+        let mut sorted_asteroids: Vec<&PerceivedAsteroid> = visible_asteroids.iter().collect();
+        sorted_asteroids.sort_by(|a, b| {
+            b.radius
+                .partial_cmp(&a.radius)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.asteroid_id.cmp(&b.asteroid_id))
+        });
+
+        for ast in sorted_asteroids {
             let ax = ast.position.x as f64;
             let ay = ast.position.y as f64;
             asteroid_pos_map.insert(ast.asteroid_id, (ax, ay));
@@ -718,12 +944,16 @@ pub fn render_player_radar(
             if !is_my_base {
                 let bx = base.position.x as f64;
                 let by = base.position.y as f64;
-                let b_hue = player_map.get(&base.owner).map_or(200, |p| p.color_hue);
+                let (b_hue1, b_hue2) = player_map
+                    .get(&base.owner)
+                    .map_or((200, (200 + 180) % 360), |p| {
+                        (p.color_hue, p.secondary_color_hue)
+                    });
                 let b_name = player_map
                     .get(&base.owner)
                     .map_or("Basis".to_string(), |p| format!("Basis ({})", p.name));
 
-                if let Some(canvas) = get_tinted_player_station_canvas(b_hue) {
+                if let Some(canvas) = get_tinted_player_station_canvas(b_hue1, b_hue2) {
                     let station_size = 54.0;
                     let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
                         &canvas,
@@ -737,7 +967,7 @@ pub fn render_player_radar(
                     let _ = ctx.arc(bx, by, 18.0, 0.0, std::f64::consts::TAU);
                     ctx.set_fill_style(&JsValue::from_str("#0f172a"));
                     ctx.fill();
-                    ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", b_hue)));
+                    ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", b_hue1)));
                     ctx.set_line_width(2.5 / zoom);
                     ctx.stroke();
 
@@ -783,7 +1013,7 @@ pub fn render_player_radar(
             )));
             ctx.fill();
 
-            if let Some(canvas) = get_tinted_player_station_canvas(color_hue) {
+            if let Some(canvas) = get_tinted_player_station_canvas(color_hue, secondary_color_hue) {
                 let station_size = 54.0;
                 let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
                     &canvas,
@@ -822,12 +1052,18 @@ pub fn render_player_radar(
         }
 
         // 6. Draw Foreign Drones
-        for d in visible_drones {
+        let mut sorted_foreign_drones: Vec<&PerceivedDrone> = visible_drones.iter().collect();
+        sorted_foreign_drones.sort_by_key(|d| d.ship_id);
+        for d in sorted_foreign_drones {
             let is_my_drone = my_ships.iter().any(|s| s.ship_id == d.ship_id);
             if !is_my_drone {
                 let dx = d.position.x as f64;
                 let dy = d.position.y as f64;
-                let d_hue = player_map.get(&d.owner).map_or(180, |p| p.color_hue);
+                let (d_hue1, d_hue2) = player_map
+                    .get(&d.owner)
+                    .map_or((180, (180 + 180) % 360), |p| {
+                        (p.color_hue, p.secondary_color_hue)
+                    });
                 let p_name = player_map
                     .get(&d.owner)
                     .map_or("".to_string(), |p| p.name.clone());
@@ -836,18 +1072,35 @@ pub fn render_player_radar(
                 let _ = ctx.translate(dx, dy);
                 let _ = ctx.rotate(d.heading_rad as f64);
 
-                ctx.begin_path();
-                ctx.move_to(16.0, 0.0);
-                ctx.line_to(-12.0, -10.0);
-                ctx.line_to(-6.0, 0.0);
-                ctx.line_to(-12.0, 10.0);
-                ctx.close_path();
+                let drone_canvas = if d.ship_tier >= 2 {
+                    get_tinted_drone_tier2_canvas(d_hue1, d_hue2)
+                } else {
+                    get_tinted_drone1_canvas(d_hue1, d_hue2)
+                };
 
-                ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 85%, 50%)", d_hue)));
-                ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
-                ctx.set_line_width(1.5 / zoom);
-                ctx.stroke();
+                if let Some(canvas) = drone_canvas {
+                    let size = if d.ship_tier >= 2 { 30.0 } else { 24.0 };
+                    let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+                        &canvas,
+                        -size / 2.0,
+                        -size / 2.0,
+                        size,
+                        size,
+                    );
+                } else {
+                    ctx.begin_path();
+                    ctx.move_to(16.0, 0.0);
+                    ctx.line_to(-12.0, -10.0);
+                    ctx.line_to(-6.0, 0.0);
+                    ctx.line_to(-12.0, 10.0);
+                    ctx.close_path();
+
+                    ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 85%, 50%)", d_hue1)));
+                    ctx.fill();
+                    ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
+                    ctx.set_line_width(1.5 / zoom);
+                    ctx.stroke();
+                }
 
                 let _ = ctx.restore();
 
@@ -868,7 +1121,9 @@ pub fn render_player_radar(
         }
 
         // 7. Draw Player's Own Ships
-        for s in my_ships {
+        let mut sorted_my_ships: Vec<&Ship> = my_ships.iter().collect();
+        sorted_my_ships.sort_by_key(|s| s.ship_id);
+        for s in sorted_my_ships {
             let sx = s.position.x as f64;
             let sy = s.position.y as f64;
 
@@ -922,29 +1177,23 @@ pub fn render_player_radar(
             let _ = ctx.translate(sx, sy);
             let _ = ctx.rotate(s.heading_rad as f64);
 
-            if s.ship_tier == 0 {
-                // Tier-0 Builder Ship
-                ctx.begin_path();
-                ctx.move_to(22.0, 0.0);
-                ctx.line_to(-16.0, -14.0);
-                ctx.line_to(-8.0, 0.0);
-                ctx.line_to(-16.0, 14.0);
-                ctx.close_path();
-
-                ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", color_hue)));
-                ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
-                ctx.set_line_width(2.0 / zoom);
-                ctx.stroke();
-
-                ctx.set_stroke_style(&JsValue::from_str("#38bdf8"));
-                ctx.set_line_width(2.0 / zoom);
-                ctx.begin_path();
-                ctx.move_to(-2.0, -20.0);
-                ctx.line_to(-2.0, 20.0);
-                ctx.stroke();
+            let drone_canvas = if s.ship_tier >= 2 {
+                get_tinted_drone_tier2_canvas(color_hue, secondary_color_hue)
             } else {
-                // Tier-1+ Drone / Miner
+                get_tinted_drone1_canvas(color_hue, secondary_color_hue)
+            };
+
+            if let Some(canvas) = drone_canvas {
+                let size = if s.ship_tier >= 2 { 30.0 } else { 24.0 };
+                let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+                    &canvas,
+                    -size / 2.0,
+                    -size / 2.0,
+                    size,
+                    size,
+                );
+            } else {
+                // Fallback vector drawing
                 ctx.begin_path();
                 ctx.move_to(16.0, 0.0);
                 ctx.line_to(-12.0, -10.0);

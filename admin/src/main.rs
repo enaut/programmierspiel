@@ -423,7 +423,7 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
                     for (rank, player, p_pos) in player_items {
                         div {
                             key: "{player.identity}",
-                            style: "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; border-left: 4px solid hsl({player.color_hue}, 90%, 55%); cursor: pointer; transition: background 0.15s ease;",
+                            style: "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; border-left: 4px solid hsl({player.color_hue}, 90%, 55%); border-image: linear-gradient(to bottom, hsl({player.color_hue}, 90%, 55%), hsl({player.secondary_color_hue}, 90%, 55%)) 1 100%; cursor: pointer; transition: background 0.15s ease;",
                             title: "Klicken, um Kamera auf Basis/Schiff zu zentrieren",
                             onclick: move |_| {
                                 if let Some((px, py)) = p_pos {

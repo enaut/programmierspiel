@@ -13,6 +13,7 @@ use module_bindings::dioxus::{
 use module_bindings::register_ai_agent_reducer::register_ai_agent;
 use module_bindings::register_player_reducer::register_player;
 use module_bindings::revoke_ai_agent_reducer::revoke_ai_agent;
+use module_bindings::update_player_colors_reducer::update_player_colors;
 use module_bindings::{
     BaseStation, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, PlayerAchievement,
     PublicRiddle, Ship, ShipCommand, Vec2,
@@ -579,7 +580,7 @@ fn CockpitApp() -> Element {
                     if let Some(ref p) = my_player {
                         div {
                             style: "display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.05); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1);",
-                            span { style: "width: 10px; height: 10px; border-radius: 50%; background: hsl({p.color_hue}, 90%, 55%); box-shadow: 0 0 6px hsl({p.color_hue}, 90%, 55%);" }
+                            span { style: "width: 10px; height: 10px; border-radius: 50%; background: linear-gradient(135deg, hsl({p.color_hue}, 90%, 55%) 50%, hsl({p.secondary_color_hue}, 90%, 55%) 50%); box-shadow: 0 0 6px hsl({p.color_hue}, 90%, 55%);" }
                             span { style: "font-weight: 600; color: #f1f5f9;", "{p.name}" }
                             span { style: "color: #ffd700; font-size: 12px; font-weight: 700;", "({p.score} Pkt)" }
                         }
@@ -726,6 +727,7 @@ fn RegistrationScreen(
     let initial_name = gitea_user.clone().unwrap_or_default();
     let mut name_input = use_signal(move || initial_name);
     let mut color_hue = use_signal(|| 180u16);
+    let mut secondary_color_hue = use_signal(|| 0u16);
 
     let mut submit_registration = move || {
         let name = name_input().trim().to_string();
@@ -739,22 +741,23 @@ fn RegistrationScreen(
         if let Some(conn) = (ctx.connection)() {
             is_submitting.set(true);
             let hue = color_hue();
-            let res = conn
-                .reducers
-                .register_player_then(name, hue, move |_ctx, result| {
-                    is_submitting.set(false);
-                    match result {
-                        Ok(Ok(())) => {
-                            err_msg.set(None);
+            let sec_hue = secondary_color_hue();
+            let res =
+                conn.reducers
+                    .register_player_then(name, hue, sec_hue, move |_ctx, result| {
+                        is_submitting.set(false);
+                        match result {
+                            Ok(Ok(())) => {
+                                err_msg.set(None);
+                            }
+                            Ok(Err(reducer_err)) => {
+                                err_msg.set(Some(format!("Fehler: {reducer_err}")));
+                            }
+                            Err(internal_err) => {
+                                err_msg.set(Some(format!("Verbindungsfehler: {internal_err}")));
+                            }
                         }
-                        Ok(Err(reducer_err)) => {
-                            err_msg.set(Some(format!("Fehler: {reducer_err}")));
-                        }
-                        Err(internal_err) => {
-                            err_msg.set(Some(format!("Verbindungsfehler: {internal_err}")));
-                        }
-                    }
-                });
+                    });
 
             if let Err(e) = res {
                 is_submitting.set(false);
@@ -808,25 +811,25 @@ fn RegistrationScreen(
                                 width: "160",
                                 height: "120",
                                 view_box: "0 0 160 120",
-                                style: "margin: 0 auto; filter: drop-shadow(0 0 12px hsl({color_hue}, 90%, 50%));",
+                                style: "margin: 0 auto; filter: drop-shadow(0 0 10px hsl({color_hue}, 90%, 50%)) drop-shadow(0 0 6px hsl({secondary_color_hue}, 90%, 50%));",
                                 // Thruster glow
                                 polygon {
                                     points: "50,60 30,55 20,60 30,65",
                                     fill: "#00e5ff",
                                     opacity: "0.8",
                                 }
-                                // Solar panels / wings
+                                // Solar panels / wings (Secondary Color)
                                 rect {
                                     x: "65",
                                     y: "25",
                                     width: "8",
                                     height: "70",
-                                    fill: "#38bdf8",
-                                    stroke: "#0284c7",
+                                    fill: "hsl({secondary_color_hue}, 90%, 55%)",
+                                    stroke: "#ffffff",
                                     stroke_width: "1.5",
                                     rx: "2",
                                 }
-                                // Ship Main Hull
+                                // Ship Main Hull (Primary Color)
                                 polygon {
                                     points: "115,60 55,40 68,60 55,80",
                                     fill: "hsl({color_hue}, 85%, 52%)",
@@ -901,10 +904,10 @@ fn RegistrationScreen(
                         }
                     }
 
-                    // Color picker
+                    // Primary Color picker
                     div {
-                        style: "margin-bottom: 24px;",
-                        label { style: "display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 8px;", "Team- & Schiffsfarbe (Farbton):" }
+                        style: "margin-bottom: 16px;",
+                        label { style: "display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 8px;", "Primärfarbe (Rumpf & Kern):" }
                         div {
                             style: "display: flex; align-items: center; gap: 14px;",
                             input {
@@ -923,9 +926,33 @@ fn RegistrationScreen(
                                 style: "width: 36px; height: 36px; border-radius: 8px; background: hsl({color_hue}, 90%, 55%); border: 2px solid #ffffff; box-shadow: 0 0 12px hsl({color_hue}, 90%, 55%); flex-shrink: 0;"
                             }
                         }
+                    }
+
+                    // Secondary Color picker
+                    div {
+                        style: "margin-bottom: 24px;",
+                        label { style: "display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 8px;", "Sekundärfarbe (Flügel & Akzente):" }
+                        div {
+                            style: "display: flex; align-items: center; gap: 14px;",
+                            input {
+                                r#type: "range",
+                                min: "0",
+                                max: "359",
+                                value: "{secondary_color_hue}",
+                                style: "flex: 1; cursor: pointer; accent-color: hsl({secondary_color_hue}, 90%, 55%); height: 8px;",
+                                oninput: move |e| {
+                                    if let Ok(val) = e.value().parse::<u16>() {
+                                        secondary_color_hue.set(val);
+                                    }
+                                }
+                            }
+                            span {
+                                style: "width: 36px; height: 36px; border-radius: 8px; background: hsl({secondary_color_hue}, 90%, 55%); border: 2px solid #ffffff; box-shadow: 0 0 12px hsl({secondary_color_hue}, 90%, 55%); flex-shrink: 0;"
+                            }
+                        }
                         div {
                             style: "font-size: 11px; color: #64748b; margin-top: 6px;",
-                            "Deine Heimatbasis und alle Drohnen werden in dieser Farbe markiert."
+                            "Deine Heimatbasis und alle Drohnen werden in diesem Farbschema markiert."
                         }
                     }
 
@@ -999,6 +1026,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
 
     let p_identity = player.identity;
     let p_hue = player.color_hue;
+    let p_sec_hue = player.secondary_color_hue;
 
     let mut resize_trigger = use_signal(|| 0u32);
 
@@ -1084,6 +1112,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                                                     cur_zoom,
                                                     s.position.clone(),
                                                     p_hue,
+                                                    p_sec_hue,
                                                     configs.first(),
                                                     &ships_slice,
                                                     None,
@@ -1404,6 +1433,7 @@ fn BaseDashboardScreen(
     };
 
     let p_hue = player.color_hue;
+    let p_sec_hue = player.secondary_color_hue;
     let base_pos = base.position.clone();
     let cost_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
         + base.drone_scanner_progress as u32
@@ -1597,6 +1627,7 @@ fn BaseDashboardScreen(
                                                     cur_zoom,
                                                     b_center.clone(),
                                                     p_hue,
+                                                    p_sec_hue,
                                                     configs.first(),
                                                     &my_current_ships,
                                                     my_current_base,
@@ -1648,6 +1679,13 @@ fn BaseDashboardScreen(
     let current_cam_x = b_pos_x + *cam_offset_x.read();
     let current_cam_y = b_pos_y + *cam_offset_y.read();
     let current_zoom = *zoom.read();
+
+    let mut sorted_fleet_ships = ships.clone();
+    sorted_fleet_ships.sort_by(|a, b| {
+        b.ship_tier
+            .cmp(&a.ship_tier)
+            .then_with(|| a.ship_id.cmp(&b.ship_id))
+    });
 
     rsx! {
         div {
@@ -2048,7 +2086,7 @@ fn BaseDashboardScreen(
                     } else {
                         div {
                             style: "display: flex; flex-direction: column; gap: 8px;",
-                            for s in ships {
+                            for s in sorted_fleet_ships {
                                 div {
                                     key: "{s.ship_id}",
                                     style: "padding: 10px 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; border-left: 3px solid #00e5ff; cursor: pointer;",
@@ -2235,6 +2273,7 @@ fn TargetInspectorHud(
                         let pilot = player_map.get(&d.owner);
                         let p_name = pilot.map_or("Unbekannt".to_string(), |p| p.name.clone());
                         let p_hue = pilot.map_or(180, |p| p.color_hue);
+                        let p_sec_hue = pilot.map_or((180 + 180) % 360, |p| p.secondary_color_hue);
                         let dist = distance(&d.position, &base_pos);
                         rsx! {
                             div {
@@ -2244,7 +2283,7 @@ fn TargetInspectorHud(
                             }
                             div {
                                 style: "display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 4px;",
-                                span { style: "width: 8px; height: 8px; border-radius: 50%; background: hsl({p_hue}, 90%, 55%);" }
+                                span { style: "width: 10px; height: 10px; border-radius: 50%; background: linear-gradient(135deg, hsl({p_hue}, 90%, 55%) 50%, hsl({p_sec_hue}, 90%, 55%) 50%); box-shadow: 0 0 6px hsl({p_hue}, 90%, 55%);" }
                                 span { style: "color: #cbd5e1; font-weight: 600;", "{p_name}" }
                             }
                             div {
@@ -2269,11 +2308,12 @@ fn TargetInspectorHud(
                         let pilot = player_map.get(&b.owner);
                         let p_name = pilot.map_or("Fremde Basis".to_string(), |p| format!("Basis ({})", p.name));
                         let p_hue = pilot.map_or(200, |p| p.color_hue);
+                        let p_sec_hue = pilot.map_or((200 + 180) % 360, |p| p.secondary_color_hue);
                         let dist = distance(&b.position, &base_pos);
                         rsx! {
                             div {
                                 style: "display: flex; align-items: center; gap: 8px;",
-                                span { style: "font-size: 16px;", "🏛️" }
+                                span { style: "width: 12px; height: 12px; border-radius: 50%; background: linear-gradient(135deg, hsl({p_hue}, 90%, 55%) 50%, hsl({p_sec_hue}, 90%, 55%) 50%); border: 1.5px solid #fff; box-shadow: 0 0 6px hsl({p_hue}, 90%, 55%);" }
                                 span { style: "font-weight: 700; font-size: 14px; color: hsl({p_hue}, 90%, 65%);", "{p_name}" }
                             }
                             div {
@@ -2353,6 +2393,11 @@ fn HeimatbasisModal(
     let mut is_generating = use_signal(|| false);
     let mut gen_error = use_signal(|| Option::<String>::None);
     let mut copied = use_signal(|| false);
+
+    let mut edit_primary_hue = use_signal(move || player.color_hue);
+    let mut edit_secondary_hue = use_signal(move || player.secondary_color_hue);
+    let mut is_saving_colors = use_signal(|| false);
+    let mut save_color_msg = use_signal(|| Option::<String>::None);
 
     let effective_token = if !base_ai_token().is_empty() {
         base_ai_token()
@@ -2693,6 +2738,101 @@ fn HeimatbasisModal(
                             }
                         }
                     }
+
+                    // 3. Team- & Flottenlackierung Panel
+                    div {
+                        style: "background: #0f172a; border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 12px; padding: 18px;",
+                        div {
+                            style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;",
+                            div {
+                                style: "display: flex; align-items: center; gap: 8px;",
+                                span { style: "font-size: 16px;", "🎨" }
+                                span { style: "font-size: 14px; font-weight: 700; color: #00e5ff;", "Schiffs- & Stationslackierung" }
+                            }
+                            div {
+                                style: "display: flex; align-items: center; gap: 8px;",
+                                span {
+                                    style: "width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, hsl({edit_primary_hue}, 90%, 55%) 50%, hsl({edit_secondary_hue}, 90%, 55%) 50%); border: 2px solid #ffffff; box-shadow: 0 0 10px hsl({edit_primary_hue}, 90%, 55%);"
+                                }
+                            }
+                        }
+
+                        div {
+                            style: "display: flex; flex-direction: column; gap: 14px;",
+
+                            // Primary Hue Slider
+                            div {
+                                div { style: "display: flex; justify-content: space-between; font-size: 12px; color: #cbd5e1; margin-bottom: 6px;",
+                                    span { "Primärfarbe (Rumpf & Kern):" }
+                                    span { style: "font-weight: 700; color: hsl({edit_primary_hue}, 90%, 55%);", "{edit_primary_hue}°" }
+                                }
+                                div { style: "display: flex; align-items: center; gap: 10px;",
+                                    input {
+                                        r#type: "range",
+                                        min: "0",
+                                        max: "359",
+                                        value: "{edit_primary_hue}",
+                                        style: "flex: 1; cursor: pointer; accent-color: hsl({edit_primary_hue}, 90%, 55%); height: 6px;",
+                                        oninput: move |e| {
+                                            if let Ok(v) = e.value().parse::<u16>() {
+                                                edit_primary_hue.set(v);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Secondary Hue Slider
+                            div {
+                                div { style: "display: flex; justify-content: space-between; font-size: 12px; color: #cbd5e1; margin-bottom: 6px;",
+                                    span { "Sekundärfarbe (Flügel & Akzente):" }
+                                    span { style: "font-weight: 700; color: hsl({edit_secondary_hue}, 90%, 55%);", "{edit_secondary_hue}°" }
+                                }
+                                div { style: "display: flex; align-items: center; gap: 10px;",
+                                    input {
+                                        r#type: "range",
+                                        min: "0",
+                                        max: "359",
+                                        value: "{edit_secondary_hue}",
+                                        style: "flex: 1; cursor: pointer; accent-color: hsl({edit_secondary_hue}, 90%, 55%); height: 6px;",
+                                        oninput: move |e| {
+                                            if let Ok(v) = e.value().parse::<u16>() {
+                                                edit_secondary_hue.set(v);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            div {
+                                style: "display: flex; justify-content: space-between; align-items: center; margin-top: 6px;",
+                                div {
+                                    if let Some(ref msg) = save_color_msg() {
+                                        span { style: "font-size: 12px; color: #00e676; font-weight: 600;", "{msg}" }
+                                    }
+                                }
+                                button {
+                                    style: "padding: 8px 18px; border-radius: 6px; background: linear-gradient(135deg, #0284c7, #0369a1); border: 1px solid #38bdf8; color: #ffffff; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s;",
+                                    disabled: is_saving_colors(),
+                                    onclick: move |_| {
+                                        if let Some(conn) = (ctx.connection)() {
+                                            is_saving_colors.set(true);
+                                            let h1 = edit_primary_hue();
+                                            let h2 = edit_secondary_hue();
+                                            let res = conn.reducers.update_player_colors(h1, h2);
+                                            is_saving_colors.set(false);
+                                            if res.is_ok() {
+                                                save_color_msg.set(Some("✔ Farbschema aktualisiert!".to_string()));
+                                            } else {
+                                                save_color_msg.set(Some("⚠️ Fehler beim Speichern".to_string()));
+                                            }
+                                        }
+                                    },
+                                    if is_saving_colors() { "Speichern..." } else { "Farbschema speichern" }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2815,7 +2955,7 @@ fn ScoreboardModal(
                                                         style: "padding: 12px 16px;",
                                                         div {
                                                             style: "display: flex; align-items: center; gap: 8px;",
-                                                            span { style: "width: 10px; height: 10px; border-radius: 50%; background: hsl({p.color_hue}, 90%, 55%); box-shadow: 0 0 6px hsl({p.color_hue}, 90%, 55%);" }
+                                                            span { style: "width: 10px; height: 10px; border-radius: 50%; background: linear-gradient(135deg, hsl({p.color_hue}, 90%, 55%) 50%, hsl({p.secondary_color_hue}, 90%, 55%) 50%); box-shadow: 0 0 6px hsl({p.color_hue}, 90%, 55%);" }
                                                             span { style: "font-weight: 600; color: #f1f5f9;", "{p.name}" }
                                                             if is_me {
                                                                 span { style: "font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.2); color: #00e5ff; font-weight: 700;", "Du" }

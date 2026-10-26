@@ -36,7 +36,8 @@ pub struct Player {
     #[primary_key]
     pub identity: Identity,
     pub name: String,
-    pub color_hue: u16, // 0..360 for color wheel
+    pub color_hue: u16,           // 0..360 for color wheel (primary)
+    pub secondary_color_hue: u16, // 0..360 for color wheel (secondary)
     pub score: u64,
     pub created_at: Timestamp,
     pub last_api_activity: Option<Timestamp>,
