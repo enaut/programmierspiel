@@ -5,6 +5,7 @@ pub mod module_bindings;
 use ::dioxus::prelude::*;
 use audio::SoundEffects;
 use canvas::render_space_scene;
+use module_bindings::admin_refill_asteroids_reducer::admin_refill_asteroids;
 use module_bindings::admin_set_phase_reducer::admin_set_phase;
 use module_bindings::authenticate_admin_reducer::authenticate_admin;
 use module_bindings::dioxus::{
@@ -107,6 +108,12 @@ fn HeaderBar() -> Element {
         }
     };
 
+    let refill_asteroids = move |_| {
+        if let Some(conn) = (ctx.connection)() {
+            let _ = conn.reducers.admin_refill_asteroids();
+        }
+    };
+
     rsx! {
         header {
             style: "height: 56px; background: rgba(10, 16, 32, 0.95); border-bottom: 1px solid rgba(80, 120, 200, 0.25); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; z-index: 10;",
@@ -156,6 +163,11 @@ fn HeaderBar() -> Element {
                         style: "background: #1e293b; color: #fff; border: 1px solid #334155; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 600;",
                         onclick: next_level,
                         "Vor ▶"
+                    }
+                    button {
+                        style: "background: #0369a1; color: #fff; border: 1px solid #0284c7; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; margin-left: 8px;",
+                        onclick: refill_asteroids,
+                        "☄️ Asteroiden auffüllen"
                     }
                 }
             }

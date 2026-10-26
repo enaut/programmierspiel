@@ -13,6 +13,7 @@ pub mod active_riddle_type;
 pub mod admin_all_asteroids_table;
 pub mod admin_all_bases_table;
 pub mod admin_all_ships_table;
+pub mod admin_refill_asteroids_reducer;
 pub mod admin_set_phase_reducer;
 pub mod admin_user_type;
 pub mod ai_agent_table;
@@ -64,6 +65,7 @@ pub use active_riddle_type::ActiveRiddle;
 pub use admin_all_asteroids_table::*;
 pub use admin_all_bases_table::*;
 pub use admin_all_ships_table::*;
+pub use admin_refill_asteroids_reducer::admin_refill_asteroids;
 pub use admin_set_phase_reducer::admin_set_phase;
 pub use admin_user_type::AdminUser;
 pub use ai_agent_table::*;
@@ -118,6 +120,7 @@ pub use visible_drones_table::*;
 /// to indicate which reducer caused the event.
 
 pub enum Reducer {
+    AdminRefillAsteroids,
     AdminSetPhase {
         level: u8,
         paused: bool,
@@ -170,6 +173,7 @@ impl __sdk::InModule for Reducer {
 impl __sdk::Reducer for Reducer {
     fn reducer_name(&self) -> &'static str {
         match self {
+            Reducer::AdminRefillAsteroids => "admin_refill_asteroids",
             Reducer::AdminSetPhase { .. } => "admin_set_phase",
             Reducer::ApiHeartbeat => "api_heartbeat",
             Reducer::AuthenticateAdmin { .. } => "authenticate_admin",
@@ -188,6 +192,9 @@ impl __sdk::Reducer for Reducer {
     #[allow(clippy::clone_on_copy)]
     fn args_bsatn(&self) -> Result<Vec<u8>, __sats::bsatn::EncodeError> {
         match self {
+            Reducer::AdminRefillAsteroids => {
+                __sats::bsatn::to_vec(&admin_refill_asteroids_reducer::AdminRefillAsteroidsArgs {})
+            }
             Reducer::AdminSetPhase { level, paused } => {
                 __sats::bsatn::to_vec(&admin_set_phase_reducer::AdminSetPhaseArgs {
                     level: level.clone(),

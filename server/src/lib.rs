@@ -920,6 +920,56 @@ pub fn authenticate_admin(ctx: &ReducerContext, password: String) -> Result<(), 
     Ok(())
 }
 
+#[reducer]
+pub fn admin_refill_asteroids(ctx: &ReducerContext) -> Result<(), String> {
+    let sender = ctx.sender();
+    if ctx.db.admin_user().identity().find(&sender).is_none() {
+        return Err("Unauthorized: Only authenticated admins can refill asteroids".to_string());
+    }
+
+    // 1. Refill partially mined asteroids in the asteroid table
+    let asteroids: Vec<Asteroid> = ctx.db.asteroid().iter().collect();
+    let mut refilled_count = 0;
+    for mut ast in asteroids {
+        let max_ore = initial_ore_for_resource(ast.resource_type);
+        if ast.remaining_ore < max_ore {
+            ast.remaining_ore = max_ore;
+            ctx.db.asteroid().asteroid_id().update(ast);
+            refilled_count += 1;
+        }
+    }
+
+    // 2. Immediately respawn all depleted asteroids and clear the cooldown queue
+    let depleted: Vec<DepletedAsteroid> = ctx.db.depleted_asteroid().iter().collect();
+    let depleted_count = depleted.len();
+    for dep in depleted {
+        ctx.db.depleted_asteroid().id().delete(&dep.id);
+        let (cx, cy) = unpack_chunk_key(dep.chunk_key);
+        respawn_chunk_asteroid_by_index(ctx, cx, cy, dep.chunk_key, dep.chunk_index);
+    }
+
+    // 3. Ensure all active chunks are fully populated
+    for chunk in ctx.db.active_chunk().iter() {
+        ensure_chunk_asteroids(ctx, chunk.chunk_x, chunk.chunk_y, chunk.chunk_key);
+    }
+
+    let message = format!(
+        "Admin hat alle Asteroiden aufgefüllt ({} aktualisiert, {} wiederbelebt).",
+        refilled_count, depleted_count
+    );
+    log::info!("{}", message);
+
+    ctx.db.game_event().insert(GameEvent {
+        event_id: 0,
+        player: sender,
+        event_type: "ADMIN_ACTION".to_string(),
+        message,
+        timestamp: ctx.timestamp,
+    });
+
+    Ok(())
+}
+
 // ==========================================
 // Scheduled Game Tick Reducer
 // ==========================================
