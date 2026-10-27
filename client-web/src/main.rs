@@ -1,9 +1,12 @@
+pub mod audio;
 pub mod module_bindings;
 pub mod oauth;
 pub mod radar;
+pub mod tutorial;
 
 use ::dioxus::prelude::*;
 use ::dioxus::signals::SyncSignal;
+use module_bindings::advance_tutorial_step_reducer::advance_tutorial_step;
 use module_bindings::build_ship_reducer::build_ship;
 use module_bindings::command_ship_reducer::command_ship;
 use module_bindings::deploy_base_station_reducer::deploy_base_station;
@@ -20,6 +23,7 @@ use module_bindings::{
 };
 use radar::{SelectedEntity, render_player_radar};
 use spacetimedb_sdk::Identity;
+use tutorial::QuestDrawer;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
@@ -670,15 +674,29 @@ fn CockpitApp() -> Element {
                 } else if my_base.is_none() {
                     BuilderNavigationScreen {
                         player: my_player.clone().unwrap(),
-                        builder_ship: my_ships.into_iter().find(|s| s.ship_tier == 0),
+                        builder_ship: my_ships.iter().find(|s| s.ship_tier == 0).cloned(),
                     }
                 } else {
                     BaseDashboardScreen {
                         player: my_player.clone().unwrap(),
                         base: my_base.clone().unwrap(),
-                        ships: my_ships,
+                        ships: my_ships.clone(),
                         achievements: achievements.clone(),
                         on_open_heimatbasis: move |_| show_heimatbasis_modal.set(true),
+                    }
+                }
+
+                // Interactive Tutorial Quest-Drawer
+                if let Some(ref p) = my_player {
+                    QuestDrawer {
+                        step: p.tutorial_step,
+                        events: (ctx.tables.game_event)().into_iter().filter(|e| Some(e.player) == my_identity).collect(),
+                        ships: my_ships,
+                        on_advance: move |target_step| {
+                            if let Some(conn) = (ctx.connection)() {
+                                let _ = conn.reducers.advance_tutorial_step(target_step);
+                            }
+                        },
                     }
                 }
             }
@@ -1355,7 +1373,11 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                     button {
                         disabled: !can_deploy,
                         style: if can_deploy {
-                            "width: 100%; background: #059669; hover:background: #047857; color: #fff; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(5, 150, 105, 0.4); transition: all 0.2s;"
+                            if player.tutorial_step == 2 {
+                                "width: 100%; background: #059669; hover:background: #047857; color: #fff; border: 2px solid #00e5ff; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 0 24px rgba(0, 229, 255, 0.8); transition: all 0.2s;"
+                            } else {
+                                "width: 100%; background: #059669; hover:background: #047857; color: #fff; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(5, 150, 105, 0.4); transition: all 0.2s;"
+                            }
                         } else {
                             "width: 100%; background: #334155; color: #64748b; border: none; padding: 14px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: not-allowed;"
                         },
@@ -1970,14 +1992,20 @@ fn BaseDashboardScreen(
                         };
                         rsx! {
                             div {
-                                style: "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px;",
+                                style: if player.tutorial_step == 3 {
+                                    "background: #0f172a; border: 2px solid #00e5ff; box-shadow: 0 0 24px rgba(0, 229, 255, 0.4); border-radius: 10px; padding: 14px;"
+                                } else {
+                                    "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px;"
+                                },
                                 div {
                                     style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
                                     div {
                                         style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px;",
                                         if is_perm { "🤖 DEIN PERMANENTER BASE-AI TOKEN:" } else { "DEIN PERSÖNLICHER API-TOKEN:" }
                                     }
-                                    if is_perm {
+                                    if player.tutorial_step == 3 {
+                                        span { style: "font-size: 10px; color: #00e5ff; font-weight: 700; animation: pulse 1s infinite;", "👉 HIER KOPIEREN" }
+                                    } else if is_perm {
                                         span { style: "font-size: 10px; color: #00e676; font-weight: 600;", "✔ Permanent (kein 60s Timeout)" }
                                     }
                                 }

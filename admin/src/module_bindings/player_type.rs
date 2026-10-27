@@ -15,6 +15,7 @@ pub struct Player {
     pub created_at: __sdk::Timestamp,
     pub last_api_activity: Option<__sdk::Timestamp>,
     pub has_api_connected: bool,
+    pub tutorial_step: u8,
 }
 
 impl __sdk::InModule for Player {
@@ -33,6 +34,7 @@ pub struct PlayerCols {
     pub created_at: __sdk::__query_builder::Col<Player, __sdk::Timestamp>,
     pub last_api_activity: __sdk::__query_builder::Col<Player, Option<__sdk::Timestamp>>,
     pub has_api_connected: __sdk::__query_builder::Col<Player, bool>,
+    pub tutorial_step: __sdk::__query_builder::Col<Player, u8>,
 }
 
 impl __sdk::__query_builder::HasCols for Player {
@@ -50,6 +52,7 @@ impl __sdk::__query_builder::HasCols for Player {
             created_at: __sdk::__query_builder::Col::new(table_name, "created_at"),
             last_api_activity: __sdk::__query_builder::Col::new(table_name, "last_api_activity"),
             has_api_connected: __sdk::__query_builder::Col::new(table_name, "has_api_connected"),
+            tutorial_step: __sdk::__query_builder::Col::new(table_name, "tutorial_step"),
         }
     }
 }

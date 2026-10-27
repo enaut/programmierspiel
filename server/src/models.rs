@@ -42,6 +42,7 @@ pub struct Player {
     pub created_at: Timestamp,
     pub last_api_activity: Option<Timestamp>,
     pub has_api_connected: bool,
+    pub tutorial_step: u8,
 }
 
 #[table(accessor = base_station)]
@@ -65,6 +66,7 @@ pub struct BaseStation {
     pub base_scanner_progress: u8,
     pub radar_horizon_level: u8,
     pub radar_horizon_progress: u8,
+    pub last_ship_built_at: Option<Timestamp>,
 }
 
 #[table(accessor = ship)]
@@ -238,6 +240,17 @@ pub struct UnidentifiedContact {
     pub viewer: Identity,
     pub contact_id: u32,
     pub position: Vec2,
+}
+
+#[table(accessor = tutorial_state)]
+#[derive(Debug, Clone)]
+pub struct TutorialState {
+    #[primary_key]
+    pub player: Identity,
+    pub current_step: u8,
+    pub step_started_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
+    pub attempts: u32,
 }
 
 #[table(accessor = game_event, public)]

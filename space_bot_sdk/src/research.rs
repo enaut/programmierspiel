@@ -1,3 +1,4 @@
+use crate::module_bindings::{PublicRiddle, Vec2};
 use serde::{Deserialize, Serialize};
 
 /// Die drei verfügbaren Upgrade-Zweige für die Heimatbasis.
@@ -74,4 +75,82 @@ pub struct DenoisePayload {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DenoiseSolution {
     pub cleaned: Vec<f32>,
+}
+
+/// Stark typisierte Aufgabenstellung eines Forschungsrätsels.
+#[derive(Debug, Clone)]
+pub enum RiddleTask {
+    /// Track 1: Drohnen-Scanner (Zahlenreihe aufsteigend sortieren)
+    Sort { numbers: Vec<i64> },
+    /// Track 2: Basen- und Asteroidenscanner (Distanzen von Basis zu Zielkoordinaten berechnen)
+    Distance { base: Vec2, targets: Vec<Vec2> },
+    /// Track 3: Radar-Horizont (Störsignale über Schwellenwert entfernen)
+    Denoise { readings: Vec<f32>, threshold: f32 },
+}
+
+impl RiddleTask {
+    pub fn from_public_riddle(riddle: &PublicRiddle) -> Option<Self> {
+        match riddle.track {
+            1 => {
+                let payload: SortPayload = serde_json::from_str(&riddle.payload).ok()?;
+                Some(Self::Sort {
+                    numbers: payload.numbers,
+                })
+            }
+            2 => {
+                let payload: DistancePayload = serde_json::from_str(&riddle.payload).ok()?;
+                Some(Self::Distance {
+                    base: Vec2::new(payload.base[0], payload.base[1]),
+                    targets: payload
+                        .targets
+                        .into_iter()
+                        .map(|t| Vec2::new(t[0], t[1]))
+                        .collect(),
+                })
+            }
+            3 => {
+                let payload: DenoisePayload = serde_json::from_str(&riddle.payload).ok()?;
+                Some(Self::Denoise {
+                    readings: payload.readings,
+                    threshold: payload.threshold,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Stark typisierte Lösung für ein Forschungsrätsel.
+#[derive(Debug, Clone)]
+pub enum RiddleSolution {
+    Sort(Vec<i64>),
+    Distance(Vec<f32>),
+    Denoise(Vec<f32>),
+}
+
+impl RiddleSolution {
+    pub fn to_json_string(&self) -> String {
+        match self {
+            Self::Sort(sorted) => serde_json::to_string(&SortSolution {
+                sorted: sorted.clone(),
+            })
+            .unwrap_or_default(),
+            Self::Distance(distances) => serde_json::to_string(&DistanceSolution {
+                distances: distances.clone(),
+            })
+            .unwrap_or_default(),
+            Self::Denoise(cleaned) => serde_json::to_string(&DenoiseSolution {
+                cleaned: cleaned.clone(),
+            })
+            .unwrap_or_default(),
+        }
+    }
+
+    pub fn track(&self) -> u8 {
+        match self {
+            Self::Sort(_) => 1,
+            Self::Distance(_) => 2,
+            Self::Denoise(_) => 3,
+        }
+    }
 }

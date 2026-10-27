@@ -6,6 +6,13 @@ use dioxus::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+impl Vec2 {
+    pub const ZERO: Vec2 = Vec2 { x: 0.0, y: 0.0 };
+    pub fn distance(&self, other: &Vec2) -> f32 {
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 static MEGA_STATION_PADS_ASSET: Asset = asset!("/assets/mega-station-pads.png");
 #[cfg(target_arch = "wasm32")]
@@ -784,8 +791,25 @@ pub fn render_player_radar(
             0.0,
             std::f64::consts::TAU,
         );
-        ctx.set_stroke_style(&JsValue::from_str("rgba(80, 200, 255, 0.22)"));
-        ctx.set_line_width(2.0 / zoom);
+        let has_builder = my_ships.iter().any(|s| s.ship_tier == 0);
+        let stroke_color = if has_builder {
+            let pulse = (time * 3.0).sin() * 0.5 + 0.5;
+            let is_outside = my_ships.iter().any(|s| {
+                s.ship_tier == 0
+                    && s.position
+                        .distance(&config.map_or(Vec2::ZERO, |c| c.megastation_pos.clone()))
+                        >= 250.0
+            });
+            if is_outside {
+                format!("rgba(0, 230, 118, {:.2})", 0.5 + 0.5 * pulse)
+            } else {
+                format!("rgba(255, 60, 60, {:.2})", 0.5 + 0.5 * pulse)
+            }
+        } else {
+            "rgba(80, 200, 255, 0.22)".to_string()
+        };
+        ctx.set_stroke_style(&JsValue::from_str(&stroke_color));
+        ctx.set_line_width(if has_builder { 3.0 / zoom } else { 2.0 / zoom });
         ctx.stroke();
 
         if let (Some(pads_img), Some(ring_img)) =
@@ -861,6 +885,40 @@ pub fn render_player_radar(
 
         // 4. Draw Identified Asteroids
         let mut asteroid_pos_map = HashMap::new();
+
+        // Spotlight highlight for tutorial step 5 (target closest asteroid with ore)
+        if let Some(first_drone) = my_ships.first() {
+            if let Some(player_me) = players.iter().find(|p| p.identity == first_drone.owner) {
+                if player_me.tutorial_step == 5 {
+                    if let Some(target_ast) = visible_asteroids
+                        .iter()
+                        .filter(|a| a.remaining_ore > 0)
+                        .min_by(|a, b| {
+                            a.position
+                                .distance(&first_drone.position)
+                                .total_cmp(&b.position.distance(&first_drone.position))
+                        })
+                    {
+                        let pulse = (time * 4.0).sin() * 0.5 + 0.5;
+                        let target_radius = (target_ast.radius as f64) + 14.0 + (pulse * 8.0);
+                        ctx.begin_path();
+                        let _ = ctx.arc(
+                            target_ast.position.x as f64,
+                            target_ast.position.y as f64,
+                            target_radius,
+                            0.0,
+                            std::f64::consts::TAU,
+                        );
+                        ctx.set_stroke_style(&JsValue::from_str(&format!(
+                            "rgba(0, 229, 255, {:.2})",
+                            0.6 + 0.4 * pulse
+                        )));
+                        ctx.set_line_width(2.5 / zoom);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
 
         let mut sorted_asteroids: Vec<&PerceivedAsteroid> = visible_asteroids.iter().collect();
         sorted_asteroids.sort_by(|a, b| {

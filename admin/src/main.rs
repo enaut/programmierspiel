@@ -7,13 +7,12 @@ use audio::SoundEffects;
 use canvas::render_space_scene;
 use module_bindings::admin_refill_asteroids_reducer::admin_refill_asteroids;
 use module_bindings::admin_set_phase_reducer::admin_set_phase;
+use module_bindings::admin_set_tutorial_step_reducer::admin_set_tutorial_step;
 use module_bindings::authenticate_admin_reducer::authenticate_admin;
 use module_bindings::dioxus::{
     ConnectionState, use_spacetimedb_context, use_spacetimedb_context_provider, use_subscription,
 };
 
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use web_sys::HtmlCanvasElement;
 
@@ -416,6 +415,22 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
         })
         .collect();
 
+    let tutorial_step_label = |step: u8| -> &'static str {
+        match step {
+            0 => "0/10 Registrierung",
+            1 => "1/10 Flug",
+            2 => "2/10 Basisbau",
+            3 => "3/10 Zed Editor",
+            4 => "4/10 Bot Start",
+            5 => "5/10 Erstes Erz",
+            6 => "6/10 Lieferung",
+            7 => "7/10 Drohne 2",
+            8 => "8/10 Flottenloop",
+            9 => "9/10 Forschung",
+            _ => "Sandbox 🚀",
+        }
+    };
+
     rsx! {
         aside {
             style: "width: 380px; height: 100%; background: rgba(10, 16, 32, 0.88); border-left: 1px solid rgba(80, 120, 200, 0.2); backdrop-filter: blur(8px); display: flex; flex-direction: column; overflow: hidden;",
@@ -425,17 +440,17 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
                 style: "padding: 16px 20px; border-bottom: 1px solid rgba(80, 120, 200, 0.15);",
                 h2 {
                     style: "margin: 0 0 12px 0; font-size: 16px; font-weight: 700; color: #ffd700; letter-spacing: 0.5px;",
-                    "🏆 RANGLISTE (ERZ-PUNKTE)"
+                    "🏆 RANGLISTE & TUTORIAL-STATUS"
                 }
                 div {
-                    style: "display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto;",
+                    style: "display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow-y: auto;",
                     if player_items.is_empty() {
                         div { style: "color: #64748b; font-size: 13px;", "Noch keine Schüler beigetreten..." }
                     }
                     for (rank, player, p_pos) in player_items {
                         div {
                             key: "{player.identity}",
-                            style: "display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; border-left: 4px solid hsl({player.color_hue}, 90%, 55%); border-image: linear-gradient(to bottom, hsl({player.color_hue}, 90%, 55%), hsl({player.secondary_color_hue}, 90%, 55%)) 1 100%; cursor: pointer; transition: background 0.15s ease;",
+                            style: "display: flex; flex-direction: column; gap: 5px; padding: 8px 12px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; border-left: 4px solid hsl({player.color_hue}, 90%, 55%); border-image: linear-gradient(to bottom, hsl({player.color_hue}, 90%, 55%), hsl({player.secondary_color_hue}, 90%, 55%)) 1 100%; cursor: pointer; transition: background 0.15s ease;",
                             title: "Klicken, um Kamera auf Basis/Schiff zu zentrieren",
                             onclick: move |_| {
                                 if let Some((px, py)) = p_pos {
@@ -443,13 +458,57 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
                                 }
                             },
                             div {
-                                style: "display: flex; align-items: center; gap: 10px;",
-                                span { style: "font-weight: 700; color: #8da2c0; font-size: 13px; width: 20px;", "#{rank + 1}" }
-                                span { style: "font-weight: 600; font-size: 14px;", "{player.name}" }
+                                style: "display: flex; align-items: center; justify-content: space-between;",
+                                div {
+                                    style: "display: flex; align-items: center; gap: 8px;",
+                                    span { style: "font-weight: 700; color: #8da2c0; font-size: 13px; width: 20px;", "#{rank + 1}" }
+                                    span { style: "font-weight: 600; font-size: 14px;", "{player.name}" }
+                                }
+                                span { style: "font-weight: 700; color: #ffd700; font-size: 14px;", "{player.score} Pkt" }
                             }
                             div {
-                                style: "display: flex; align-items: center; gap: 8px;",
-                                span { style: "font-weight: 700; color: #ffd700; font-size: 14px;", "{player.score} Pkt" }
+                                style: "display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-top: 2px;",
+                                span {
+                                    style: if player.tutorial_step >= 10 {
+                                        "padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; font-weight: 600;"
+                                    } else {
+                                        "padding: 2px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.15); color: #00e5ff; font-weight: 600;"
+                                    },
+                                    "{tutorial_step_label(player.tutorial_step)}"
+                                }
+                                div {
+                                    style: "display: flex; gap: 4px; align-items: center;",
+                                    button {
+                                        style: "background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 1px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;",
+                                        title: "Vorheriger Schritt für Schüler",
+                                        onclick: {
+                                            let p_id = player.identity;
+                                            let p_step = player.tutorial_step;
+                                            move |evt: MouseEvent| {
+                                                evt.stop_propagation();
+                                                if let Some(conn) = (ctx.connection)() {
+                                                    let _ = conn.reducers.admin_set_tutorial_step(p_id, p_step.saturating_sub(1));
+                                                }
+                                            }
+                                        },
+                                        "◀"
+                                    }
+                                    button {
+                                        style: "background: #1e293b; color: #38bdf8; border: 1px solid #0284c7; padding: 1px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight: 700;",
+                                        title: "Schüler zu nächstem Schritt befördern",
+                                        onclick: {
+                                            let p_id = player.identity;
+                                            let p_step = player.tutorial_step;
+                                            move |evt: MouseEvent| {
+                                                evt.stop_propagation();
+                                                if let Some(conn) = (ctx.connection)() {
+                                                    let _ = conn.reducers.admin_set_tutorial_step(p_id, p_step.saturating_add(1));
+                                                }
+                                            }
+                                        },
+                                        "▶"
+                                    }
+                                }
                             }
                         }
                     }

@@ -15,7 +15,9 @@ pub mod admin_all_bases_table;
 pub mod admin_all_ships_table;
 pub mod admin_refill_asteroids_reducer;
 pub mod admin_set_phase_reducer;
+pub mod admin_set_tutorial_step_reducer;
 pub mod admin_user_type;
+pub mod advance_tutorial_step_reducer;
 pub mod ai_agent_table;
 pub mod ai_agent_type;
 pub mod api_heartbeat_reducer;
@@ -35,6 +37,7 @@ pub mod my_active_riddle_table;
 pub mod my_ai_agents_table;
 pub mod my_base_table;
 pub mod my_ships_table;
+pub mod my_tutorial_state_table;
 pub mod perceived_asteroid_type;
 pub mod perceived_base_type;
 pub mod perceived_drone_type;
@@ -52,6 +55,7 @@ pub mod ship_type;
 pub mod submit_riddle_solution_reducer;
 pub mod tick_schedule_type;
 pub mod total_players_table;
+pub mod tutorial_state_type;
 pub mod unidentified_contact_type;
 pub mod unidentified_objects_table;
 pub mod update_player_colors_reducer;
@@ -67,7 +71,9 @@ pub use admin_all_bases_table::*;
 pub use admin_all_ships_table::*;
 pub use admin_refill_asteroids_reducer::admin_refill_asteroids;
 pub use admin_set_phase_reducer::admin_set_phase;
+pub use admin_set_tutorial_step_reducer::admin_set_tutorial_step;
 pub use admin_user_type::AdminUser;
+pub use advance_tutorial_step_reducer::advance_tutorial_step;
 pub use ai_agent_table::*;
 pub use ai_agent_type::AiAgent;
 pub use api_heartbeat_reducer::api_heartbeat;
@@ -87,6 +93,7 @@ pub use my_active_riddle_table::*;
 pub use my_ai_agents_table::*;
 pub use my_base_table::*;
 pub use my_ships_table::*;
+pub use my_tutorial_state_table::*;
 pub use perceived_asteroid_type::PerceivedAsteroid;
 pub use perceived_base_type::PerceivedBase;
 pub use perceived_drone_type::PerceivedDrone;
@@ -104,6 +111,7 @@ pub use ship_type::Ship;
 pub use submit_riddle_solution_reducer::submit_riddle_solution;
 pub use tick_schedule_type::TickSchedule;
 pub use total_players_table::*;
+pub use tutorial_state_type::TutorialState;
 pub use unidentified_contact_type::UnidentifiedContact;
 pub use unidentified_objects_table::*;
 pub use update_player_colors_reducer::update_player_colors;
@@ -124,6 +132,13 @@ pub enum Reducer {
     AdminSetPhase {
         level: u8,
         paused: bool,
+    },
+    AdminSetTutorialStep {
+        target_player: __sdk::Identity,
+        target_step: u8,
+    },
+    AdvanceTutorialStep {
+        current_step: u8,
     },
     ApiHeartbeat,
     AuthenticateAdmin {
@@ -175,6 +190,8 @@ impl __sdk::Reducer for Reducer {
         match self {
             Reducer::AdminRefillAsteroids => "admin_refill_asteroids",
             Reducer::AdminSetPhase { .. } => "admin_set_phase",
+            Reducer::AdminSetTutorialStep { .. } => "admin_set_tutorial_step",
+            Reducer::AdvanceTutorialStep { .. } => "advance_tutorial_step",
             Reducer::ApiHeartbeat => "api_heartbeat",
             Reducer::AuthenticateAdmin { .. } => "authenticate_admin",
             Reducer::BuildShip { .. } => "build_ship",
@@ -199,6 +216,20 @@ impl __sdk::Reducer for Reducer {
                 __sats::bsatn::to_vec(&admin_set_phase_reducer::AdminSetPhaseArgs {
                     level: level.clone(),
                     paused: paused.clone(),
+                })
+            }
+            Reducer::AdminSetTutorialStep {
+                target_player,
+                target_step,
+            } => {
+                __sats::bsatn::to_vec(&admin_set_tutorial_step_reducer::AdminSetTutorialStepArgs {
+                    target_player: target_player.clone(),
+                    target_step: target_step.clone(),
+                })
+            }
+            Reducer::AdvanceTutorialStep { current_step } => {
+                __sats::bsatn::to_vec(&advance_tutorial_step_reducer::AdvanceTutorialStepArgs {
+                    current_step: current_step.clone(),
                 })
             }
             Reducer::ApiHeartbeat => {
@@ -285,6 +316,7 @@ pub struct DbUpdate {
     my_ai_agents: __sdk::TableUpdate<AiAgent>,
     my_base: __sdk::TableUpdate<BaseStation>,
     my_ships: __sdk::TableUpdate<Ship>,
+    my_tutorial_state: __sdk::TableUpdate<TutorialState>,
     player: __sdk::TableUpdate<Player>,
     player_achievement: __sdk::TableUpdate<PlayerAchievement>,
     total_players: __sdk::TableUpdate<CountRow>,
@@ -330,6 +362,9 @@ impl TryFrom<__ws::v2::TransactionUpdate> for DbUpdate {
                 "my_ships" => db_update
                     .my_ships
                     .append(my_ships_table::parse_table_update(table_update)?),
+                "my_tutorial_state" => db_update
+                    .my_tutorial_state
+                    .append(my_tutorial_state_table::parse_table_update(table_update)?),
                 "player" => db_update
                     .player
                     .append(player_table::parse_table_update(table_update)?),
@@ -407,6 +442,8 @@ impl __sdk::DbUpdate for DbUpdate {
             cache.apply_diff_to_table::<AiAgent>("my_ai_agents", &self.my_ai_agents);
         diff.my_base = cache.apply_diff_to_table::<BaseStation>("my_base", &self.my_base);
         diff.my_ships = cache.apply_diff_to_table::<Ship>("my_ships", &self.my_ships);
+        diff.my_tutorial_state = cache
+            .apply_diff_to_table::<TutorialState>("my_tutorial_state", &self.my_tutorial_state);
         diff.total_players =
             cache.apply_diff_to_table::<CountRow>("total_players", &self.total_players);
         diff.unidentified_objects = cache.apply_diff_to_table::<UnidentifiedContact>(
@@ -455,6 +492,9 @@ impl __sdk::DbUpdate for DbUpdate {
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "my_ships" => db_update
                     .my_ships
+                    .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
+                "my_tutorial_state" => db_update
+                    .my_tutorial_state
                     .append(__sdk::parse_row_list_as_inserts(table_rows.rows)?),
                 "player" => db_update
                     .player
@@ -520,6 +560,9 @@ impl __sdk::DbUpdate for DbUpdate {
                 "my_ships" => db_update
                     .my_ships
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
+                "my_tutorial_state" => db_update
+                    .my_tutorial_state
+                    .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
                 "player" => db_update
                     .player
                     .append(__sdk::parse_row_list_as_deletes(table_rows.rows)?),
@@ -566,6 +609,7 @@ pub struct AppliedDiff<'r> {
     my_ai_agents: __sdk::TableAppliedDiff<'r, AiAgent>,
     my_base: __sdk::TableAppliedDiff<'r, BaseStation>,
     my_ships: __sdk::TableAppliedDiff<'r, Ship>,
+    my_tutorial_state: __sdk::TableAppliedDiff<'r, TutorialState>,
     player: __sdk::TableAppliedDiff<'r, Player>,
     player_achievement: __sdk::TableAppliedDiff<'r, PlayerAchievement>,
     total_players: __sdk::TableAppliedDiff<'r, CountRow>,
@@ -612,6 +656,11 @@ impl<'r> __sdk::AppliedDiff<'r> for AppliedDiff<'r> {
         callbacks.invoke_table_row_callbacks::<AiAgent>("my_ai_agents", &self.my_ai_agents, event);
         callbacks.invoke_table_row_callbacks::<BaseStation>("my_base", &self.my_base, event);
         callbacks.invoke_table_row_callbacks::<Ship>("my_ships", &self.my_ships, event);
+        callbacks.invoke_table_row_callbacks::<TutorialState>(
+            "my_tutorial_state",
+            &self.my_tutorial_state,
+            event,
+        );
         callbacks.invoke_table_row_callbacks::<Player>("player", &self.player, event);
         callbacks.invoke_table_row_callbacks::<PlayerAchievement>(
             "player_achievement",
@@ -1313,6 +1362,7 @@ impl __sdk::SpacetimeModule for RemoteModule {
         my_ai_agents_table::register_table(client_cache);
         my_base_table::register_table(client_cache);
         my_ships_table::register_table(client_cache);
+        my_tutorial_state_table::register_table(client_cache);
         player_table::register_table(client_cache);
         player_achievement_table::register_table(client_cache);
         total_players_table::register_table(client_cache);
@@ -1332,6 +1382,7 @@ impl __sdk::SpacetimeModule for RemoteModule {
         "my_ai_agents",
         "my_base",
         "my_ships",
+        "my_tutorial_state",
         "player",
         "player_achievement",
         "total_players",

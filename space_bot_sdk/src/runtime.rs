@@ -1,31 +1,32 @@
-use crate::action::Action;
+use crate::action::Actions;
 use crate::config::BotConfig;
 use crate::module_bindings::api_heartbeat_reducer::api_heartbeat;
 use crate::module_bindings::build_ship_reducer::build_ship;
 use crate::module_bindings::command_ship_reducer::command_ship;
+use crate::module_bindings::my_active_riddle_table::MyActiveRiddleTableAccess;
 use crate::module_bindings::my_base_table::MyBaseTableAccess;
 use crate::module_bindings::my_ships_table::MyShipsTableAccess;
+use crate::module_bindings::request_riddle_reducer::request_riddle;
+use crate::module_bindings::submit_riddle_solution_reducer::submit_riddle_solution;
 use crate::module_bindings::unidentified_objects_table::UnidentifiedObjectsTableAccess;
 use crate::module_bindings::visible_asteroids_table::VisibleAsteroidsTableAccess;
 use crate::module_bindings::visible_bases_table::VisibleBasesTableAccess;
 use crate::module_bindings::visible_drones_table::VisibleDronesTableAccess;
 use crate::module_bindings::{
-    BaseStation, DbConnection, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Ship,
+    BaseStation, DbConnection, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Ship, ShipCommand,
     UnidentifiedContact,
 };
-use crate::radar::Radar;
+use crate::research::RiddleTask;
+use crate::world::{BaseController, World};
 use spacetimedb_sdk::{DbContext, Table};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-/// Startet den Bot-Laufzeitzyklus mit der vom Schüler bereitgestellten `decide`-Funktion.
-pub fn run<F>(decide: F)
-where
-    F: Fn(&Ship, &Radar) -> Action + Send + Sync + 'static,
-{
-    // 1. Konfiguration laden
+/// Startet den Bot-Laufzeitzyklus mit einem zustandsbehafteten `BaseController`.
+pub fn run<C: BaseController>(mut controller: C) {
     let config = match BotConfig::load() {
         Ok(cfg) => cfg,
         Err(_) => {
@@ -34,7 +35,7 @@ where
     };
 
     println!("================================================================================");
-    println!("🚀 [SPACE BOT] Starte Bot-Client...");
+    println!("🚀 [SPACE BOT] Starte Heimatbasis- und Flottensteuerung...");
     println!("   Server:   {}", config.server_url);
     println!("   Modul:    {}", config.module_name);
     println!("================================================================================");
@@ -45,7 +46,6 @@ where
     let conn_flag = Arc::clone(&is_connected);
     let sub_flag = Arc::clone(&is_subscribed);
 
-    // 2. Verbindung zu SpacetimeDB herstellen
     let conn_builder = DbConnection::builder()
         .with_uri(&config.server_url)
         .with_database_name(&config.module_name)
@@ -75,15 +75,13 @@ where
         }
     };
 
-    // 3. SpacetimeDB Background Network Worker starten
     let _net_handle = conn.run_threaded();
 
-    // 4. Tabellen & Views abonnieren
     conn.subscription_builder()
         .on_applied(move |_ctx| {
             sub_flag.store(true, Ordering::SeqCst);
             println!(
-                "📡 [SPACE BOT] Radar-Abonnement aktiv. Starte Entscheidungs-Loop (10 Ticks/s)..."
+                "📡 [SPACE BOT] Sensor-Abonnement aktiv. Starte Basis- und Flotten-Loop (10 Ticks/s)..."
             );
         })
         .on_error(|_ctx, err| {
@@ -98,6 +96,8 @@ where
             "SELECT * FROM visible_drones",
             "SELECT * FROM visible_asteroids",
             "SELECT * FROM unidentified_objects",
+            "SELECT * FROM my_active_riddle",
+            "SELECT * FROM my_tutorial_state",
             "SELECT * FROM game_event",
         ]);
 
@@ -110,7 +110,9 @@ where
         .checked_sub(Duration::from_secs(60))
         .unwrap_or_else(std::time::Instant::now);
 
-    // 5. Haupt-Tick-Loop (10 Hz = alle 100ms)
+    let mut actions = Actions::new();
+    let mut last_commands: HashMap<u32, ShipCommand> = HashMap::new();
+
     loop {
         thread::sleep(Duration::from_millis(100));
         tick_counter += 1;
@@ -119,64 +121,139 @@ where
             continue;
         }
 
-        // Send API heartbeat every 5 seconds to keep connection timestamp fresh on server
+        // Heartbeat alle 5 Sekunden senden
         if last_heartbeat.elapsed() >= Duration::from_secs(5) {
             last_heartbeat = std::time::Instant::now();
             let _ = conn.reducers.api_heartbeat();
         }
 
-        // Tabellendaten aus dem lokalen In-Memory-Cache lesen
-        let my_ships: Vec<Ship> = conn.db.my_ships().iter().collect();
         let my_base: Option<BaseStation> = conn.db.my_base().iter().next();
+
+        // Wenn noch keine Basis existiert: warten
+        let base = match my_base {
+            Some(b) => b,
+            None => {
+                if tick_counter >= last_status_tick + 30 {
+                    last_status_tick = tick_counter;
+                    println!(
+                        "⏳ [SPACE BOT] Warte auf Platzierung der Heimatbasis im Web-Dashboard..."
+                    );
+                }
+                continue;
+            }
+        };
+
+        let my_ships: Vec<Ship> = conn.db.my_ships().iter().collect();
         let asteroids: Vec<PerceivedAsteroid> = conn.db.visible_asteroids().iter().collect();
         let drones: Vec<PerceivedDrone> = conn.db.visible_drones().iter().collect();
         let bases: Vec<PerceivedBase> = conn.db.visible_bases().iter().collect();
-        let unidentified: Vec<UnidentifiedContact> =
+        let _unidentified: Vec<UnidentifiedContact> =
             conn.db.unidentified_objects().iter().collect();
 
-        if my_ships.is_empty() {
-            if let Some(_base) = &my_base {
-                if last_emergency_build.elapsed() >= Duration::from_secs(5) {
-                    last_emergency_build = std::time::Instant::now();
-                    println!(
-                        "🛸 [SPACE BOT] Keine aktiven Schiffe vorhanden – fordere automatische Notfall-Drohne (Tier 1) an..."
-                    );
-                    if let Err(e) = conn.reducers.build_ship(1) {
-                        eprintln!(
-                            "⚠️ [SPACE BOT] Fehler beim Anfordern der Notfall-Drohne: {}",
-                            e
-                        );
-                    }
-                }
-            } else if tick_counter >= last_status_tick + 30 {
-                last_status_tick = tick_counter;
-                println!(
-                    "⏳ [SPACE BOT] Noch keine Heimatbasis gefunden. Bitte platziere deine Basis im Web-Dashboard!"
-                );
+        // Notfall-Drohne anfordern, falls alle Schiffe zerstört oder verloren sind
+        if my_ships.is_empty() && last_emergency_build.elapsed() >= Duration::from_secs(5) {
+            last_emergency_build = std::time::Instant::now();
+            println!(
+                "🛸 [SPACE BOT] Keine aktiven Schiffe vorhanden – fordere kostenlose Notfall-Drohne (Tier 1) an..."
+            );
+            if let Err(e) = conn.reducers.build_ship(1) {
+                eprintln!("⚠️ [SPACE BOT] Notfall-Drohnenbau fehlgeschlagen: {}", e);
             }
-            continue;
         }
 
-        let radar = Radar {
-            base_station: my_base,
-            my_ships: my_ships.clone(),
-            asteroids,
-            other_drones: drones,
-            other_bases: bases,
-            unidentified_contacts: unidentified,
+        let raw_riddle = conn.db.my_active_riddle().iter().next();
+        let active_riddle = raw_riddle.as_ref().and_then(RiddleTask::from_public_riddle);
+
+        let world = World {
+            base: &base,
+            fleet: &my_ships,
+            asteroids: &asteroids,
+            other_drones: &drones,
+            other_bases: &bases,
+            active_riddle: active_riddle.as_ref(),
+            tick: tick_counter,
         };
 
-        // Rufe die decide-Funktion des Schülers für jedes eigene Schiff auf
-        for ship in &my_ships {
-            let action = decide(ship, &radar);
-            let cmd = action.into_ship_command();
+        actions.clear();
 
-            if let Err(e) = conn.reducers.command_ship(ship.ship_id, cmd) {
-                eprintln!(
-                    "⚠️ [SPACE BOT] Fehler beim Senden des Kommandos für Schiff {}: {}",
-                    ship.ship_id, e
-                );
+        // Schüler-Tick aufrufen
+        controller.tick(&world, &mut actions);
+
+        // 1. Schiffsbefehle abarbeiten (nur bei Befehlsänderung senden & loggen)
+        for (ship_id, cmd) in actions.ship_commands.drain(..) {
+            let has_changed = last_commands
+                .get(&ship_id)
+                .map_or(true, |last_cmd| *last_cmd != cmd);
+
+            if has_changed {
+                log_command(ship_id, &cmd);
+                if let Err(e) = conn.reducers.command_ship(ship_id, cmd.clone()) {
+                    eprintln!(
+                        "⚠️ [SPACE BOT] Fehler beim Senden des Befehls für Drohne #{}: {}",
+                        ship_id, e
+                    );
+                }
+                last_commands.insert(ship_id, cmd);
             }
+        }
+
+        // 2. Bau-Aufträge
+        for tier in actions.build_requests.drain(..) {
+            println!("🏗️ [SPACE BOT] Baue neue Drohne (Tier {})...", tier);
+            if let Err(e) = conn.reducers.build_ship(tier) {
+                eprintln!("⚠️ [SPACE BOT] Drohnenbau fehlgeschlagen: {}", e);
+            }
+        }
+
+        // 3. Forschungs-Anfragen
+        for track in actions.research_requests.drain(..) {
+            println!(
+                "🧪 [SPACE BOT] Fordere Forschungsrätsel an für: {}...",
+                track.name()
+            );
+            if let Err(e) = conn.reducers.request_riddle(track.as_u8()) {
+                eprintln!("⚠️ [SPACE BOT] Forschungs-Anfrage fehlgeschlagen: {}", e);
+            }
+        }
+
+        // 4. Rätsel-Lösungen einreichen
+        for solution in actions.riddle_solutions.drain(..) {
+            println!(
+                "💡 [SPACE BOT] Reiche Lösung für Forschungs-Track {} ein...",
+                solution.track()
+            );
+            if let Err(e) = conn
+                .reducers
+                .submit_riddle_solution(solution.track(), solution.to_json_string())
+            {
+                eprintln!("⚠️ [SPACE BOT] Einreichen der Lösung fehlgeschlagen: {}", e);
+            }
+        }
+    }
+}
+
+fn log_command(ship_id: u32, cmd: &ShipCommand) {
+    match cmd {
+        ShipCommand::Mine(ast_id) => {
+            println!(
+                "🛸 [DROHNE #{}] Neuer Befehl: Erz abbauen an Asteroid #{}",
+                ship_id, ast_id
+            );
+        }
+        ShipCommand::Dock => {
+            println!(
+                "🛸 [DROHNE #{}] Neuer Befehl: Zur Heimatbasis zurückkehren (Dock)",
+                ship_id
+            );
+        }
+        ShipCommand::FlyTo(target) => {
+            println!(
+                "🛸 [DROHNE #{}] Neuer Befehl: Fliege zu Ziel ({:.0}, {:.0})",
+                ship_id, target.x, target.y
+            );
+        }
+        ShipCommand::Stop => {
+            println!("🛸 [DROHNE #{}] Neuer Befehl: Stopp", ship_id);
         }
     }
 }

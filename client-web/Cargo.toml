@@ -37,7 +37,15 @@ web-sys = { version = "0.3", features = [
     "Request",
     "RequestInit",
     "Response",
-    "Headers"
+    "Headers",
+    "AudioContext",
+    "BaseAudioContext",
+    "AudioNode",
+    "AudioDestinationNode",
+    "OscillatorNode",
+    "OscillatorType",
+    "GainNode",
+    "AudioParam"
 ] }
 wasm-bindgen-futures = "0.4"
 

@@ -23,6 +23,7 @@ pub struct BaseStation {
     pub base_scanner_progress: u8,
     pub radar_horizon_level: u8,
     pub radar_horizon_progress: u8,
+    pub last_ship_built_at: Option<__sdk::Timestamp>,
 }
 
 impl __sdk::InModule for BaseStation {
@@ -47,6 +48,7 @@ pub struct BaseStationCols {
     pub base_scanner_progress: __sdk::__query_builder::Col<BaseStation, u8>,
     pub radar_horizon_level: __sdk::__query_builder::Col<BaseStation, u8>,
     pub radar_horizon_progress: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub last_ship_built_at: __sdk::__query_builder::Col<BaseStation, Option<__sdk::Timestamp>>,
 }
 
 impl __sdk::__query_builder::HasCols for BaseStation {
@@ -82,6 +84,7 @@ impl __sdk::__query_builder::HasCols for BaseStation {
                 table_name,
                 "radar_horizon_progress",
             ),
+            last_ship_built_at: __sdk::__query_builder::Col::new(table_name, "last_ship_built_at"),
         }
     }
 }

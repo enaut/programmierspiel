@@ -5979,10 +5979,7 @@ dependencies = [
 name = "testclient"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_json",
  "space_bot_sdk",
- "spacetimedb-sdk",
 ]
 
 [[package]]

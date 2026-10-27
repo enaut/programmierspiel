@@ -66,11 +66,44 @@ pub fn on_client_disconnected(ctx: &ReducerContext) {
 // Helper Functions for API & Achievements
 // ==========================================
 
+fn advance_tutorial(ctx: &ReducerContext, player_id: Identity, expected_step: u8, next_step: u8) {
+    if let Some(mut state) = ctx.db.tutorial_state().player().find(&player_id) {
+        if state.current_step == expected_step {
+            state.current_step = next_step;
+            state.step_started_at = ctx.timestamp;
+            if next_step >= 10 {
+                state.completed_at = Some(ctx.timestamp);
+            }
+            ctx.db.tutorial_state().player().update(state);
+
+            if let Some(mut player) = ctx.db.player().identity().find(&player_id) {
+                player.tutorial_step = next_step;
+                ctx.db.player().identity().update(player);
+            }
+
+            log::info!(
+                "Player {:?} advanced tutorial from step {} to {}",
+                player_id,
+                expected_step,
+                next_step
+            );
+            ctx.db.game_event().insert(GameEvent {
+                event_id: 0,
+                player: player_id,
+                event_type: "TUTORIAL_STEP_ADVANCED".to_string(),
+                message: format!("Tutorial-Stufe {} erreicht!", next_step),
+                timestamp: ctx.timestamp,
+            });
+        }
+    }
+}
+
 fn record_api_activity(ctx: &ReducerContext, sender: spacetimedb::Identity) {
     if let Some(mut player) = ctx.db.player().identity().find(&sender) {
         player.last_api_activity = Some(ctx.timestamp);
         player.has_api_connected = true;
         ctx.db.player().identity().update(player);
+        advance_tutorial(ctx, sender, 4, 5);
     }
 }
 
@@ -265,6 +298,16 @@ pub fn register_player(
         created_at: ctx.timestamp,
         last_api_activity: None,
         has_api_connected: false,
+        tutorial_step: 1,
+    });
+
+    // 1b. Initialize TutorialState
+    ctx.db.tutorial_state().insert(TutorialState {
+        player: sender,
+        current_step: 1,
+        step_started_at: ctx.timestamp,
+        completed_at: None,
+        attempts: 0,
     });
 
     // 2. Spawn Tier-0 Builder Ship at Megastation
@@ -394,6 +437,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         base_scanner_progress: 0,
         radar_horizon_level: 1,
         radar_horizon_progress: 0,
+        last_ship_built_at: Some(ctx.timestamp),
     });
 
     // Consume the builder ship and replace with first Tier-1 Miner
@@ -437,11 +481,34 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         "🏛️",
     );
 
+    advance_tutorial(ctx, sender, 2, 3);
+
     log::info!(
         "Player {:?} established Base Station at {:?}.",
         sender,
         ship.position
     );
+    Ok(())
+}
+
+#[reducer]
+pub fn advance_tutorial_step(ctx: &ReducerContext, current_step: u8) -> Result<(), String> {
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    let state = ctx
+        .db
+        .tutorial_state()
+        .player()
+        .find(&owner)
+        .ok_or("Tutorial state not found")?;
+
+    if state.current_step != 3 || current_step != 3 {
+        return Err(
+            "This tutorial step requires server-side task verification and cannot be skipped manually"
+                .to_string(),
+        );
+    }
+
+    advance_tutorial(ctx, owner, 3, 4);
     Ok(())
 }
 
@@ -457,7 +524,24 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         .ok_or("Deploy a Base Station first before building ships")?;
 
     let existing_ships_count = ctx.db.ship().owner().filter(&owner).count();
+    if existing_ships_count >= 10 {
+        return Err("Flottenlimit erreicht (maximal 10 Schiffe pro Basis)".to_string());
+    }
     let is_emergency = existing_ships_count == 0 && tier == 1;
+
+    if is_emergency {
+        if let Some(last_built) = base.last_ship_built_at {
+            let elapsed_micros = ctx
+                .timestamp
+                .to_micros_since_unix_epoch()
+                .saturating_sub(last_built.to_micros_since_unix_epoch());
+            if elapsed_micros < 5_000_000 {
+                return Err(
+                    "Notfall-Drohnenbau ist noch im Cooldown (bitte 5 Sekunden warten)".to_string(),
+                );
+            }
+        }
+    }
 
     let (cost, max_speed, max_energy, max_cargo) = match tier {
         1 => (if is_emergency { 0 } else { 50 }, 120.0, 100.0, 50),
@@ -472,10 +556,11 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         ));
     }
 
+    base.last_ship_built_at = Some(ctx.timestamp);
     if cost > 0 {
         base.stored_ore -= cost;
-        ctx.db.base_station().owner().update(base.clone());
     }
+    ctx.db.base_station().owner().update(base.clone());
 
     ctx.db.ship().insert(Ship {
         ship_id: 0,
@@ -507,6 +592,9 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
             "Zusätzliche Drohne gebaut und Flotte erweitert",
             "🛸",
         );
+        if tier == 1 {
+            advance_tutorial(ctx, owner, 7, 8);
+        }
     }
 
     ctx.db.game_event().insert(GameEvent {
@@ -594,10 +682,29 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
             }
             _ => return Err("Unknown AI agent role".to_string()),
         }
+    } else if ship.ship_tier > 0 {
+        if let Some(base) = ctx.db.base_station().owner().find(&owner) {
+            let dist = ship.position.distance(&base.position);
+            if dist > base.signal_radius {
+                return Err(format!(
+                    "Drone #{} is outside Base signal radius ({:.1} > {:.1})",
+                    ship_id, dist, base.signal_radius
+                ));
+            }
+        }
     }
 
     match cmd {
         ShipCommand::FlyTo { target } => {
+            if !target.x.is_finite() || !target.y.is_finite() {
+                return Err("Target coordinates must be finite numbers".to_string());
+            }
+            let config = ctx.db.config().id().find(&0).ok_or("Config missing")?;
+            let max_x = config.world_size.x / 2.0;
+            let max_y = config.world_size.y / 2.0;
+            if target.x.abs() > max_x || target.y.abs() > max_y {
+                return Err("Target position is outside world boundaries".to_string());
+            }
             ship.target_position = Some(target);
             ship.is_mining = false;
             ship.target_asteroid_id = None;
@@ -610,6 +717,19 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
             ship.target_asteroid_id = None;
         }
         ShipCommand::Mine { asteroid_id } => {
+            let is_visible = ctx
+                .db
+                .perceived_asteroid()
+                .viewer()
+                .filter(&owner)
+                .any(|a| a.asteroid_id == asteroid_id);
+            if !is_visible && ship.ship_tier > 0 {
+                return Err(format!(
+                    "Target asteroid #{} is not within your sensor perception",
+                    asteroid_id
+                ));
+            }
+
             let asteroid = ctx
                 .db
                 .asteroid()
@@ -778,6 +898,8 @@ pub fn submit_riddle_solution(
             "🧪",
         );
 
+        advance_tutorial(ctx, owner, 9, 10);
+
         let (level, progress) = match track {
             1 => (
                 &mut base.drone_scanner_level,
@@ -889,6 +1011,11 @@ pub fn submit_riddle_solution(
 
 #[reducer]
 pub fn admin_set_phase(ctx: &ReducerContext, level: u8, paused: bool) -> Result<(), String> {
+    let sender = ctx.sender();
+    if ctx.db.admin_user().identity().find(&sender).is_none() {
+        return Err("Unauthorized: Only authenticated admins can set game phase".to_string());
+    }
+
     let mut config = ctx.db.config().id().find(&0).ok_or("Config missing")?;
 
     config.level = level;
@@ -896,11 +1023,61 @@ pub fn admin_set_phase(ctx: &ReducerContext, level: u8, paused: bool) -> Result<
     ctx.db.config().id().update(config);
 
     log::info!(
-        "Admin set game phase to Level {} (paused: {})",
+        "Admin {:?} set game phase to Level {} (paused: {})",
+        sender,
         level,
         paused
     );
     Ok(())
+}
+
+#[reducer]
+pub fn admin_set_tutorial_step(
+    ctx: &ReducerContext,
+    target_player: Identity,
+    target_step: u8,
+) -> Result<(), String> {
+    let sender = ctx.sender();
+    if ctx.db.admin_user().identity().find(&sender).is_none() {
+        return Err("Unauthorized: Only teacher admin can override tutorial steps".to_string());
+    }
+
+    if target_step > 10 {
+        return Err("Target step must be between 0 and 10".to_string());
+    }
+
+    if let Some(mut state) = ctx.db.tutorial_state().player().find(&target_player) {
+        let old = state.current_step;
+        state.current_step = target_step;
+        state.step_started_at = ctx.timestamp;
+        if target_step >= 10 {
+            state.completed_at = Some(ctx.timestamp);
+        }
+        ctx.db.tutorial_state().player().update(state);
+
+        if let Some(mut player) = ctx.db.player().identity().find(&target_player) {
+            player.tutorial_step = target_step;
+            ctx.db.player().identity().update(player);
+        }
+
+        log::info!(
+            "Admin {:?} adjusted tutorial step for {:?} from {} to {}",
+            sender,
+            target_player,
+            old,
+            target_step
+        );
+        ctx.db.game_event().insert(GameEvent {
+            event_id: 0,
+            player: target_player,
+            event_type: "TUTORIAL_STEP_ADVANCED".to_string(),
+            message: format!("Lehrkraft hat Tutorial-Stufe auf {} gesetzt", target_step),
+            timestamp: ctx.timestamp,
+        });
+        Ok(())
+    } else {
+        Err("Student tutorial state not found".to_string())
+    }
 }
 
 #[reducer]
@@ -1050,6 +1227,13 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 "Erstes Erz abgebaut und erfolgreich an die Heimatbasis geliefert",
                                 "⛏️",
                             );
+                            if base.stored_ore >= 50 {
+                                advance_tutorial(ctx, ship.owner, 6, 7);
+                            }
+                            let fleet_count = ctx.db.ship().owner().filter(&ship.owner).count();
+                            if fleet_count >= 2 {
+                                advance_tutorial(ctx, ship.owner, 8, 9);
+                            }
                         }
                         // Recharge energy
                         ship.energy = ship.max_energy;
@@ -1069,6 +1253,12 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                 ship.speed = ship.max_speed;
                 ship.velocity = dir * ship.speed;
                 ship.position += ship.velocity * dt;
+                if ship.ship_tier == 0 {
+                    let dist = ship.position.distance(&config.megastation_pos);
+                    if dist >= MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY {
+                        advance_tutorial(ctx, ship.owner, 1, 2);
+                    }
+                }
 
                 // Burn energy while flying
                 let energy_cost = 0.8 * dt;
@@ -1090,6 +1280,9 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                         let amount = 1.min(asteroid.remaining_ore);
                         if amount > 0 && ship.cargo_ore + amount <= ship.max_cargo {
                             ship.cargo_ore += amount;
+                            if ship.cargo_ore > 0 {
+                                advance_tutorial(ctx, ship.owner, 5, 6);
+                            }
                             asteroid.remaining_ore = asteroid.remaining_ore.saturating_sub(amount);
 
                             if asteroid.remaining_ore == 0 {
@@ -1452,6 +1645,20 @@ pub fn my_base(ctx: &ViewContext) -> Option<BaseStation> {
     } else {
         ctx.db.base_station().owner().find(&sender)
     }
+}
+
+#[view(accessor = my_tutorial_state, public)]
+pub fn my_tutorial_state(ctx: &ViewContext) -> Option<TutorialState> {
+    let sender = ctx.sender();
+    let owner = if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return None;
+        }
+        agent.owner
+    } else {
+        sender
+    };
+    ctx.db.tutorial_state().player().find(&owner)
 }
 
 #[view(accessor = my_ai_agents, public)]

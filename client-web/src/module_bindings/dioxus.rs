@@ -30,6 +30,7 @@ pub struct TableSignals {
     pub my_ai_agents: SyncSignal<Vec<AiAgent>>,
     pub my_base: SyncSignal<Vec<BaseStation>>,
     pub my_ships: SyncSignal<Vec<Ship>>,
+    pub my_tutorial_state: SyncSignal<Vec<TutorialState>>,
     pub player: SyncSignal<Vec<Player>>,
     pub player_achievement: SyncSignal<Vec<PlayerAchievement>>,
     pub total_players: SyncSignal<Vec<CountRow>>,
@@ -222,6 +223,7 @@ pub fn use_spacetimedb_context_provider(
         my_ai_agents: use_signal_sync(Vec::new),
         my_base: use_signal_sync(Vec::new),
         my_ships: use_signal_sync(Vec::new),
+        my_tutorial_state: use_signal_sync(Vec::new),
         player: use_signal_sync(Vec::new),
         player_achievement: use_signal_sync(Vec::new),
         total_players: use_signal_sync(Vec::new),
@@ -430,6 +432,22 @@ pub fn use_spacetimedb_context_provider(
                         conn.db.my_ships().on_delete(move |ctx, _row| {
                             let updated: Vec<Ship> = ctx.db.my_ships().iter().collect();
                             table_signals_on_connect.my_ships.set(updated);
+                        });
+                        // Populate initial rows for my_tutorial_state
+                        let current: Vec<TutorialState> =
+                            conn.db.my_tutorial_state().iter().collect();
+                        table_signals_on_connect.my_tutorial_state.set(current);
+
+                        // Keep signal in sync on changes
+                        conn.db.my_tutorial_state().on_insert(move |ctx, _row| {
+                            let updated: Vec<TutorialState> =
+                                ctx.db.my_tutorial_state().iter().collect();
+                            table_signals_on_connect.my_tutorial_state.set(updated);
+                        });
+                        conn.db.my_tutorial_state().on_delete(move |ctx, _row| {
+                            let updated: Vec<TutorialState> =
+                                ctx.db.my_tutorial_state().iter().collect();
+                            table_signals_on_connect.my_tutorial_state.set(updated);
                         });
                         // Populate initial rows for player
                         let current: Vec<Player> = conn.db.player().iter().collect();
@@ -809,6 +827,13 @@ pub fn use_table_my_ships() -> SyncSignal<Vec<Ship>> {
     ctx.tables.my_ships
 }
 
+/// Get a reactive signal containing all rows of the `my_tutorial_state` table.
+#[must_use]
+pub fn use_table_my_tutorial_state() -> SyncSignal<Vec<TutorialState>> {
+    let ctx = use_spacetimedb_context();
+    ctx.tables.my_tutorial_state
+}
+
 /// Get a reactive signal containing all rows of the `player` table.
 #[must_use]
 pub fn use_table_player() -> SyncSignal<Vec<Player>> {
@@ -859,6 +884,95 @@ pub fn use_table_visible_drones() -> SyncSignal<Vec<PerceivedDrone>> {
 }
 
 // --- Reducer hooks ---
+
+/// Get a callback to invoke the `admin_refill_asteroids` reducer.
+#[must_use]
+pub fn use_reducer_admin_refill_asteroids()
+-> impl Fn() -> spacetimedb_sdk::Result<()> + Clone + 'static {
+    let conn_signal = use_connection();
+
+    move || {
+        if let Some(conn) = conn_signal().as_ref() {
+            conn.reducers.admin_refill_asteroids()
+        } else {
+            Err(spacetimedb_sdk::Error::Disconnected)
+        }
+    }
+}
+
+/// Invoke the `admin_refill_asteroids` reducer and get a reactive signal for its completion status.
+///
+/// Returns `(invoke, result)`. Calling `invoke(...)` sends the reducer invocation to the server.
+/// The `result` signal is updated to `Some(Ok(()))` on success or `Some(Err(message))`
+/// on failure once the server notifies completion.
+#[must_use]
+pub fn use_reducer_admin_refill_asteroids_then() -> (
+    impl Fn() + Clone + 'static,
+    SyncSignal<Option<Result<(), String>>>,
+) {
+    let conn_signal = use_connection();
+    let mut result: SyncSignal<Option<Result<(), String>>> = use_signal_sync(|| None);
+
+    let invoke = move || {
+        let mut result = result;
+        result.set(None);
+        if let Some(conn) = conn_signal().as_ref() {
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.admin_refill_asteroids_then(move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
+                result.set(Some(Err(e.to_string())));
+                return;
+            }
+            spawn(async move {
+                if let Ok(res) = rx.await {
+                    let flattened = match res {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(module_err)) => Err(module_err),
+                        Err(sdk_err) => Err(sdk_err.to_string()),
+                    };
+                    result.set(Some(flattened));
+                }
+            });
+        } else {
+            result.set(Some(Err("Disconnected from SpacetimeDB".to_string())));
+        }
+    };
+
+    (invoke, result)
+}
+
+/// Invoke the `admin_refill_asteroids` reducer asynchronously and await its completion.
+///
+/// Returns a closure that can be called to invoke the reducer and `await` its completion directly.
+#[must_use]
+pub fn use_reducer_admin_refill_asteroids_async()
+-> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>
++ Clone
++ 'static {
+    let conn_signal = use_connection();
+
+    move || -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> {
+        let conn = conn_signal();
+        Box::pin(async move {
+            let Some(conn) = conn.as_ref() else {
+                return Err("Disconnected from SpacetimeDB".to_string());
+            };
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.admin_refill_asteroids_then(move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
+                return Err(e.to_string());
+            }
+            match rx.await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(err))) => Err(err),
+                Ok(Err(sdk_err)) => Err(sdk_err.to_string()),
+                Err(_) => Err("Request cancelled".to_string()),
+            }
+        })
+    }
+}
 
 /// Get a callback to invoke the `admin_set_phase` reducer.
 #[must_use]
@@ -945,6 +1059,201 @@ pub fn use_reducer_admin_set_phase_async()
                     let _ = tx.send(res);
                 })
             {
+                return Err(e.to_string());
+            }
+            match rx.await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(err))) => Err(err),
+                Ok(Err(sdk_err)) => Err(sdk_err.to_string()),
+                Err(_) => Err("Request cancelled".to_string()),
+            }
+        })
+    }
+}
+
+/// Get a callback to invoke the `admin_set_tutorial_step` reducer.
+#[must_use]
+pub fn use_reducer_admin_set_tutorial_step()
+-> impl Fn(__sdk::Identity, u8) -> spacetimedb_sdk::Result<()> + Clone + 'static {
+    let conn_signal = use_connection();
+
+    move |target_player: __sdk::Identity, target_step: u8| {
+        if let Some(conn) = conn_signal().as_ref() {
+            conn.reducers
+                .admin_set_tutorial_step(target_player, target_step)
+        } else {
+            Err(spacetimedb_sdk::Error::Disconnected)
+        }
+    }
+}
+
+/// Invoke the `admin_set_tutorial_step` reducer and get a reactive signal for its completion status.
+///
+/// Returns `(invoke, result)`. Calling `invoke(...)` sends the reducer invocation to the server.
+/// The `result` signal is updated to `Some(Ok(()))` on success or `Some(Err(message))`
+/// on failure once the server notifies completion.
+#[must_use]
+pub fn use_reducer_admin_set_tutorial_step_then() -> (
+    impl Fn(__sdk::Identity, u8) + Clone + 'static,
+    SyncSignal<Option<Result<(), String>>>,
+) {
+    let conn_signal = use_connection();
+    let mut result: SyncSignal<Option<Result<(), String>>> = use_signal_sync(|| None);
+
+    let invoke = move |target_player: __sdk::Identity, target_step: u8| {
+        let mut result = result;
+        result.set(None);
+        if let Some(conn) = conn_signal().as_ref() {
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.admin_set_tutorial_step_then(
+                target_player,
+                target_step,
+                move |_ctx, res| {
+                    let _ = tx.send(res);
+                },
+            ) {
+                result.set(Some(Err(e.to_string())));
+                return;
+            }
+            spawn(async move {
+                if let Ok(res) = rx.await {
+                    let flattened = match res {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(module_err)) => Err(module_err),
+                        Err(sdk_err) => Err(sdk_err.to_string()),
+                    };
+                    result.set(Some(flattened));
+                }
+            });
+        } else {
+            result.set(Some(Err("Disconnected from SpacetimeDB".to_string())));
+        }
+    };
+
+    (invoke, result)
+}
+
+/// Invoke the `admin_set_tutorial_step` reducer asynchronously and await its completion.
+///
+/// Returns a closure that can be called to invoke the reducer and `await` its completion directly.
+#[must_use]
+pub fn use_reducer_admin_set_tutorial_step_async() -> impl Fn(
+    __sdk::Identity,
+    u8,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(), String>>>,
+> + Clone
++ 'static {
+    let conn_signal = use_connection();
+
+    move |target_player: __sdk::Identity,
+          target_step: u8|
+          -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> {
+        let conn = conn_signal();
+        Box::pin(async move {
+            let Some(conn) = conn.as_ref() else {
+                return Err("Disconnected from SpacetimeDB".to_string());
+            };
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.admin_set_tutorial_step_then(
+                target_player,
+                target_step,
+                move |_ctx, res| {
+                    let _ = tx.send(res);
+                },
+            ) {
+                return Err(e.to_string());
+            }
+            match rx.await {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(err))) => Err(err),
+                Ok(Err(sdk_err)) => Err(sdk_err.to_string()),
+                Err(_) => Err("Request cancelled".to_string()),
+            }
+        })
+    }
+}
+
+/// Get a callback to invoke the `advance_tutorial_step` reducer.
+#[must_use]
+pub fn use_reducer_advance_tutorial_step()
+-> impl Fn(u8) -> spacetimedb_sdk::Result<()> + Clone + 'static {
+    let conn_signal = use_connection();
+
+    move |current_step: u8| {
+        if let Some(conn) = conn_signal().as_ref() {
+            conn.reducers.advance_tutorial_step(current_step)
+        } else {
+            Err(spacetimedb_sdk::Error::Disconnected)
+        }
+    }
+}
+
+/// Invoke the `advance_tutorial_step` reducer and get a reactive signal for its completion status.
+///
+/// Returns `(invoke, result)`. Calling `invoke(...)` sends the reducer invocation to the server.
+/// The `result` signal is updated to `Some(Ok(()))` on success or `Some(Err(message))`
+/// on failure once the server notifies completion.
+#[must_use]
+pub fn use_reducer_advance_tutorial_step_then() -> (
+    impl Fn(u8) + Clone + 'static,
+    SyncSignal<Option<Result<(), String>>>,
+) {
+    let conn_signal = use_connection();
+    let mut result: SyncSignal<Option<Result<(), String>>> = use_signal_sync(|| None);
+
+    let invoke = move |current_step: u8| {
+        let mut result = result;
+        result.set(None);
+        if let Some(conn) = conn_signal().as_ref() {
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) =
+                conn.reducers
+                    .advance_tutorial_step_then(current_step, move |_ctx, res| {
+                        let _ = tx.send(res);
+                    })
+            {
+                result.set(Some(Err(e.to_string())));
+                return;
+            }
+            spawn(async move {
+                if let Ok(res) = rx.await {
+                    let flattened = match res {
+                        Ok(Ok(())) => Ok(()),
+                        Ok(Err(module_err)) => Err(module_err),
+                        Err(sdk_err) => Err(sdk_err.to_string()),
+                    };
+                    result.set(Some(flattened));
+                }
+            });
+        } else {
+            result.set(Some(Err("Disconnected from SpacetimeDB".to_string())));
+        }
+    };
+
+    (invoke, result)
+}
+
+/// Invoke the `advance_tutorial_step` reducer asynchronously and await its completion.
+///
+/// Returns a closure that can be called to invoke the reducer and `await` its completion directly.
+#[must_use]
+pub fn use_reducer_advance_tutorial_step_async()
+-> impl Fn(u8) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>
++ Clone
++ 'static {
+    let conn_signal = use_connection();
+
+    move |current_step: u8| -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> {
+        let conn = conn_signal();
+        Box::pin(async move {
+            let Some(conn) = conn.as_ref() else {
+                return Err("Disconnected from SpacetimeDB".to_string());
+            };
+            let (tx, rx) = oneshot::channel();
+            if let Err(e) = conn.reducers.advance_tutorial_step_then(current_step, move |_ctx, res| {
+                let _ = tx.send(res);
+            }) {
                 return Err(e.to_string());
             }
             match rx.await {
