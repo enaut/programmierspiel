@@ -18,101 +18,101 @@ pub fn get_step_info(step: u8) -> StepInfo {
     match step {
         0 => StepInfo {
             title: "Willkommen an Bord, Commander!",
-            story: "Im Asteroidengürtel wimmelt es von automatischen Transportern und fremden Stationen. Um deine Schiffe auf den Radarsystemen der Mega-Station eindeutig zu identifizieren, benötigt deine Flotte ein offizielles Rufzeichen und eigene Signal-Farben.",
+            story: "Im Asteroidengürtel wimmelt es von automatischen Transportern und fremden Stationen. Um deine Schiffe auf den Radarsystemen der Mega-Station eindeutig zu identifizieren, benötigt deine Flotte deinen Pilotenausweis und eigene Signal-Farben.",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Gib deinen Namen oder dein Rufzeichen in das Textfeld ein.",
+                    text: "Wähle mit den Farbreglern deine Primär- und Sekundärfarbe für dein Raumschiff aus.",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Wähle mit dem Farbregler deine Primär- und Sekundärfarbe aus.",
+                    text: "Prüfe die Vorschau deines Drohnen-Raumschiffs im Hangar.",
                     code_hint: None,
                 },
                 SubTask {
                     num: "3",
-                    text: "Klicke auf 'Flotte registrieren'.",
+                    text: "Klicke auf 'Pilotenausweis erstellen & starten'.",
                     code_hint: None,
                 },
             ],
         },
         1 => StepInfo {
             title: "Der Jungfernflug (Manuelle Steuerung)",
-            story: "Dein Bauschiff (Tier 0) ist das Herzstück deiner Expedition. Rund um die Mega-Station gilt eine Sicherheitszone: Hier ist das Errichten permanenter Stationen verboten. Nutze den Bordantrieb, um einen geeigneten Bauplatz im Weltraum zu finden.",
+            story: "Dein Bauschiff (Tier 0) startet nah herangezoomt an der Mega-Station bei (0, 0). Bedienung der Karte: Mit dem Mausrad (Scrollen) zoomst du rein und raus, und durch Klicken und Halten mit der linken Maustaste verschiebst du die Karte. Wichtig: Du kannst deine Basis nur außerhalb des roten bzw. grünen Sicherheitskreises um die Mega-Station errichten!",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Klicke mit der linken Maustaste auf eine freie Stelle im Weltraum.",
+                    text: "Scrolle mit dem Mausrad heraus, um die Umgebung zu überblicken (Linksklick gedrückt halten bewegt die Karte).",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Beobachte die Distanzanzeige im Cockpit.",
+                    text: "Klicke kurz mit der linken Maustaste auf einen Zielpunkt außerhalb des roten Kreises, um dein Bauschiff dorthin zu steuern, bis der Kreis grün wird (Abstand ≥ 250).",
                     code_hint: None,
                 },
                 SubTask {
                     num: "3",
-                    text: "Halte an einer Stelle an, an der die Distanz zur Mega-Station grün leuchtet (Abstand > 250).",
+                    text: "Achte rechts im Panel bei Position & Geschwindigkeit auf den Asteroiden-Scanradius: Suche einen Platz, an dem mindestens 400 Erz in Reichweite sind!",
                     code_hint: None,
                 },
             ],
         },
         2 => StepInfo {
             title: "Das Fundament (Heimatbasis errichten)",
-            story: "Hervorragend gewählt, Commander! Durch die Aktivierung der Montage-Sequenz entfaltet sich dein Bauschiff zu einer gewaltigen Raumstation. Sie erzeugt einen schützenden Funkschirm, speichert Erz und stellt deine allererste Bergbau-Drohne bereit.",
+            story: "Hervorragend gewählt, Commander! Du befindest dich außerhalb des grünen Sicherheitskreises der Mega-Station und hast genügend Erz im Scanradius. Durch die Aktivierung der Montage-Sequenz entfaltet sich dein Bauschiff zu deiner Heimatbasis.",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Vergewissere dich, dass dein Bauschiff stillsteht.",
+                    text: "Vergewissere dich, dass du außerhalb des roten/grünen Kreises stehst (Abstand ≥ 250) und rechts im Panel mindestens 400 Erz im Scanradius angezeigt werden.",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Klicke im Aktionsfenster auf den leuchtenden Button 'Heimatbasis errichten'.",
+                    text: "Klicke unten rechts im Seitenpanel auf den leuchtenden Button '🏛️ Heimatbasis hier errichten'.",
                     code_hint: None,
                 },
             ],
         },
         3 => StepInfo {
             title: "Die Brücke öffnen (uhlaunch & Zed)",
-            story: "Drohnen im Weltraum fliegen nicht von Geisterhand. Deine Heimatbasis besitzt einen leistungsfähigen Bordcomputer, den du mit Rust-Code programmierst. Über die Schul-Startrampe uhlaunch wird dein persönliches Projekt geladen und in Zed bereitgestellt.",
+            story: "Deine Heimatbasis besitzt einen Bordcomputer, den du im Zed-Editor mit Rust-Code programmierst. Damit sich dein Programm mit deiner Station verbinden kann, musst du dein persönliches Token aus dem Dashboard in die Datei config.toml im Zed-Editor kopieren.",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Öffne auf deinem Desktop die Anwendung uhlaunch und starte 'programmierspiel'.",
+                    text: "Öffne auf deinem Desktop die Anwendung uhlaunch und starte 'programmierspiel'. Der Zed-Editor öffnet sich daraufhin automatisch.",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Der Editor Zed öffnet sich automatisch. Öffne links im Ordner 'src' die Datei 'main.rs'.",
+                    text: "Suche hier im Web-Dashboard auf der rechten Seite das Feld 'DEIN PERSÖNLICHER API-TOKEN' und klicke auf den Kopieren-Button (📋).",
                     code_hint: None,
                 },
                 SubTask {
                     num: "3",
-                    text: "Kopiere deinen persönlichen Token im Dashboard und füge ihn in 'config.toml' ein.",
-                    code_hint: Some("auth_token = \"<dein_token>\""),
+                    text: "Wechsle in den Zed-Editor, suche links in der Dateiliste die Datei 'config.toml' und öffne sie. Füge dein kopiertes Token bei 'auth_token' genau zwischen den Anführungszeichen (\"...\") ein und speichere mit Strg + S.",
+                    code_hint: Some("auth_token = \"<dein_kopiertes_token>\""),
                 },
             ],
         },
         4 => StepInfo {
-            title: "Der erste Funkkontakt (cargo run)",
-            story: "In src/main.rs ist bereits das Grundgerüst deiner Station vorbereitet. Wenn du das Programm startest, verbindet sich deine Software über das Schulnetzwerk direkt mit deiner Raumstation im Spiel.",
+            title: "Der erste Funkkontakt (Run-Button in Zed)",
+            story: "In src/main.rs ist bereits das Grundgerüst deiner Station vorbereitet. Wenn du das Programm über den Run-Button in Zed startest, öffnet sich unten das Terminal und dein Bot verbindet sich direkt mit deiner Raumstation.",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Öffne in Zed das Terminal (Tastenkombination Strg + ~ oder über das Menü View -> Terminal).",
+                    text: "Öffne im Zed-Editor links in der Dateiliste im Ordner 'src' die Datei 'main.rs'.",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Tippe folgenden Befehl ein und drücke Enter:",
-                    code_hint: Some("cargo run"),
+                    text: "Suche im Code bei 'fn main()' links neben der Zeilennummer den kleinen Run-Button (▶) und klicke darauf.",
+                    code_hint: Some("▶ fn main()"),
                 },
                 SubTask {
                     num: "3",
-                    text: "Achte auf die Textausgabe: Es sollte 'Verbindung erfolgreich!' erscheinen.",
-                    code_hint: None,
+                    text: "Unten im Zed-Editor öffnet sich das Terminal: Suche dort in der Textausgabe nach 'Verbindung erfolgreich!'.",
+                    code_hint: Some("✅ [SPACE BOT] Verbindung erfolgreich!"),
                 },
             ],
         },
@@ -205,17 +205,21 @@ pub fn get_step_info(step: u8) -> StepInfo {
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Fordere Forschungsaufgaben für den Drohnen-Scanner an:",
-                    code_hint: Some("actions.request_research(UpgradeTrack::DroneScanner);"),
+                    text: "Fordere ein Forschungsrätsel für den Drohnen-Scanner an, falls noch keines aktiv ist:",
+                    code_hint: Some(
+                        "if world.active_riddle.is_none() { actions.request_research(UpgradeTrack::DroneScanner); }",
+                    ),
                 },
                 SubTask {
                     num: "2",
-                    text: "Prüfe auf ein aktives Rätsel und sortiere die Zahlenreihe aufsteigend:",
-                    code_hint: Some("if let Some(riddle) = world.active_riddle { ... }"),
+                    text: "Prüfe auf ein aktives Sortier-Rätsel, klone die Zahlenreihe und sortiere sie aufsteigend:",
+                    code_hint: Some(
+                        "if let Some(RiddleTask::Sort { numbers }) = world.active_riddle { let mut sorted = numbers.clone(); sorted.sort(); ... }",
+                    ),
                 },
                 SubTask {
                     num: "3",
-                    text: "Reiche die sortierte Liste mit actions.solve_riddle(...) ein.",
+                    text: "Reiche die sortierte Liste innerhalb des if-Blocks mit actions.solve_riddle(...) ein:",
                     code_hint: Some("actions.solve_riddle(RiddleSolution::Sort(sorted));"),
                 },
             ],
@@ -247,11 +251,11 @@ pub fn get_step_info(step: u8) -> StepInfo {
 #[component]
 pub fn QuestDrawer(
     step: u8,
+    mut is_collapsed: Signal<bool>,
     events: Vec<GameEvent>,
     ships: Vec<Ship>,
     on_advance: EventHandler<u8>,
 ) -> Element {
-    let mut is_collapsed = use_signal(|| false);
     let mut last_seen_step = use_signal(|| step);
     let mut show_celebration = use_signal(|| false);
 
@@ -393,15 +397,17 @@ pub fn QuestDrawer(
                     }
                 }
 
-                // Feste Fehlerhilfe-Checkliste
-                div {
-                    style: "background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 12px;",
-                    div { style: "font-size: 11px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;", "🛠️ Fehlerhilfe & Checkliste" }
-                    ul {
-                        style: "margin: 0; padding-left: 18px; font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; line-height: 1.4;",
-                        li { "1. In Zed mit " code { style: "color: #38bdf8;", "Strg + S" } " gespeichert?" }
-                        li { "2. Keine roten Kringellinien im Editor?" }
-                        li { "3. Läuft " code { style: "color: #38bdf8;", "cargo run" } " im Terminal?" }
+                // Feste Fehlerhilfe-Checkliste (erst ab Stufe 5, wenn in Zed eigener Code geschrieben wird)
+                if step >= 5 {
+                    div {
+                        style: "background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 12px;",
+                        div { style: "font-size: 11px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;", "🛠️ Fehlerhilfe & Checkliste" }
+                        ul {
+                            style: "margin: 0; padding-left: 18px; font-size: 11px; color: #94a3b8; display: flex; flex-direction: column; gap: 4px; line-height: 1.4;",
+                            li { "1. In Zed mit " code { style: "color: #38bdf8;", "Strg + S" } " gespeichert?" }
+                            li { "2. Keine roten Kringellinien im Editor?" }
+                            li { "3. Programm über den Run-Button (" code { style: "color: #38bdf8;", "▶" } " neben " code { style: "color: #38bdf8;", "fn main()" } ") neu gestartet?" }
+                        }
                     }
                 }
             }

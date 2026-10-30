@@ -322,7 +322,7 @@ fn SpaceViewport(camera_target: Signal<Option<(f64, f64)>>) -> Element {
                 let delta_y = evt.delta().strip_units().y;
                 let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
                 let cur_z = *zoom.read();
-                let new_z = (cur_z * factor).clamp(0.04, 6.0);
+                let new_z = (cur_z * factor).clamp(0.02, 10.0);
                 zoom.set(new_z);
             },
             canvas {

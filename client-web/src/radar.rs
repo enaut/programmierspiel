@@ -420,7 +420,7 @@ fn get_tinted_player_station_canvas(hue1: u16, hue2: u16) -> Option<web_sys::Htm
 }
 
 #[cfg(target_arch = "wasm32")]
-fn get_tinted_drone1_canvas(hue1: u16, hue2: u16) -> Option<web_sys::HtmlCanvasElement> {
+pub(crate) fn get_tinted_drone1_canvas(hue1: u16, hue2: u16) -> Option<web_sys::HtmlCanvasElement> {
     let key = (hue1, hue2);
     DRONE1_CANVAS_CACHE.with(|cache_cell| {
         let mut cache = cache_cell.borrow_mut();
@@ -441,6 +441,37 @@ fn get_tinted_drone1_canvas(hue1: u16, hue2: u16) -> Option<web_sys::HtmlCanvasE
         cache.insert(key, canvas.clone());
         Some(canvas)
     })
+}
+
+pub fn render_drone1_preview(
+    #[cfg(target_arch = "wasm32")] ctx: &web_sys::CanvasRenderingContext2d,
+    css_w: f64,
+    css_h: f64,
+    dpr: f64,
+    hue1: u16,
+    hue2: u16,
+) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        ctx.clear_rect(0.0, 0.0, css_w * dpr, css_h * dpr);
+        let _ = ctx.save();
+        let _ = ctx.scale(dpr, dpr);
+        let cx = css_w / 2.0;
+        let cy = css_h / 2.0;
+        let _ = ctx.translate(cx, cy);
+
+        if let Some(canvas) = get_tinted_drone1_canvas(hue1, hue2) {
+            let size = css_h.min(css_w) * 0.85;
+            let _ = ctx.draw_image_with_html_canvas_element_and_dw_and_dh(
+                &canvas,
+                -size / 2.0,
+                -size / 2.0,
+                size,
+                size,
+            );
+        }
+        let _ = ctx.restore();
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

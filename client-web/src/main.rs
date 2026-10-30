@@ -21,7 +21,7 @@ use module_bindings::{
     BaseStation, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, PlayerAchievement,
     PublicRiddle, Ship, ShipCommand, Vec2,
 };
-use radar::{SelectedEntity, render_player_radar};
+use radar::{SelectedEntity, render_drone1_preview, render_player_radar};
 use spacetimedb_sdk::Identity;
 use tutorial::QuestDrawer;
 
@@ -528,6 +528,7 @@ fn CockpitApp() -> Element {
 
     let mut show_scoreboard = use_signal(|| false);
     let mut show_heimatbasis_modal = use_signal(|| false);
+    let is_tutorial_collapsed = use_signal(|| false);
 
     let my_player = my_identity.and_then(|id| players.iter().find(|p| p.identity == id).cloned());
     let my_base = my_bases.first().cloned();
@@ -675,6 +676,7 @@ fn CockpitApp() -> Element {
                     BuilderNavigationScreen {
                         player: my_player.clone().unwrap(),
                         builder_ship: my_ships.iter().find(|s| s.ship_tier == 0).cloned(),
+                        is_tutorial_collapsed,
                     }
                 } else {
                     BaseDashboardScreen {
@@ -682,6 +684,7 @@ fn CockpitApp() -> Element {
                         base: my_base.clone().unwrap(),
                         ships: my_ships.clone(),
                         achievements: achievements.clone(),
+                        is_tutorial_collapsed,
                         on_open_heimatbasis: move |_| show_heimatbasis_modal.set(true),
                     }
                 }
@@ -690,6 +693,7 @@ fn CockpitApp() -> Element {
                 if let Some(ref p) = my_player {
                     QuestDrawer {
                         step: p.tutorial_step,
+                        is_collapsed: is_tutorial_collapsed,
                         events: (ctx.tables.game_event)().into_iter().filter(|e| Some(e.player) == my_identity).collect(),
                         ships: my_ships,
                         on_advance: move |target_step| {
@@ -742,19 +746,88 @@ fn RegistrationScreen(
 ) -> Element {
     let ctx = use_spacetimedb_context();
     let gitea_user = oauth::get_saved_username();
-    let initial_name = gitea_user.clone().unwrap_or_default();
-    let mut name_input = use_signal(move || initial_name);
+    let pilot_name = gitea_user
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "Pilot".to_string());
     let mut color_hue = use_signal(|| 180u16);
     let mut secondary_color_hue = use_signal(|| 0u16);
 
-    let mut submit_registration = move || {
-        let name = name_input().trim().to_string();
-        if name.is_empty() {
-            err_msg.set(Some(
-                "Bitte gib ein Rufzeichen / einen Namen für deinen Piloten ein!".to_string(),
-            ));
-            return;
+    // Render tinted drone1 sprite onto preview canvas
+    use_effect(move || {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use std::cell::RefCell;
+            use std::rc::Rc;
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
+
+            let anim_handle: Rc<RefCell<Option<Closure<dyn FnMut()>>>> =
+                Rc::new(RefCell::new(None));
+            let anim_handle_clone = anim_handle.clone();
+
+            let render_step = Rc::new(move || -> bool {
+                if let Some(w) = web_sys::window() {
+                    if let Some(doc) = w.document() {
+                        if let Some(canvas_el) = doc.get_element_by_id("ship-preview-canvas") {
+                            if let Ok(canvas) = canvas_el.dyn_into::<HtmlCanvasElement>() {
+                                let css_w = 160.0;
+                                let css_h = 120.0;
+                                let dpr = w.device_pixel_ratio().max(1.0);
+                                let target_w = (css_w * dpr).round() as u32;
+                                let target_h = (css_h * dpr).round() as u32;
+
+                                if canvas.width() != target_w || canvas.height() != target_h {
+                                    canvas.set_width(target_w);
+                                    canvas.set_height(target_h);
+                                }
+
+                                if let Ok(Some(ctx_2d)) = canvas.get_context("2d") {
+                                    if let Ok(ctx_2d) =
+                                        ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
+                                    {
+                                        render_drone1_preview(
+                                            &ctx_2d,
+                                            css_w,
+                                            css_h,
+                                            dpr,
+                                            *color_hue.read(),
+                                            *secondary_color_hue.read(),
+                                        );
+                                    }
+                                }
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            });
+
+            *anim_handle_clone.borrow_mut() = Some(Closure::new({
+                let anim_handle = anim_handle.clone();
+                let render_step = render_step.clone();
+                move || {
+                    if render_step() {
+                        if let Some(w) = web_sys::window() {
+                            if let Some(ref closure) = *anim_handle.borrow() {
+                                let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
+                            }
+                        }
+                    }
+                }
+            }));
+
+            if let Some(w) = web_sys::window() {
+                if let Some(ref closure) = *anim_handle_clone.borrow() {
+                    let _ = w.request_animation_frame(closure.as_ref().unchecked_ref());
+                }
+            }
         }
+    });
+
+    let mut submit_registration = move || {
+        let name = pilot_name.trim().to_string();
 
         if let Some(conn) = (ctx.connection)() {
             is_submitting.set(true);
@@ -792,12 +865,6 @@ fn RegistrationScreen(
         submit_registration();
     };
 
-    let on_keydown = move |e: KeyboardEvent| {
-        if e.key() == Key::Enter {
-            submit_registration();
-        }
-    };
-
     rsx! {
         div {
             style: "flex: 1; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #0f1c3f 0%, #060b18 80%); padding: 24px; box-sizing: border-box;",
@@ -821,47 +888,12 @@ fn RegistrationScreen(
                             "Dein erstes Raumfahrzeug steht im Andock-Hangar bereit. Fliege ins All hinaus und errichte die Heimatbasis für deinen Drohnenschwarm!"
                         }
 
-                        // Ship visual preview card
+                        // Ship visual preview card using actual drone1 sprite
                         div {
                             style: "background: #090e1a; border: 1px solid rgba(80, 120, 200, 0.25); border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 20px; position: relative;",
-                            // Animated SVG preview of Builder Ship with user's selected hue
-                            svg {
-                                width: "160",
-                                height: "120",
-                                view_box: "0 0 160 120",
-                                style: "margin: 0 auto; filter: drop-shadow(0 0 10px hsl({color_hue}, 90%, 50%)) drop-shadow(0 0 6px hsl({secondary_color_hue}, 90%, 50%));",
-                                // Thruster glow
-                                polygon {
-                                    points: "50,60 30,55 20,60 30,65",
-                                    fill: "#00e5ff",
-                                    opacity: "0.8",
-                                }
-                                // Solar panels / wings (Secondary Color)
-                                rect {
-                                    x: "65",
-                                    y: "25",
-                                    width: "8",
-                                    height: "70",
-                                    fill: "hsl({secondary_color_hue}, 90%, 55%)",
-                                    stroke: "#ffffff",
-                                    stroke_width: "1.5",
-                                    rx: "2",
-                                }
-                                // Ship Main Hull (Primary Color)
-                                polygon {
-                                    points: "115,60 55,40 68,60 55,80",
-                                    fill: "hsl({color_hue}, 85%, 52%)",
-                                    stroke: "#ffffff",
-                                    stroke_width: "2",
-                                }
-                                // Cockpit glass
-                                circle {
-                                    cx: "95",
-                                    cy: "60",
-                                    r: "6",
-                                    fill: "#ffffff",
-                                    opacity: "0.9",
-                                }
+                            canvas {
+                                id: "ship-preview-canvas",
+                                style: "width: 160px; height: 120px; margin: 0 auto; display: block; filter: drop-shadow(0 0 12px hsl({color_hue}, 90%, 50%)) drop-shadow(0 0 6px hsl({secondary_color_hue}, 90%, 50%));",
                             }
                             div {
                                 style: "font-size: 13px; font-weight: 700; color: #e2e8f0; margin-top: 8px;",
@@ -876,7 +908,7 @@ fn RegistrationScreen(
                         // Tech Specs
                         div {
                             style: "font-size: 12px; color: #94a3b8; display: flex; flex-direction: column; gap: 6px; background: rgba(0, 0, 0, 0.2); padding: 12px; border-radius: 8px;",
-                            div { style: "display: flex; justify-content: space-between;", span { "Start-Sektor:" } span { style: "color: #cbd5e1; font-weight: 600;", "Mega-Station (1600, 1000)" } }
+                            div { style: "display: flex; justify-content: space-between;", span { "Start-Sektor:" } span { style: "color: #cbd5e1; font-weight: 600;", "Mega-Station (0, 0)" } }
                             div { style: "display: flex; justify-content: space-between;", span { "Antrieb:" } span { style: "color: #cbd5e1; font-weight: 600;", "Ionen-Triebwerk (150 px/s)" } }
                             div { style: "display: flex; justify-content: space-between;", span { "Mindest-Bauabstand:" } span { style: "color: #00e676; font-weight: 600;", "250 Einheiten" } }
                         }
@@ -898,27 +930,14 @@ fn RegistrationScreen(
                     }
                     p {
                         style: "margin: 0 0 24px 0; font-size: 14px; color: #94a3b8; line-height: 1.4;",
-                        "Wähle dein Rufzeichen und deine Team-Farbe, um die Startfreigabe aus dem Hangar zu erhalten."
+                        "Wähle deine Team-Farben, um deinen Pilotenausweis zu erstellen und die Startfreigabe aus dem Hangar zu erhalten."
                     }
 
                     if let Some(ref gu) = gitea_user {
                         div {
-                            style: "display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: rgba(14, 165, 233, 0.12); border: 1px solid rgba(14, 165, 233, 0.3); font-size: 12px; color: #38bdf8; margin-bottom: 16px;",
+                            style: "display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: rgba(14, 165, 233, 0.12); border: 1px solid rgba(14, 165, 233, 0.3); font-size: 13px; color: #38bdf8; margin-bottom: 24px;",
                             span { "🔑" }
-                            span { "Verknüpfter Gitea-Account: " strong { style: "color: #f1f5f9;", "{gu}" } }
-                        }
-                    }
-
-                    // Name input
-                    div {
-                        style: "margin-bottom: 20px;",
-                        label { style: "display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;", "Dein Rufzeichen / Pilot-Name:" }
-                        input {
-                            style: "width: 100%; box-sizing: border-box; background: #0f172a; border: 1px solid #334155; color: #fff; padding: 12px 14px; border-radius: 8px; font-size: 15px; outline: none; transition: border-color 0.2s;",
-                            placeholder: "z.B. Nova, Orion, Alex...",
-                            value: "{name_input}",
-                            oninput: move |e| name_input.set(e.value()),
-                            onkeydown: on_keydown,
+                            span { "Pilot (Gitea-Account): " strong { style: "color: #f1f5f9;", "{gu}" } }
                         }
                     }
 
@@ -1006,7 +1025,11 @@ fn RegistrationScreen(
 // ==========================================
 
 #[component]
-fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Element {
+fn BuilderNavigationScreen(
+    player: Player,
+    builder_ship: Option<Ship>,
+    is_tutorial_collapsed: Signal<bool>,
+) -> Element {
     let ctx = use_spacetimedb_context();
     let configs = (ctx.tables.config)();
     let config = configs.first().cloned();
@@ -1014,7 +1037,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
     let mut target_marker = use_signal(|| None::<Vec2>);
     let mut cam_offset_x = use_signal(|| 0.0f64);
     let mut cam_offset_y = use_signal(|| 0.0f64);
-    let mut zoom = use_signal(|| 0.85f64);
+    let mut zoom = use_signal(|| 6.0f64);
     let mut is_dragging = use_signal(|| false);
     let mut drag_start = use_signal(|| (0.0f64, 0.0f64));
     let mut drag_distance = use_signal(|| 0.0f64);
@@ -1040,7 +1063,16 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
         .as_ref()
         .map_or(Vec2 { x: 0.0, y: 0.0 }, |c| c.megastation_pos.clone());
     let dist_to_megastation = distance(&ship.position, &mega_pos);
-    let can_deploy = dist_to_megastation >= 250.0;
+    let visible_asteroids_list = (ctx.tables.visible_asteroids)();
+    let asteroids_in_scan: Vec<_> = visible_asteroids_list
+        .iter()
+        .filter(|a| distance(&a.position, &ship.position) <= 300.0 && a.remaining_ore > 0)
+        .collect();
+    let scan_asteroid_count = asteroids_in_scan.len();
+    let scan_ore_total: u32 = asteroids_in_scan.iter().map(|a| a.remaining_ore).sum();
+    let has_enough_distance = dist_to_megastation >= 250.0;
+    let has_enough_ore = scan_ore_total >= 400;
+    let can_deploy = has_enough_distance && has_enough_ore;
 
     let p_identity = player.identity;
     let p_hue = player.color_hue;
@@ -1272,7 +1304,7 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                     let delta_y = evt.delta().strip_units().y;
                     let factor = if delta_y > 0.0 { 0.85 } else { 1.15 };
                     let cur_z = *zoom.read();
-                    zoom.set((cur_z * factor).clamp(0.08, 6.0));
+                    zoom.set((cur_z * factor).clamp(0.02, 10.0));
                 },
                 canvas {
                     id: "radar-canvas",
@@ -1281,7 +1313,11 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
 
                 // HUD Overlay: Camera Info & Center Controls
                 div {
-                    style: "position: absolute; bottom: 20px; left: 24px; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;",
+                    style: if is_tutorial_collapsed() {
+                        "position: absolute; bottom: 20px; left: 24px; transition: left 0.2s ease; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;"
+                    } else {
+                        "position: absolute; bottom: 20px; left: 432px; transition: left 0.2s ease; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;"
+                    },
                     span { style: "color: #8da2c0;", "POS: " }
                     span { style: "color: #00e5ff; font-weight: 700;", "[{current_cam_x.round() as i32}, {current_cam_y.round() as i32}]" }
                     span { style: "color: #8da2c0; margin-left: 6px;", "ZOOM: " }
@@ -1336,9 +1372,11 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                     }
                     p {
                         style: "margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.5;",
-                        "Fliege mindestens "
-                        strong { style: "color: #f1f5f9;", "250 Einheiten" }
-                        " von der zentralen Mega-Station weg, um einen sicheren Bauplatz für deine persönliche Heimatbasis zu beanspruchen."
+                        "Fliege aus dem roten Sicherheitskreis ("
+                        strong { style: "color: #f1f5f9;", "mind. 250 Einheiten" }
+                        " Abstand zur Mega-Station, bis der Kreis grün wird) zu einem Standort mit mindestens "
+                        strong { style: "color: #ffd700;", "400 Erz" }
+                        " im Asteroiden-Scanradius."
                     }
 
                     // Distance status card
@@ -1346,25 +1384,45 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                         style: "padding: 16px; background: rgba(255, 255, 255, 0.04); border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15); margin-bottom: 20px;",
                         div { style: "font-size: 11px; font-weight: 600; color: #8da2c0; margin-bottom: 6px; letter-spacing: 0.5px;", "ABSTAND ZUR MEGA-STATION:" }
                         div {
-                            style: "font-size: 24px; font-weight: 700; color: if can_deploy { \"#00e676\" } else { \"#ff5252\" };",
+                            style: if has_enough_distance {
+                                "font-size: 24px; font-weight: 700; color: #00e676;"
+                            } else {
+                                "font-size: 24px; font-weight: 700; color: #ff5252;"
+                            },
                             "{dist_to_megastation as u32} / 250 Einheiten"
                         }
                         div {
                             style: "margin-top: 8px; font-size: 12px;",
                             if can_deploy {
                                 span { style: "color: #00e676; font-weight: 600;", "✔ Bauplatz freigegeben! Heimatbasis kann hier errichtet werden." }
+                            } else if !has_enough_distance {
+                                span { style: "color: #ff5252;", "✖ Zu nah an der Mega-Station (innerhalb des roten Kreises)." }
                             } else {
-                                span { style: "color: #ff5252;", "✖ Zu nah an der Mega-Station (Sperrzone)." }
+                                span { style: "color: #fbbf24;", "⚠️ Außerhalb des Kreises, aber noch zu wenig Erz im Scanradius ({scan_ore_total} / 400 Erz)." }
                             }
                         }
                     }
 
-                    // Ship Stats
+                    // Ship Stats & Scan Radius Resources
                     div {
                         style: "padding: 16px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; font-size: 13px; color: #94a3b8; display: flex; flex-direction: column; gap: 8px;",
                         div { style: "display: flex; justify-content: space-between;", span { "Position:" } span { style: "color: #cbd5e1; font-mono;", "({ship.position.x as i32}, {ship.position.y as i32})" } }
                         div { style: "display: flex; justify-content: space-between;", span { "Geschwindigkeit:" } span { style: "color: #cbd5e1;", "{ship.speed as i32} / {ship.max_speed as i32} px/s" } }
                         div { style: "display: flex; justify-content: space-between;", span { "Energie:" } span { style: "color: #00e5ff;", "{ship.energy as u32} / {ship.max_energy as u32}" } }
+                        div {
+                            style: "display: flex; justify-content: space-between; padding-top: 8px; margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.08);",
+                            span { "Erz im Scanradius (300m):" }
+                            span {
+                                style: if has_enough_ore { "color: #00e676; font-weight: 700;" } else { "color: #fbbf24; font-weight: 700;" },
+                                "{scan_ore_total} / 400 Erz ({scan_asteroid_count} Ast.)"
+                            }
+                        }
+                        if !has_enough_ore {
+                            div {
+                                style: "font-size: 11px; color: #fbbf24; line-height: 1.35;",
+                                "⚠️ Mindestens 400 Erz im 300m-Scanradius erforderlich, damit deine Drohnen genug Rohstoffe finden."
+                            }
+                        }
                     }
                 }
 
@@ -1388,8 +1446,10 @@ fn BuilderNavigationScreen(player: Player, builder_ship: Option<Ship>) -> Elemen
                         style: "font-size: 11px; color: #64748b; margin-top: 8px; text-align: center;",
                         if can_deploy {
                             "Wandelt das Bauschiff in deine Heimatbasis um"
+                        } else if !has_enough_distance {
+                            "Erst außerhalb des Kreises (≥ 250m) & ab 400 Erz im Scanradius aktivierbar"
                         } else {
-                            "Erst ab 250m Abstand zur Megastation aktivierbar"
+                            "Noch mindestens {400u32.saturating_sub(scan_ore_total)} Erz im 300m-Scanradius benötigt"
                         }
                     }
                 }
@@ -1408,6 +1468,7 @@ fn BaseDashboardScreen(
     base: BaseStation,
     ships: Vec<Ship>,
     achievements: Vec<PlayerAchievement>,
+    is_tutorial_collapsed: Signal<bool>,
     on_open_heimatbasis: EventHandler<()>,
 ) -> Element {
     let ctx = use_spacetimedb_context();
@@ -1863,22 +1924,21 @@ fn BaseDashboardScreen(
                     style: "width: 100%; height: 100%; display: block;",
                 }
                 div {
-                    style: "position: absolute; top: 16px; left: 20px; display: flex; gap: 10px;",
-                    div {
-                        style: "background: rgba(10, 16, 32, 0.9); padding: 8px 14px; border-radius: 8px; font-size: 12px; color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); display: flex; align-items: center; gap: 8px;",
-                        span { "📡" }
-                        span { style: "font-weight: 700;", "LOKALES RADAR" }
-                        span { style: "color: #94a3b8;", "• Funkbereich: {base.signal_radius as u32} px" }
-                    }
-                }
-                div {
-                    style: "position: absolute; bottom: 64px; left: 20px; background: rgba(10, 16, 32, 0.85); padding: 6px 12px; border-radius: 6px; font-size: 11px; color: #94a3b8; border: 1px solid rgba(80, 120, 200, 0.2); pointer-events: none;",
+                    style: if is_tutorial_collapsed() {
+                        "position: absolute; bottom: 64px; left: 20px; transition: left 0.2s ease; background: rgba(10, 16, 32, 0.85); padding: 6px 12px; border-radius: 6px; font-size: 11px; color: #94a3b8; border: 1px solid rgba(80, 120, 200, 0.2); pointer-events: none;"
+                    } else {
+                        "position: absolute; bottom: 64px; left: 432px; transition: left 0.2s ease; background: rgba(10, 16, 32, 0.85); padding: 6px 12px; border-radius: 6px; font-size: 11px; color: #94a3b8; border: 1px solid rgba(80, 120, 200, 0.2); pointer-events: none;"
+                    },
                     "ℹ️ Ziehen zum Bewegen • Scrollen zum Zoomen • Klick wählt Ziel"
                 }
 
                 // HUD Overlay: Camera Info & Center Controls
                 div {
-                    style: "position: absolute; bottom: 16px; left: 20px; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;",
+                    style: if is_tutorial_collapsed() {
+                        "position: absolute; bottom: 16px; left: 20px; transition: left 0.2s ease; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;"
+                    } else {
+                        "position: absolute; bottom: 16px; left: 432px; transition: left 0.2s ease; display: flex; gap: 8px; align-items: center; background: rgba(10, 16, 32, 0.9); backdrop-filter: blur(8px); padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.3); font-size: 12px; font-family: monospace; z-index: 5; pointer-events: auto;"
+                    },
                     span { style: "color: #8da2c0;", "POS: " }
                     span { style: "color: #00e5ff; font-weight: 700;", "[{current_cam_x.round() as i32}, {current_cam_y.round() as i32}]" }
                     span { style: "color: #8da2c0; margin-left: 6px;", "ZOOM: " }
@@ -1931,6 +1991,7 @@ fn BaseDashboardScreen(
                         visible_drones: (ctx.tables.visible_drones)(),
                         visible_bases: (ctx.tables.visible_bases)(),
                         players: (ctx.tables.player)(),
+                        is_tutorial_collapsed,
                         on_open_heimatbasis: move |_| on_open_heimatbasis.call(()),
                         on_close: move |_| selected_target.set(None),
                     }
@@ -1941,8 +2002,8 @@ fn BaseDashboardScreen(
             aside {
                 style: "width: 340px; height: 100%; background: #0a1020; border-left: 1px solid rgba(80, 120, 200, 0.2); padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;",
 
-                // Notification if API not connected yet
-                if !player.has_api_connected {
+                // Notification & Token Box: Shown until API connects or during Tutorial Steps <= 4
+                if !player.has_api_connected || player.tutorial_step <= 4 {
                     div {
                         style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.3); border-radius: 12px; padding: 16px;",
                         div {
@@ -2170,6 +2231,7 @@ fn TargetInspectorHud(
     visible_drones: Vec<PerceivedDrone>,
     visible_bases: Vec<PerceivedBase>,
     players: Vec<Player>,
+    is_tutorial_collapsed: Signal<bool>,
     on_open_heimatbasis: EventHandler<()>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -2178,7 +2240,11 @@ fn TargetInspectorHud(
 
     rsx! {
         div {
-            style: "position: absolute; bottom: 56px; left: 20px; width: 280px; background: rgba(10, 16, 32, 0.94); backdrop-filter: blur(10px); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 12px; padding: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.7); z-index: 5; display: flex; flex-direction: column; gap: 10px;",
+            style: if is_tutorial_collapsed() {
+                "position: absolute; bottom: 56px; left: 20px; transition: left 0.2s ease; width: 280px; background: rgba(10, 16, 32, 0.94); backdrop-filter: blur(10px); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 12px; padding: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.7); z-index: 5; display: flex; flex-direction: column; gap: 10px;"
+            } else {
+                "position: absolute; bottom: 56px; left: 432px; transition: left 0.2s ease; width: 280px; background: rgba(10, 16, 32, 0.94); backdrop-filter: blur(10px); border: 1px solid rgba(0, 229, 255, 0.4); border-radius: 12px; padding: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.7); z-index: 5; display: flex; flex-direction: column; gap: 10px;"
+            },
             // Title Bar
             div {
                 style: "display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(80, 120, 200, 0.2); padding-bottom: 8px;",
