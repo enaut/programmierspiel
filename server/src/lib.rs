@@ -1641,7 +1641,20 @@ pub fn my_base(ctx: &ViewContext) -> Option<BaseStation> {
         if agent.is_revoked {
             return None;
         }
-        ctx.db.base_station().owner().find(&agent.owner)
+        match agent.role {
+            0 => ctx.db.base_station().base_id().find(&agent.bound_entity_id),
+            1 | 2 => {
+                let ship = ctx.db.ship().ship_id().find(&agent.bound_entity_id)?;
+                let base = ctx.db.base_station().owner().find(&agent.owner)?;
+                let dist = ship.position.distance(&base.position);
+                if dist <= base.signal_radius || dist <= 800.0 {
+                    Some(base)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     } else {
         ctx.db.base_station().owner().find(&sender)
     }

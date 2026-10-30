@@ -2173,6 +2173,12 @@ fn TargetInspectorHud(
     on_open_heimatbasis: EventHandler<()>,
     on_close: EventHandler<()>,
 ) -> Element {
+    let ctx = use_spacetimedb_context();
+    let my_ai_agents_list = (ctx.tables.my_ai_agents)();
+    let conn_opt = (ctx.connection)();
+    let mut ship_bot_id_input = use_signal(|| String::new());
+    let mut ship_bot_err = use_signal(|| Option::<String>::None);
+
     let player_map: std::collections::HashMap<_, _> =
         players.iter().map(|p| (p.identity, p)).collect();
 
@@ -2286,6 +2292,94 @@ fn TargetInspectorHud(
                                 div {
                                     style: "color: #64748b; font-size: 10px;",
                                     "Position: ({s.position.x as i32}, {s.position.y as i32})"
+                                }
+
+                                // Ship Bot / AI Pairing Section
+                                {
+                                    let active_ship_agent = my_ai_agents_list
+                                        .iter()
+                                        .find(|a| (a.role == 1 || a.role == 2) && a.bound_entity_id == id && !a.is_revoked)
+                                        .cloned();
+
+                                    rsx! {
+                                        div {
+                                            style: "margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(80, 120, 200, 0.2); display: flex; flex-direction: column; gap: 6px;",
+                                            if let Some(ref agent) = active_ship_agent {
+                                                {
+                                                    let agent_id = agent.agent_identity;
+                                                    let conn_opt = conn_opt.clone();
+                                                    rsx! {
+                                                        div {
+                                                            style: "display: flex; justify-content: space-between; align-items: center;",
+                                                            span { style: "font-weight: 700; color: #00e5ff; font-size: 11px;", "🤖 {agent.label}" }
+                                                            button {
+                                                                style: "background: rgba(239, 68, 68, 0.15); hover:background: rgba(239, 68, 68, 0.28); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); padding: 2px 6px; border-radius: 4px; font-size: 10px; cursor: pointer;",
+                                                                onclick: move |_| {
+                                                                    if let Some(ref conn) = conn_opt {
+                                                                        let _ = conn.reducers.revoke_ai_agent(agent_id);
+                                                                    }
+                                                                },
+                                                                "🛑 Entkoppeln"
+                                                            }
+                                                        }
+                                                        div {
+                                                            style: "font-family: monospace; font-size: 9px; color: #38bdf8; word-break: break-all; background: rgba(0,0,0,0.3); padding: 4px 6px; border-radius: 4px;",
+                                                            "{agent.agent_identity.to_hex()}"
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                {
+                                                    let conn_opt = conn_opt.clone();
+                                                    let sid = id;
+                                                    let is_carrier = s.ship_tier >= 2;
+                                                    rsx! {
+                                                        span { style: "font-weight: 700; color: #38bdf8; font-size: 11px;", "🤖 Schiffs-KI binden" }
+                                                        div {
+                                                            style: "display: flex; gap: 4px;",
+                                                            input {
+                                                                placeholder: "Bot-Identität (Hex)...",
+                                                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #f1f5f9; padding: 4px 6px; border-radius: 4px; font-family: monospace; font-size: 10px; min-width: 0;",
+                                                                value: "{ship_bot_id_input}",
+                                                                oninput: move |e| ship_bot_id_input.set(e.value()),
+                                                            }
+                                                            button {
+                                                                style: "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 4px 8px; border-radius: 4px; font-weight: 700; font-size: 10px; cursor: pointer; white-space: nowrap;",
+                                                                onclick: move |_| {
+                                                                    let id_str = ship_bot_id_input().trim().to_string();
+                                                                    if id_str.is_empty() {
+                                                                        ship_bot_err.set(Some("Identität eingeben".to_string()));
+                                                                        return;
+                                                                    }
+                                                                    match Identity::from_hex(&id_str) {
+                                                                        Ok(agent_id) => {
+                                                                            if let Some(ref conn) = conn_opt {
+                                                                                let role = if is_carrier { 1 } else { 2 };
+                                                                                let label = format!("Schiff #{} KI", sid);
+                                                                                if let Err(e) = conn.reducers.register_ai_agent(agent_id, role, sid, label) {
+                                                                                    ship_bot_err.set(Some(e.to_string()));
+                                                                                } else {
+                                                                                    ship_bot_id_input.set(String::new());
+                                                                                    ship_bot_err.set(None);
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        Err(_) => {
+                                                                            ship_bot_err.set(Some("Ungültige Hex-Identität".to_string()));
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "🔗 Binden"
+                                                            }
+                                                        }
+                                                        if let Some(ref err) = ship_bot_err() {
+                                                            div { style: "color: #f87171; font-size: 10px;", "{err}" }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2405,21 +2499,9 @@ fn HeimatbasisModal(
         .find(|a| a.role == 0 && a.bound_entity_id == base.base_id && !a.is_revoked)
         .cloned();
 
-    let mut base_ai_token = use_signal(|| {
-        #[cfg(target_arch = "wasm32")]
-        {
-            oauth::get_local_storage()
-                .and_then(|s| s.get_item("base_ai_token").ok().flatten())
-                .unwrap_or_default()
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            String::new()
-        }
-    });
-
-    let mut is_generating = use_signal(|| false);
-    let mut gen_error = use_signal(|| Option::<String>::None);
+    let mut input_identity = use_signal(|| String::new());
+    let mut input_label = use_signal(|| "Heimatbasis AI".to_string());
+    let mut bind_error = use_signal(|| Option::<String>::None);
     let mut copied = use_signal(|| false);
 
     let mut edit_primary_hue = use_signal(move || player.color_hue);
@@ -2427,89 +2509,57 @@ fn HeimatbasisModal(
     let mut is_saving_colors = use_signal(|| false);
     let mut save_color_msg = use_signal(|| Option::<String>::None);
 
-    let effective_token = if !base_ai_token().is_empty() {
-        base_ai_token()
-    } else {
-        token.clone()
-    };
-    let is_permanent = !base_ai_token().is_empty();
-
     let is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
         let ts_sec = (ts.to_micros_since_unix_epoch() / 1_000_000) as f64;
         let now_sec = js_sys::Date::now() / 1000.0;
         (now_sec - ts_sec) <= 30.0
     });
 
-    let copy_token = {
-        let t = effective_token.clone();
+    let bind_base_ai = {
+        let base_id = base.base_id;
+        let conn_opt = (ctx.connection)();
         move |_| {
-            #[cfg(target_arch = "wasm32")]
-            {
-                if let Some(w) = web_sys::window() {
-                    let nav = w.navigator();
-                    let clipboard = nav.clipboard();
-                    let _ = clipboard.write_text(&t);
-                    copied.set(true);
+            let id_str = input_identity().trim().to_string();
+            if id_str.is_empty() {
+                bind_error.set(Some("Bitte gib eine Bot-Identität ein.".to_string()));
+                return;
+            }
+            match Identity::from_hex(&id_str) {
+                Ok(agent_id) => {
+                    if let Some(ref conn) = conn_opt {
+                        let label = input_label().trim().to_string();
+                        let final_label = if label.is_empty() {
+                            "Heimatbasis AI".to_string()
+                        } else {
+                            label
+                        };
+                        match conn
+                            .reducers
+                            .register_ai_agent(agent_id, 0, base_id, final_label)
+                        {
+                            Ok(_) => {
+                                input_identity.set(String::new());
+                                bind_error.set(None);
+                            }
+                            Err(e) => {
+                                bind_error.set(Some(format!("Fehler beim Registrieren: {e}")));
+                            }
+                        }
+                    }
+                }
+                Err(_) => {
+                    bind_error.set(Some("Ungültige Identität! Erwartet 64-Zeichen Hexadezimal-String aus der Bot-Konsole.".to_string()));
                 }
             }
         }
     };
 
-    let generate_new_ai_token = {
-        let stdb = stdb_url.clone();
-        let base_id = base.base_id;
-        let conn_opt = (ctx.connection)();
-        move |_| {
-            let stdb = stdb.clone();
-            let conn_opt = conn_opt.clone();
-            spawn(async move {
-                is_generating.set(true);
-                gen_error.set(None);
-                match oauth::request_ai_token(
-                    &stdb,
-                    Some("base"),
-                    Some(base_id),
-                    Some("Heimatbasis AI"),
-                )
-                .await
-                {
-                    Ok(resp) => {
-                        if let Ok(agent_id) = Identity::from_hex(&resp.identity) {
-                            if let Some(ref conn) = conn_opt {
-                                let _ = conn.reducers.register_ai_agent(
-                                    agent_id,
-                                    0,
-                                    base_id,
-                                    "Heimatbasis AI".to_string(),
-                                );
-                            }
-                        }
-                        #[cfg(target_arch = "wasm32")]
-                        if let Some(storage) = oauth::get_local_storage() {
-                            let _ = storage.set_item("base_ai_token", &resp.token);
-                        }
-                        base_ai_token.set(resp.token);
-                    }
-                    Err(e) => {
-                        gen_error.set(Some(e));
-                    }
-                }
-                is_generating.set(false);
-            });
-        }
-    };
-
-    let revoke_token = {
+    let revoke_base_ai = {
         let conn_opt = (ctx.connection)();
         let agent_opt = active_base_agent.clone();
         move |_| {
             if let (Some(conn), Some(agent)) = (&conn_opt, &agent_opt) {
                 let _ = conn.reducers.revoke_ai_agent(agent.agent_identity);
-                #[cfg(target_arch = "wasm32")]
-                if let Some(storage) = oauth::get_local_storage() {
-                    let _ = storage.remove_item("base_ai_token");
-                }
-                base_ai_token.set(String::new());
             }
         }
     };
@@ -2570,7 +2620,7 @@ fn HeimatbasisModal(
                 div {
                     style: "padding: 24px; display: flex; flex-direction: column; gap: 20px;",
 
-                    // 1. Bot & AI Token Management Panel
+                    // 1. Bot & AI Identity Management Panel
                     div {
                         style: "background: #0f172a; border: 1px solid rgba(0, 229, 255, 0.25); border-radius: 12px; padding: 18px;",
                         div {
@@ -2578,73 +2628,107 @@ fn HeimatbasisModal(
                             div {
                                 style: "display: flex; align-items: center; gap: 8px;",
                                 span { style: "font-size: 16px;", "🤖" }
-                                span { style: "font-size: 14px; font-weight: 700; color: #00e5ff;", "Heimatbasis-AI Token" }
-                                if is_permanent {
-                                    span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); font-weight: 600;", "✔ Permanent (kein 60s Timeout)" }
+                                span { style: "font-size: 14px; font-weight: 700; color: #00e5ff;", "Heimatbasis-AI Steuerung" }
+                                if active_base_agent.is_some() {
+                                    span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; border: 1px solid rgba(0, 230, 118, 0.3); font-weight: 600;", "✔ Gekoppelt" }
                                 } else {
-                                    span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); font-weight: 600;", "Temporärer WebSocket-Token" }
+                                    span { style: "font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(250, 204, 21, 0.15); color: #fde047; border: 1px solid rgba(250, 204, 21, 0.3); font-weight: 600;", "Wartet auf Bot-Kopplung" }
                                 }
                             }
                             div {
                                 style: "display: flex; align-items: center; gap: 8px;",
                                 if player.has_api_connected {
                                     span { style: "color: #00e676; font-size: 12px;", "●" }
-                                    span { style: "font-size: 11px; color: #cbd5e1;", "Bot verbunden" }
+                                    span { style: "font-size: 11px; color: #cbd5e1;", "API aktiv" }
                                     if is_api_recently_active {
                                         span { style: "font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(0, 230, 118, 0.15); color: #00e676; font-weight: 600;", "Aktiv" }
                                     }
                                 } else {
                                     span { style: "color: #94a3b8; font-size: 12px;", "○" }
-                                    span { style: "font-size: 11px; color: #94a3b8;", "Wartet auf Bot" }
+                                    span { style: "font-size: 11px; color: #94a3b8;", "Keine Bot-Aktivität" }
                                 }
                             }
                         }
 
-                        div {
-                            style: "display: flex; gap: 8px;",
-                            input {
-                                readonly: true,
-                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 11px; outline: none; min-width: 0;",
-                                value: "{effective_token}",
-                            }
-                            button {
-                                style: if copied() {
-                                    "background: #059669; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                } else {
-                                    "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                },
-                                onclick: copy_token,
-                                if copied() { "✔ Kopiert!" } else { "📋 Kopieren" }
-                            }
-                        }
-
-                        div {
-                            style: "display: flex; justify-content: space-between; align-items: center; margin-top: 10px;",
-                            div {
-                                style: "font-size: 11px; color: #94a3b8;",
-                                "In " code { style: "color: #38bdf8;", "testclients/config.toml" } " einfügen, um deinen Bot dauerhaft zu starten."
-                            }
-                            div {
-                                style: "display: flex; gap: 8px;",
-                                button {
-                                    style: "background: rgba(0, 229, 255, 0.12); hover:background: rgba(0, 229, 255, 0.25); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;",
-                                    disabled: is_generating(),
-                                    onclick: generate_new_ai_token,
-                                    if is_generating() { "Generiere..." } else if is_permanent { "🔄 Neuer Token" } else { "✨ Permanenten Token erzeugen" }
+                        if let Some(ref agent) = active_base_agent {
+                            {
+                                let agent_hex = agent.agent_identity.to_hex();
+                                let a_hex_copy = agent_hex.clone();
+                                rsx! {
+                                    div {
+                                        style: "display: flex; flex-direction: column; gap: 10px; background: rgba(0, 229, 255, 0.04); border: 1px solid rgba(0, 229, 255, 0.15); border-radius: 8px; padding: 12px;",
+                                        div {
+                                            style: "display: flex; justify-content: space-between; align-items: center;",
+                                            div {
+                                                span { style: "font-size: 12px; font-weight: 700; color: #f1f5f9;", "{agent.label}" }
+                                                span { style: "font-size: 11px; color: #94a3b8; margin-left: 8px;", "(Basis-KI: steuert alle Drohnen in Basisreichweite)" }
+                                            }
+                                            button {
+                                                style: "background: rgba(239, 68, 68, 0.15); hover:background: rgba(239, 68, 68, 0.28); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer;",
+                                                onclick: revoke_base_ai,
+                                                "🛑 Kopplung aufheben"
+                                            }
+                                        }
+                                        div {
+                                            style: "display: flex; gap: 8px; align-items: center;",
+                                            span { style: "font-size: 11px; color: #64748b;", "Identität:" }
+                                            input {
+                                                readonly: true,
+                                                style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 6px 10px; border-radius: 5px; font-family: monospace; font-size: 11px; outline: none;",
+                                                value: "{agent_hex}",
+                                            }
+                                            button {
+                                                style: if copied() {
+                                                    "background: #059669; color: #fff; border: none; padding: 6px 12px; border-radius: 5px; font-weight: 700; font-size: 11px; cursor: pointer;"
+                                                } else {
+                                                    "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 6px 12px; border-radius: 5px; font-weight: 700; font-size: 11px; cursor: pointer;"
+                                                },
+                                                onclick: move |_| {
+                                                    #[cfg(target_arch = "wasm32")]
+                                                    if let Some(w) = web_sys::window() {
+                                                        let _ = w.navigator().clipboard().write_text(&a_hex_copy);
+                                                        copied.set(true);
+                                                    }
+                                                },
+                                                if copied() { "✔ Kopiert" } else { "📋 Kopieren" }
+                                            }
+                                        }
+                                    }
                                 }
-                                if is_permanent {
+                            }
+                        } else {
+                            div {
+                                style: "display: flex; flex-direction: column; gap: 10px;",
+                                div {
+                                    style: "font-size: 11px; color: #94a3b8; line-height: 1.4;",
+                                    "Starte deinen Bot mit " code { style: "color: #38bdf8;", "cargo run" } ". Kopiere die in der Bot-Konsole ausgegebene " strong { "Identität" } " hier hinein, um den Bot dauerhaft an deine Heimatbasis zu binden."
+                                }
+                                div {
+                                    style: "display: flex; gap: 8px;",
+                                    input {
+                                        placeholder: "Bot-Identität eingeben (64-Zeichen Hex aus Konsole)...",
+                                        style: "flex: 2; background: #020617; border: 1px solid #1e293b; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-family: monospace; font-size: 11px; outline: none;",
+                                        value: "{input_identity}",
+                                        oninput: move |e| input_identity.set(e.value()),
+                                    }
+                                    input {
+                                        placeholder: "Bezeichnung (z.B. Heimatbasis AI)",
+                                        style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-size: 11px; outline: none;",
+                                        value: "{input_label}",
+                                        oninput: move |e| input_label.set(e.value()),
+                                    }
                                     button {
-                                        style: "background: rgba(239, 68, 68, 0.12); hover:background: rgba(239, 68, 68, 0.25); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer;",
-                                        onclick: revoke_token,
-                                        "🛑 Widerrufen"
+                                        style: "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; white-space: nowrap; transition: all 0.2s;",
+                                        onclick: bind_base_ai,
+                                        "🔗 Bot binden"
                                     }
                                 }
                             }
                         }
 
-                        if let Some(ref err) = gen_error() {
+                        if let Some(ref err) = bind_error() {
                             div {
-                                style: "color: #f87171; font-size: 11px; margin-top: 6px;",
+                                style: "color: #f87171; font-size: 11px; margin-top: 8px;",
                                 "Fehler: {err}"
                             }
                         }

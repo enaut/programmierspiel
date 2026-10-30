@@ -18,8 +18,8 @@ pub use research::{
     DenoisePayload, DenoiseSolution, DistancePayload, DistanceSolution, RiddleSolution, RiddleTask,
     SortPayload, SortSolution, UpgradeTrack,
 };
-pub use runtime::run;
-pub use world::{BaseController, World};
+pub use runtime::{run, run_ship};
+pub use world::{BaseController, ShipController, ShipWorld, World};
 
 /// Baukosten für eine Stufe-1-Drohne (50 Erz; kostenlos, wenn die Flotte 0 Schiffe hat).
 pub const DRONE_TIER_1_COST: u32 = 50;
