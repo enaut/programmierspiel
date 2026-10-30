@@ -63,3 +63,53 @@ pub trait BaseController {
     /// - `actions`: Sammelbehälter für Befehle, die in diesem Tick abgesetzt werden.
     fn tick(&mut self, world: &World, actions: &mut Actions);
 }
+
+/// Repräsentiert die wahrgenommene Spielwelt aus der Perspektive eines einzelnen Schiffes oder Kriegsschiffes.
+pub struct ShipWorld<'a> {
+    /// Das eigene gesteuerte Schiff.
+    pub ship: &'a Ship,
+    /// Alle eigenen Schiffe/Drohnen im Kommunikationsbereich (z.B. Sub-Drohnen eines Träger-/Kriegsschiffes).
+    pub fleet: &'a [Ship],
+    /// Sichtbare Asteroiden im Sensorbereich.
+    pub asteroids: &'a [PerceivedAsteroid],
+    /// Sichtbare fremde Drohnen.
+    pub other_drones: &'a [PerceivedDrone],
+    /// Sichtbare fremde Raumstationen.
+    pub other_bases: &'a [PerceivedBase],
+    /// Die Heimatbasis, falls in Signalreichweite.
+    pub base: Option<&'a BaseStation>,
+    /// Fortlaufende Nummer des aktuellen Ticks (10 Ticks = 1 Sekunde).
+    pub tick: u64,
+}
+
+impl<'a> ShipWorld<'a> {
+    /// Findet den geometrisch am nächsten gelegenen Asteroiden zu einer Position.
+    pub fn closest_asteroid(&self, from: Vec2) -> Option<&PerceivedAsteroid> {
+        self.asteroids.iter().min_by(|a, b| {
+            a.position
+                .distance(&from)
+                .total_cmp(&b.position.distance(&from))
+        })
+    }
+
+    /// Findet den nächsten Asteroiden, der noch Erz enthält (`remaining_ore > 0`).
+    pub fn closest_asteroid_with_ore(&self, from: Vec2) -> Option<&PerceivedAsteroid> {
+        self.asteroids
+            .iter()
+            .filter(|a| a.remaining_ore > 0)
+            .min_by(|a, b| {
+                a.position
+                    .distance(&from)
+                    .total_cmp(&b.position.distance(&from))
+            })
+    }
+}
+
+/// Trait für die Steuerung eines einzelnen Schiffes (z.B. Kriegsschiff, Erkunder, Drohne).
+pub trait ShipController {
+    /// Wird 10-mal pro Sekunde (alle 100ms) aufgerufen.
+    ///
+    /// - `world`: Reiner Lese-Zugriff auf das Schiff und seine Sensorumgebung.
+    /// - `actions`: Sammelbehälter für Befehle, die in diesem Tick abgesetzt werden.
+    fn tick(&mut self, world: &ShipWorld, actions: &mut Actions);
+}

@@ -17,7 +17,7 @@ use crate::module_bindings::{
     UnidentifiedContact,
 };
 use crate::research::RiddleTask;
-use crate::world::{BaseController, World};
+use crate::world::{BaseController, ShipController, ShipWorld, World};
 use spacetimedb_sdk::{DbContext, Table};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,7 +27,7 @@ use std::time::Duration;
 
 /// Startet den Bot-Laufzeitzyklus mit einem zustandsbehafteten `BaseController`.
 pub fn run<C: BaseController>(mut controller: C) {
-    let config = match BotConfig::load() {
+    let (config, config_path) = match BotConfig::load_with_path() {
         Ok(cfg) => cfg,
         Err(_) => {
             std::process::exit(1);
@@ -46,14 +46,36 @@ pub fn run<C: BaseController>(mut controller: C) {
     let conn_flag = Arc::clone(&is_connected);
     let sub_flag = Arc::clone(&is_subscribed);
 
+    let config_path_clone = config_path.clone();
+    let auth_token_empty = config.auth_token.is_empty();
+    let token_arg = if auth_token_empty {
+        None
+    } else {
+        Some(config.auth_token.clone())
+    };
+
     let conn_builder = DbConnection::builder()
         .with_uri(&config.server_url)
         .with_database_name(&config.module_name)
-        .with_token(Some(config.auth_token.clone()))
-        .on_connect(move |_conn, identity, _token| {
+        .with_token(token_arg)
+        .on_connect(move |_conn, identity, token| {
             conn_flag.store(true, Ordering::SeqCst);
             println!("✅ [SPACE BOT] Verbindung erfolgreich!");
-            println!("   Identität: {:?}", identity);
+            println!("   Identität: {}", identity.to_hex());
+
+            if auth_token_empty {
+                if let Err(e) = BotConfig::save_token(&config_path_clone, token) {
+                    eprintln!(
+                        "⚠️ [SPACE BOT] Konnte Token nicht in {:?} speichern: {}",
+                        config_path_clone, e
+                    );
+                } else {
+                    println!(
+                        "💾 [SPACE BOT] Neuer Verbindungs-Token wurde in {:?} gespeichert.",
+                        config_path_clone
+                    );
+                }
+            }
         })
         .on_disconnect(move |_ctx, err| {
             if let Some(e) = err {
@@ -136,7 +158,10 @@ pub fn run<C: BaseController>(mut controller: C) {
                 if tick_counter >= last_status_tick + 30 {
                     last_status_tick = tick_counter;
                     println!(
-                        "⏳ [SPACE BOT] Warte auf Platzierung der Heimatbasis im Web-Dashboard..."
+                        "⏳ [SPACE BOT] Keine Heimatbasis sichtbar. Warte auf Zuweisung im Web-Dashboard..."
+                    );
+                    println!(
+                        "   👉 Trage die oben angezeigte Identität im Web-Cockpit unter 'Heimatbasis-AI' ein."
                     );
                 }
                 continue;
@@ -227,6 +252,180 @@ pub fn run<C: BaseController>(mut controller: C) {
                 .submit_riddle_solution(solution.track(), solution.to_json_string())
             {
                 eprintln!("⚠️ [SPACE BOT] Einreichen der Lösung fehlgeschlagen: {}", e);
+            }
+        }
+    }
+}
+
+/// Startet den Bot-Laufzeitzyklus mit einem `ShipController` für ein einzelnes Schiff (oder Kriegsschiff).
+pub fn run_ship<C: ShipController>(mut controller: C) {
+    let (config, config_path) = match BotConfig::load_with_path() {
+        Ok(cfg) => cfg,
+        Err(_) => {
+            std::process::exit(1);
+        }
+    };
+
+    println!("================================================================================");
+    println!("🚀 [SPACE BOT] Starte Einzelschiff-/Kriegsschiffsteuerung...");
+    println!("   Server:   {}", config.server_url);
+    println!("   Modul:    {}", config.module_name);
+    println!("================================================================================");
+
+    let is_connected = Arc::new(AtomicBool::new(false));
+    let is_subscribed = Arc::new(AtomicBool::new(false));
+
+    let conn_flag = Arc::clone(&is_connected);
+    let sub_flag = Arc::clone(&is_subscribed);
+
+    let config_path_clone = config_path.clone();
+    let auth_token_empty = config.auth_token.is_empty();
+    let token_arg = if auth_token_empty {
+        None
+    } else {
+        Some(config.auth_token.clone())
+    };
+
+    let conn_builder = DbConnection::builder()
+        .with_uri(&config.server_url)
+        .with_database_name(&config.module_name)
+        .with_token(token_arg)
+        .on_connect(move |_conn, identity, token| {
+            conn_flag.store(true, Ordering::SeqCst);
+            println!("✅ [SPACE BOT] Verbindung erfolgreich!");
+            println!("   Identität: {}", identity.to_hex());
+
+            if auth_token_empty {
+                if let Err(e) = BotConfig::save_token(&config_path_clone, token) {
+                    eprintln!(
+                        "⚠️ [SPACE BOT] Konnte Token nicht in {:?} speichern: {}",
+                        config_path_clone, e
+                    );
+                } else {
+                    println!(
+                        "💾 [SPACE BOT] Neuer Verbindungs-Token wurde in {:?} gespeichert.",
+                        config_path_clone
+                    );
+                }
+            }
+        })
+        .on_disconnect(move |_ctx, err| {
+            if let Some(e) = err {
+                eprintln!("⚠️ [SPACE BOT] Verbindung unterbrochen: {}", e);
+            } else {
+                println!("ℹ️ [SPACE BOT] Verbindung getrennt.");
+            }
+        });
+
+    let conn = match conn_builder.build() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("❌ [SPACE BOT] Fehler beim Verbindungsaufbau: {}", e);
+            eprintln!(
+                "   Läuft die SpacetimeDB-Instanz auf {}?",
+                config.server_url
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let _net_handle = conn.run_threaded();
+
+    conn.subscription_builder()
+        .on_applied(move |_ctx| {
+            sub_flag.store(true, Ordering::SeqCst);
+            println!("📡 [SPACE BOT] Sensor-Abonnement aktiv. Starte Schiff-Loop (10 Ticks/s)...");
+        })
+        .on_error(|_ctx, err| {
+            eprintln!("❌ [SPACE BOT] Abonnement-Fehler: {}", err);
+        })
+        .subscribe([
+            "SELECT * FROM config",
+            "SELECT * FROM player",
+            "SELECT * FROM my_base",
+            "SELECT * FROM my_ships",
+            "SELECT * FROM visible_bases",
+            "SELECT * FROM visible_drones",
+            "SELECT * FROM visible_asteroids",
+            "SELECT * FROM unidentified_objects",
+            "SELECT * FROM game_event",
+        ]);
+
+    let mut tick_counter: u64 = 0;
+    let mut last_status_tick: u64 = 0;
+    let mut last_heartbeat = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(60))
+        .unwrap_or_else(std::time::Instant::now);
+
+    let mut actions = Actions::new();
+    let mut last_commands: HashMap<u32, ShipCommand> = HashMap::new();
+
+    loop {
+        thread::sleep(Duration::from_millis(100));
+        tick_counter += 1;
+
+        if !is_subscribed.load(Ordering::SeqCst) {
+            continue;
+        }
+
+        // Heartbeat alle 5 Sekunden senden
+        if last_heartbeat.elapsed() >= Duration::from_secs(5) {
+            last_heartbeat = std::time::Instant::now();
+            let _ = conn.reducers.api_heartbeat();
+        }
+
+        let my_ships: Vec<Ship> = conn.db.my_ships().iter().collect();
+
+        // Wenn noch kein Schiff sichtbar/zugewiesen ist: warten
+        let ship = match my_ships.first() {
+            Some(s) => s.clone(),
+            None => {
+                if tick_counter >= last_status_tick + 30 {
+                    last_status_tick = tick_counter;
+                    println!(
+                        "⏳ [SPACE BOT] Kein Schiff sichtbar. Warte auf Zuweisung im Web-Dashboard..."
+                    );
+                    println!(
+                        "   👉 Klicke ein Schiff im Web-Radar an und binde die Identität im Inspektor-HUD ein."
+                    );
+                }
+                continue;
+            }
+        };
+
+        let my_base: Option<BaseStation> = conn.db.my_base().iter().next();
+        let asteroids: Vec<PerceivedAsteroid> = conn.db.visible_asteroids().iter().collect();
+        let drones: Vec<PerceivedDrone> = conn.db.visible_drones().iter().collect();
+        let bases: Vec<PerceivedBase> = conn.db.visible_bases().iter().collect();
+
+        let ship_world = ShipWorld {
+            ship: &ship,
+            fleet: &my_ships,
+            asteroids: &asteroids,
+            other_drones: &drones,
+            other_bases: &bases,
+            base: my_base.as_ref(),
+            tick: tick_counter,
+        };
+
+        actions.clear();
+
+        controller.tick(&ship_world, &mut actions);
+
+        for (ship_id, cmd) in actions.ship_commands.drain(..) {
+            let has_changed = last_commands
+                .get(&ship_id)
+                .map_or(true, |last_cmd| *last_cmd != cmd);
+
+            if has_changed {
+                log_command(ship_id, &cmd);
+                if let Err(e) = conn.reducers.command_ship(ship_id, cmd.clone()) {
+                    eprintln!(
+                        "⚠️ [SPACE BOT] Fehler beim Senden des Befehls für Drohne #{}: {}",
+                        ship_id, e
+                    );
+                }
+                last_commands.insert(ship_id, cmd);
             }
         }
     }
