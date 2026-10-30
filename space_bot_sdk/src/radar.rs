@@ -2,6 +2,8 @@ pub use crate::module_bindings::{
     BaseStation, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Ship, UnidentifiedContact, Vec2,
 };
 
+impl Copy for Vec2 {}
+
 impl Vec2 {
     /// Null-Vektor (0.0, 0.0)
     pub const ZERO: Vec2 = Vec2 { x: 0.0, y: 0.0 };

@@ -16,6 +16,17 @@ const DEFAULT_MEGASTATION_POS: Vec2 = Vec2::new(0.0, 0.0);
 const DEFAULT_TICK_INTERVAL_MS: u32 = 50; // 20 Ticks/s (50ms interval)
 const DEFAULT_SIGNAL_RADIUS: f32 = 1200.0;
 const MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY: f32 = 250.0;
+const INITIAL_ASTEROID_SCAN_RADIUS: f32 = 300.0;
+const MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY: u32 = 400;
+
+fn ore_in_scan_radius(ctx: &ReducerContext, pos: Vec2, radius: f32) -> u32 {
+    ctx.db
+        .asteroid()
+        .iter()
+        .filter(|a| a.position.distance(&pos) <= radius)
+        .map(|a| a.remaining_ore)
+        .sum()
+}
 
 // ==========================================
 // Lifecycle Reducers
@@ -103,6 +114,7 @@ fn record_api_activity(ctx: &ReducerContext, sender: spacetimedb::Identity) {
         player.last_api_activity = Some(ctx.timestamp);
         player.has_api_connected = true;
         ctx.db.player().identity().update(player);
+        advance_tutorial(ctx, sender, 3, 5);
         advance_tutorial(ctx, sender, 4, 5);
     }
 }
@@ -421,6 +433,14 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         ));
     }
 
+    let ore_nearby = ore_in_scan_radius(ctx, ship.position, INITIAL_ASTEROID_SCAN_RADIUS);
+    if ore_nearby < MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY {
+        return Err(format!(
+            "Mindestens {} Erz im {:.0}m-Scanradius erforderlich, um die Heimatbasis zu errichten (aktuell: {} Erz)",
+            MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY, INITIAL_ASTEROID_SCAN_RADIUS, ore_nearby
+        ));
+    }
+
     // Deploy Base Station at ship position
     ctx.db.base_station().insert(BaseStation {
         base_id: 0,
@@ -481,6 +501,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         "🏛️",
     );
 
+    advance_tutorial(ctx, sender, 1, 3);
     advance_tutorial(ctx, sender, 2, 3);
 
     log::info!(
@@ -1246,6 +1267,21 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                 if !ship.is_mining {
                     ship.target_position = None;
                 }
+                if ship.ship_tier == 0 {
+                    let dist = ship.position.distance(&config.megastation_pos);
+                    if dist >= MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY
+                        && ctx
+                            .db
+                            .tutorial_state()
+                            .player()
+                            .find(&ship.owner)
+                            .is_some_and(|st| st.current_step == 1)
+                        && ore_in_scan_radius(ctx, ship.position, INITIAL_ASTEROID_SCAN_RADIUS)
+                            >= MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY
+                    {
+                        advance_tutorial(ctx, ship.owner, 1, 2);
+                    }
+                }
             } else {
                 // Fly towards target
                 let dir = diff.normalized();
@@ -1255,7 +1291,16 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                 ship.position += ship.velocity * dt;
                 if ship.ship_tier == 0 {
                     let dist = ship.position.distance(&config.megastation_pos);
-                    if dist >= MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY {
+                    if dist >= MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY
+                        && ctx
+                            .db
+                            .tutorial_state()
+                            .player()
+                            .find(&ship.owner)
+                            .is_some_and(|st| st.current_step == 1)
+                        && ore_in_scan_radius(ctx, ship.position, INITIAL_ASTEROID_SCAN_RADIUS)
+                            >= MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY
+                    {
                         advance_tutorial(ctx, ship.owner, 1, 2);
                     }
                 }
