@@ -34,7 +34,7 @@ fn ore_in_scan_radius(ctx: &ReducerContext, pos: Vec2, radius: f32) -> u32 {
 
 #[reducer(init)]
 pub fn init(ctx: &ReducerContext) -> Result<(), String> {
-    log::info!("Initializing Space Programming Game Server (v2.13)...");
+    log::info!("Initializing Space Programming Game Server (v2.14)...");
 
     // 1. Singleton Config Table
     if ctx.db.config().id().find(&0).is_none() {
