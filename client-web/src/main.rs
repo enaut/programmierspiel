@@ -786,13 +786,16 @@ fn RegistrationScreen(
                                     if let Ok(ctx_2d) =
                                         ctx_2d.dyn_into::<web_sys::CanvasRenderingContext2d>()
                                     {
+                                        let hue = match color_hue.try_read() {
+                                            Ok(v) => *v,
+                                            Err(_) => return false,
+                                        };
+                                        let sec_hue = match secondary_color_hue.try_read() {
+                                            Ok(v) => *v,
+                                            Err(_) => return false,
+                                        };
                                         render_drone1_preview(
-                                            &ctx_2d,
-                                            css_w,
-                                            css_h,
-                                            dpr,
-                                            *color_hue.read(),
-                                            *secondary_color_hue.read(),
+                                            &ctx_2d, css_w, css_h, dpr, hue, sec_hue,
                                         );
                                     }
                                 }
@@ -1078,22 +1081,6 @@ fn BuilderNavigationScreen(
     let p_hue = player.color_hue;
     let p_sec_hue = player.secondary_color_hue;
 
-    let mut resize_trigger = use_signal(|| 0u32);
-
-    use_effect(move || {
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(w) = web_sys::window() {
-                let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                    resize_trigger += 1;
-                });
-                let _ =
-                    w.add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref());
-                closure.forget();
-            }
-        }
-    });
-
     // Continuously render radar canvas via request_animation_frame with interpolation
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
@@ -1146,11 +1133,23 @@ fn BuilderNavigationScreen(
                                             if let Some(ref s) = current_ship {
                                                 let ships_slice = [s.clone()];
                                                 let time = js_sys::Date::now() / 1000.0;
-                                                let cam_x =
-                                                    s.position.x as f64 + *cam_offset_x.read();
-                                                let cam_y =
-                                                    s.position.y as f64 + *cam_offset_y.read();
-                                                let cur_zoom = *zoom.read();
+                                                let cam_x = match cam_offset_x.try_read() {
+                                                    Ok(v) => s.position.x as f64 + *v,
+                                                    Err(_) => return false,
+                                                };
+                                                let cam_y = match cam_offset_y.try_read() {
+                                                    Ok(v) => s.position.y as f64 + *v,
+                                                    Err(_) => return false,
+                                                };
+                                                let cur_zoom = match zoom.try_read() {
+                                                    Ok(v) => *v,
+                                                    Err(_) => return false,
+                                                };
+
+                                                let tm = match target_marker.try_read() {
+                                                    Ok(v) => v.clone(),
+                                                    Err(_) => return false,
+                                                };
 
                                                 render_player_radar(
                                                     &ctx_2d,
@@ -1171,7 +1170,7 @@ fn BuilderNavigationScreen(
                                                     &visible_asteroids,
                                                     &unidentified_objects,
                                                     &players,
-                                                    target_marker.read().clone(),
+                                                    tm,
                                                     None,
                                                     time,
                                                 );
@@ -1482,31 +1481,6 @@ fn BaseDashboardScreen(
     let mut drag_start = use_signal(|| (0.0f64, 0.0f64));
     let mut drag_distance = use_signal(|| 0.0f64);
 
-    // Periodic tick to refresh elapsed time reactively (for 30s API active window)
-    let mut time_tick = use_signal(|| 0u32);
-    use_effect(move || {
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(w) = web_sys::window() {
-                let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                    time_tick += 1;
-                });
-                let _ = w.set_interval_with_callback_and_timeout_and_arguments_0(
-                    closure.as_ref().unchecked_ref(),
-                    1000,
-                );
-                closure.forget();
-            }
-        }
-    });
-
-    let _ = time_tick();
-    let _is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
-        let ts_sec = (ts.to_micros_since_unix_epoch() / 1_000_000) as f64;
-        let now_sec = js_sys::Date::now() / 1000.0;
-        (now_sec - ts_sec) <= 30.0
-    });
-
     let active_riddles = (ctx.tables.my_active_riddle)();
     let current_riddle = active_riddles.first().cloned();
 
@@ -1625,22 +1599,6 @@ fn BaseDashboardScreen(
         }
     };
 
-    let mut resize_trigger = use_signal(|| 0u32);
-
-    use_effect(move || {
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(w) = web_sys::window() {
-                let closure = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                    resize_trigger += 1;
-                });
-                let _ =
-                    w.add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref());
-                closure.forget();
-            }
-        }
-    });
-
     let b_center_pos = base_pos.clone();
     // Continuously render local base radar via request_animation_frame with interpolation
     use_effect(move || {
@@ -1694,11 +1652,22 @@ fn BaseDashboardScreen(
 
                                                 let my_current_base = my_current_bases.first();
                                                 let time = js_sys::Date::now() / 1000.0;
-                                                let cam_x =
-                                                    b_center.x as f64 + *cam_offset_x.read();
-                                                let cam_y =
-                                                    b_center.y as f64 + *cam_offset_y.read();
-                                                let cur_zoom = *zoom.read();
+                                                let cam_x = match cam_offset_x.try_read() {
+                                                    Ok(v) => b_center.x as f64 + *v,
+                                                    Err(_) => return false,
+                                                };
+                                                let cam_y = match cam_offset_y.try_read() {
+                                                    Ok(v) => b_center.y as f64 + *v,
+                                                    Err(_) => return false,
+                                                };
+                                                let cur_zoom = match zoom.try_read() {
+                                                    Ok(v) => *v,
+                                                    Err(_) => return false,
+                                                };
+                                                let sel_target = match selected_target.try_read() {
+                                                    Ok(v) => v.clone(),
+                                                    Err(_) => return false,
+                                                };
 
                                                 render_player_radar(
                                                     &ctx_2d,
@@ -1720,7 +1689,7 @@ fn BaseDashboardScreen(
                                                     &unidentified_objects,
                                                     &players,
                                                     None,
-                                                    selected_target(),
+                                                    sel_target,
                                                     time,
                                                 );
                                             }
