@@ -19,6 +19,56 @@ const MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY: f32 = 250.0;
 const INITIAL_ASTEROID_SCAN_RADIUS: f32 = 300.0;
 const MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY: u32 = 400;
 
+/// Tutorial steps at which a command loot box is waiting in the Heimatbasis.
+pub const LOOT_BOX_STEPS: [u8; 6] = [5, 7, 9, 11, 13, 15];
+
+/// Ordered command keys contained in the loot box of the given tutorial step.
+pub fn loot_box_commands(step: u8) -> &'static [&'static str] {
+    match step {
+        5 => &[
+            "IF_LET_SOME",
+            "WORLD_FIRST_DRONE",
+            "WORLD_CLOSEST_ASTEROID",
+            "ACTIONS_MINE",
+        ],
+        7 => &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"],
+        9 => &[
+            "WORLD_FLEET_LEN",
+            "WORLD_BASE_STORED_ORE",
+            "ACTIONS_BUILD_DRONE_1",
+        ],
+        11 => &["FOR_IN_FLEET"],
+        13 => &[
+            "WORLD_ACTIVE_RIDDLE",
+            "ACTIONS_REQUEST_RESEARCH",
+            "CLONE_AND_SORT",
+            "ACTIONS_SOLVE_RIDDLE",
+        ],
+        15 => &["ACTIONS_BUILD_DRONE_2"],
+        _ => &[],
+    }
+}
+
+/// Idempotently records an unlocked command. Returns true if newly inserted.
+fn unlock_command_key(ctx: &ReducerContext, player: Identity, command_key: &str) -> bool {
+    let already = ctx
+        .db
+        .unlocked_command()
+        .player()
+        .filter(&player)
+        .any(|c| c.command_key == command_key);
+    if already {
+        return false;
+    }
+    ctx.db.unlocked_command().insert(UnlockedCommand {
+        id: 0,
+        player,
+        command_key: command_key.to_string(),
+        unlocked_at: ctx.timestamp,
+    });
+    true
+}
+
 fn ore_in_scan_radius(ctx: &ReducerContext, pos: Vec2, radius: f32) -> u32 {
     ctx.db
         .asteroid()
@@ -82,7 +132,7 @@ fn advance_tutorial(ctx: &ReducerContext, player_id: Identity, expected_step: u8
         if state.current_step == expected_step {
             state.current_step = next_step;
             state.step_started_at = ctx.timestamp;
-            if next_step >= 10 {
+            if next_step >= 16 {
                 state.completed_at = Some(ctx.timestamp);
             }
             ctx.db.tutorial_state().player().update(state);
@@ -533,6 +583,45 @@ pub fn advance_tutorial_step(ctx: &ReducerContext, current_step: u8) -> Result<(
     Ok(())
 }
 
+/// Claims the next not-yet-unlocked command of the loot box waiting at the current tutorial step.
+/// Advances the tutorial once the last command of the box has been claimed.
+#[reducer]
+pub fn claim_next_command(ctx: &ReducerContext) -> Result<(), String> {
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    let state = ctx
+        .db
+        .tutorial_state()
+        .player()
+        .find(&owner)
+        .ok_or("Tutorial state not found")?;
+    let step = state.current_step;
+    let commands = loot_box_commands(step);
+    if commands.is_empty() {
+        return Err("Keine Befehls-Lootbox verfügbar".to_string());
+    }
+
+    let unlocked: std::collections::HashSet<String> = ctx
+        .db
+        .unlocked_command()
+        .player()
+        .filter(&owner)
+        .map(|c| c.command_key)
+        .collect();
+
+    let remaining: Vec<&&str> = commands
+        .iter()
+        .filter(|k| !unlocked.contains(**k))
+        .collect();
+    if let Some(key) = remaining.first() {
+        unlock_command_key(ctx, owner, key);
+    }
+    // Advance once nothing besides the command just claimed was left.
+    if remaining.len() <= 1 {
+        advance_tutorial(ctx, owner, step, step + 1);
+    }
+    Ok(())
+}
+
 #[reducer]
 pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
     let (owner, _) = resolve_sender_identity(ctx)?;
@@ -614,7 +703,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
             "🛸",
         );
         if tier == 1 {
-            advance_tutorial(ctx, owner, 7, 8);
+            advance_tutorial(ctx, owner, 10, 11);
         }
     }
 
@@ -919,7 +1008,7 @@ pub fn submit_riddle_solution(
             "🧪",
         );
 
-        advance_tutorial(ctx, owner, 9, 10);
+        advance_tutorial(ctx, owner, 14, 15);
 
         let (level, progress) = match track {
             1 => (
@@ -1063,18 +1152,27 @@ pub fn admin_set_tutorial_step(
         return Err("Unauthorized: Only teacher admin can override tutorial steps".to_string());
     }
 
-    if target_step > 10 {
-        return Err("Target step must be between 0 and 10".to_string());
+    if target_step > 16 {
+        return Err("Target step must be between 0 and 16".to_string());
     }
 
     if let Some(mut state) = ctx.db.tutorial_state().player().find(&target_player) {
         let old = state.current_step;
         state.current_step = target_step;
         state.step_started_at = ctx.timestamp;
-        if target_step >= 10 {
+        if target_step >= 16 {
             state.completed_at = Some(ctx.timestamp);
         }
         ctx.db.tutorial_state().player().update(state);
+
+        // Unlock commands of all loot boxes that were passed (never removes unlocks).
+        for box_step in LOOT_BOX_STEPS {
+            if box_step < target_step {
+                for key in loot_box_commands(box_step) {
+                    unlock_command_key(ctx, target_player, key);
+                }
+            }
+        }
 
         if let Some(mut player) = ctx.db.player().identity().find(&target_player) {
             player.tutorial_step = target_step;
@@ -1249,11 +1347,11 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 "⛏️",
                             );
                             if base.stored_ore >= 50 {
-                                advance_tutorial(ctx, ship.owner, 6, 7);
+                                advance_tutorial(ctx, ship.owner, 8, 9);
                             }
                             let fleet_count = ctx.db.ship().owner().filter(&ship.owner).count();
                             if fleet_count >= 2 {
-                                advance_tutorial(ctx, ship.owner, 8, 9);
+                                advance_tutorial(ctx, ship.owner, 12, 13);
                             }
                         }
                         // Recharge energy
@@ -1329,7 +1427,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                         if amount > 0 && ship.cargo_ore + amount <= ship.max_cargo {
                             ship.cargo_ore += amount;
                             if ship.cargo_ore > 0 {
-                                advance_tutorial(ctx, ship.owner, 5, 6);
+                                advance_tutorial(ctx, ship.owner, 6, 7);
                             }
                             asteroid.remaining_ore = asteroid.remaining_ore.saturating_sub(amount);
 

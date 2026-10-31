@@ -1,4 +1,5 @@
 use crate::audio::SoundEffects;
+use crate::commands::{commands_for_coding_step, is_loot_box_step};
 use crate::module_bindings::{GameEvent, Ship};
 use dioxus::prelude::*;
 
@@ -117,6 +118,102 @@ pub fn get_step_info(step: u8) -> StepInfo {
             ],
         },
         5 => StepInfo {
+            title: "🎁 Befehls-Lootbox #1: Bergungs-Protokolle",
+            story: "Dein Bot läuft! Zur Belohnung wartet in deiner Heimatbasis eine Lootbox mit den ersten Befehlen, um Erz zu schürfen.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
+                    code_hint: None,
+                },
+                SubTask {
+                    num: "2",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
+                    code_hint: None,
+                },
+            ],
+        },
+        7 => StepInfo {
+            title: "🎁 Befehls-Lootbox #2: Laderaum & Andocken",
+            story: "Erstes Erz im Frachtraum! In deiner Heimatbasis wartet eine Lootbox mit Befehlen zum Verzweigen und Andocken.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
+                    code_hint: None,
+                },
+                SubTask {
+                    num: "2",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
+                    code_hint: None,
+                },
+            ],
+        },
+        9 => StepInfo {
+            title: "🎁 Befehls-Lootbox #3: Flotten-Konstruktion",
+            story: "Deine Lieferung war erfolgreich! Öffne die Lootbox in der Heimatbasis, um zu lernen, wie du neue Drohnen baust.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
+                    code_hint: None,
+                },
+                SubTask {
+                    num: "2",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
+                    code_hint: None,
+                },
+            ],
+        },
+        11 => StepInfo {
+            title: "🎁 Befehls-Lootbox #4: Schwarm-Schleife",
+            story: "Zwei Drohnen im Einsatz! In der Heimatbasis wartet die Schleife, mit der du die ganze Flotte steuerst.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
+                    code_hint: None,
+                },
+                SubTask {
+                    num: "2",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
+                    code_hint: None,
+                },
+            ],
+        },
+        13 => StepInfo {
+            title: "🎁 Befehls-Lootbox #5: Telemetrie & Algorithmen",
+            story: "Deine Flotte arbeitet! Öffne die Lootbox in der Heimatbasis für die Befehle der Sensorforschung.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
+                    code_hint: None,
+                },
+                SubTask {
+                    num: "2",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
+                    code_hint: None,
+                },
+            ],
+        },
+        15 => StepInfo {
+            title: "🎁 Befehls-Lootbox #6: Schwere Flotte",
+            story: "Forschung abgeschlossen! Die letzte Lootbox verrät dir, wie du schwere Stufe-2-Drohnen baust.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
+                    code_hint: None,
+                },
+                SubTask {
+                    num: "2",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
+                    code_hint: None,
+                },
+            ],
+        },
+        6 => StepInfo {
             title: "Der erste Schürfzug (Drohne steuern & abbauen)",
             story: "Deine Drohne wartet auf Instruktionen. Im Weltraum erfassen Sensoren alle Objekte in Reichweite. Nutze world.closest_asteroid_with_ore(...), um einen erzhaltigen Asteroiden zu finden, und actions.mine(...), um den Abbau-Befehl zu erteilen.",
             subtasks: vec![
@@ -139,7 +236,7 @@ pub fn get_step_info(step: u8) -> StepInfo {
                 },
             ],
         },
-        6 => StepInfo {
+        8 => StepInfo {
             title: "Frachtraum voll! Kurs Heimatbasis",
             story: "Deine Drohne kann nur 50 Einheiten Erz tragen. Ist der Frachtraum voll, stoppt der Bohrer automatisch. Damit das Erz verarbeitet werden kann, muss die Drohne an der Heimatbasis andocken. Ziel: Sammle mindestens 50 Erz an deiner Basis!",
             subtasks: vec![
@@ -160,7 +257,7 @@ pub fn get_step_info(step: u8) -> StepInfo {
                 },
             ],
         },
-        7 => StepInfo {
+        10 => StepInfo {
             title: "Flottenausbau (Zweite Drohne bauen)",
             story: "Mit 50 Einheiten Erz im Lager verfügt deine Basis über genügend Rohstoffe, um ein weiteres Schiff der Stufe 1 in Auftrag zu geben. Mehr Drohnen bedeuten schnellere Rohstoffförderung!",
             subtasks: vec![
@@ -178,7 +275,7 @@ pub fn get_step_info(step: u8) -> StepInfo {
                 },
             ],
         },
-        8 => StepInfo {
+        12 => StepInfo {
             title: "Multitasking für Fortgeschrittene (Flottenschleife)",
             story: "Bisher hat dein Code nur die erste Drohne mit world.first_drone() gesteuert. In Rust nutzen wir eine for-Schleife, um jedem Schiff in world.fleet automatisch denselben Ablauf zuzuweisen.",
             subtasks: vec![
@@ -199,7 +296,7 @@ pub fn get_step_info(step: u8) -> StepInfo {
                 },
             ],
         },
-        9 => StepInfo {
+        14 => StepInfo {
             title: "Sensor-Upgrade durch Algorithmen",
             story: "Die Sensoren deiner Heimatbasis erfassen Asteroiden aktuell nur auf kurze Distanz. Um weiter entfernte Erzvorkommen zu entdecken, musst du das Sensorsystem kalibrieren, indem du Messreihen sortierst.",
             subtasks: vec![
@@ -255,6 +352,8 @@ pub fn QuestDrawer(
     events: Vec<GameEvent>,
     ships: Vec<Ship>,
     on_advance: EventHandler<u8>,
+    on_open_hall: EventHandler<Option<String>>,
+    on_open_base: EventHandler<()>,
 ) -> Element {
     let mut last_seen_step = use_signal(|| step);
     let mut show_celebration = use_signal(|| false);
@@ -269,6 +368,7 @@ pub fn QuestDrawer(
     });
 
     let step_info = get_step_info(step);
+    let coding_commands = commands_for_coding_step(step);
 
     // Filter kritische Events der letzten 20 Sekunden
     let critical_alert = events
@@ -288,7 +388,7 @@ pub fn QuestDrawer(
             button {
                 style: "position: fixed; left: 16px; top: 76px; z-index: 50; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.5); color: #00e5ff; padding: 8px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 229, 255, 0.2); backdrop-filter: blur(8px); display: flex; align-items: center; gap: 8px;",
                 onclick: move |_| is_collapsed.set(false),
-                span { "🛸 Mission: Stufe {step}/10" }
+                span { "🛸 Mission: Stufe {step}/16" }
                 span { style: "font-size: 10px; color: #94a3b8;", "▶ Ausklappen" }
             }
         };
@@ -307,9 +407,9 @@ pub fn QuestDrawer(
                         style: "display: flex; align-items: center; gap: 8px;",
                         span {
                             style: "background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;",
-                            "STUFE {step} / 10"
+                            "STUFE {step} / 16"
                         }
-                        if step == 10 {
+                        if step == 16 {
                             span { style: "font-size: 11px; color: #ffd700; font-weight: 700;", "🏆 MEISTER" }
                         }
                     }
@@ -323,7 +423,7 @@ pub fn QuestDrawer(
                 div {
                     style: "width: 100%; height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden;",
                     div {
-                        style: "height: 100%; width: {(step as f32 / 10.0) * 100.0}%; background: linear-gradient(90deg, #00b4d8, #00e5ff); border-radius: 3px; transition: width 0.5s ease-out;"
+                        style: "height: 100%; width: {(step as f32 / 16.0) * 100.0}%; background: linear-gradient(90deg, #00b4d8, #00e5ff); border-radius: 3px; transition: width 0.5s ease-out;"
                     }
                 }
             }
@@ -388,7 +488,7 @@ pub fn QuestDrawer(
                                 div { "{sub.text}" }
                                 if let Some(code) = sub.code_hint {
                                     div {
-                                        style: "margin-top: 6px; background: #020617; border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 6px; padding: 6px 8px; font-family: monospace; font-size: 11px; color: #38bdf8; word-break: break-all;",
+                                        style: "margin-top: 6px; background: #020617; border: 1px solid rgba(0, 229, 255, 0.2); border-radius: 6px; padding: 6px 8px; font-family: monospace; font-size: 11px; color: #38bdf8; word-break: break-all; user-select: none;",
                                         "{code}"
                                     }
                                 }
@@ -397,8 +497,41 @@ pub fn QuestDrawer(
                     }
                 }
 
+                // Lootbox-Shortcut zur Heimatbasis
+                if is_loot_box_step(step) {
+                    button {
+                        style: "background: linear-gradient(90deg, #f59e0b, #fde047); color: #020617; border: none; padding: 12px 16px; border-radius: 10px; font-weight: 800; font-size: 13px; cursor: pointer; animation: pulse 1s infinite;",
+                        onclick: move |_| on_open_base.call(()),
+                        "🏛️ Heimatbasis öffnen & Lootbox holen"
+                    }
+                }
+
+                // Befehle dieser Mission zum Nachschlagen
+                if !coding_commands.is_empty() {
+                    div {
+                        style: "display: flex; flex-direction: column; gap: 8px;",
+                        div { style: "font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px;", "🆕 BEFEHLE DIESER MISSION – KLICKE ZUM NACHSCHLAGEN:" }
+                        div {
+                            style: "display: flex; flex-wrap: wrap; gap: 6px;",
+                            for cmd in coding_commands.iter() {
+                                {
+                                    let key = cmd.key.to_string();
+                                    rsx! {
+                                        button {
+                                            key: "{cmd.key}",
+                                            style: "background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.4); color: #fde047; padding: 4px 8px; border-radius: 6px; font-family: monospace; font-size: 11px; cursor: pointer;",
+                                            onclick: move |_| on_open_hall.call(Some(key.clone())),
+                                            "{cmd.icon} {cmd.title}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Feste Fehlerhilfe-Checkliste (erst ab Stufe 5, wenn in Zed eigener Code geschrieben wird)
-                if step >= 5 {
+                if step >= 6 {
                     div {
                         style: "background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 12px;",
                         div { style: "font-size: 11px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;", "🛠️ Fehlerhilfe & Checkliste" }
@@ -421,7 +554,7 @@ pub fn QuestDrawer(
                         onclick: move |_| on_advance.call(3),
                         "Ich habe Zed geöffnet ➔ Weiter zu Schritt 4"
                     }
-                } else if step == 10 {
+                } else if step == 16 {
                     div {
                         style: "color: #ffd700; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px;",
                         span { "🏆" }

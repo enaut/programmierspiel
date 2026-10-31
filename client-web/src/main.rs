@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod commands;
 pub mod module_bindings;
 pub mod oauth;
 pub mod radar;
@@ -6,6 +7,7 @@ pub mod tutorial;
 
 use ::dioxus::prelude::*;
 use ::dioxus::signals::SyncSignal;
+use commands::{CommandHallModal, LootBoxRevealModal, is_loot_box_step};
 use module_bindings::advance_tutorial_step_reducer::advance_tutorial_step;
 use module_bindings::build_ship_reducer::build_ship;
 use module_bindings::command_ship_reducer::command_ship;
@@ -412,6 +414,7 @@ fn CockpitApp() -> Element {
         "SELECT * FROM config",
         "SELECT * FROM player",
         "SELECT * FROM player_achievement",
+        "SELECT * FROM unlocked_command",
         "SELECT * FROM my_base",
         "SELECT * FROM my_ships",
         "SELECT * FROM visible_bases",
@@ -529,6 +532,9 @@ fn CockpitApp() -> Element {
     let mut show_scoreboard = use_signal(|| false);
     let mut show_heimatbasis_modal = use_signal(|| false);
     let is_tutorial_collapsed = use_signal(|| false);
+    let mut show_command_hall = use_signal(|| false);
+    let mut hall_initial = use_signal(|| Option::<String>::None);
+    let mut loot_open_step = use_signal(|| Option::<u8>::None);
 
     let my_player = my_identity.and_then(|id| players.iter().find(|p| p.identity == id).cloned());
     let my_base = my_bases.first().cloned();
@@ -537,6 +543,18 @@ fn CockpitApp() -> Element {
     let my_unlocked_count = my_identity
         .map(|id| achievements.iter().filter(|a| a.player == id).count())
         .unwrap_or(0);
+
+    let my_unlocked_commands: Vec<String> = my_identity
+        .map(|id| {
+            (ctx.tables.unlocked_command)()
+                .iter()
+                .filter(|c| c.player == id)
+                .map(|c| c.command_key.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let my_step = my_player.as_ref().map(|p| p.tutorial_step).unwrap_or(0);
+    let loot_ready = is_loot_box_step(my_step);
 
     let reg_err_msg = use_signal_sync(|| None::<String>);
     let reg_is_submitting = use_signal_sync(|| false);
@@ -569,6 +587,10 @@ fn CockpitApp() -> Element {
                             style: "background: rgba(0, 229, 255, 0.1); hover:background: rgba(0, 229, 255, 0.2); border: 1px solid rgba(0, 229, 255, 0.35); color: #00e5ff; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 8px;",
                             onclick: move |_| show_heimatbasis_modal.set(!show_heimatbasis_modal()),
                             title: "Heimatbasis & Sensor-Forschungszentrum öffnen",
+                            if loot_ready {
+                                span { style: "color: #fde047; animation: pulse 1s infinite;", "🎁 LOOTBOX!" }
+                                span { style: "color: #64748b;", "|" }
+                            }
                             span { style: "color: #ffd700;", "⛏️ {base.stored_ore} Erz" }
                             span { style: "color: #64748b;", "|" }
                             span { style: "color: #00e5ff;", "⚡ {base.stored_energy} Energie" }
@@ -596,6 +618,15 @@ fn CockpitApp() -> Element {
                             span { "🔑" }
                             span { style: "font-weight: 600;", "{g_user}" }
                         }
+                    }
+                    button {
+                        style: "background: rgba(0, 229, 255, 0.12); border: 1px solid rgba(0, 229, 255, 0.4); color: #00e5ff; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;",
+                        onclick: move |_| {
+                            hall_initial.set(None);
+                            show_command_hall.set(true);
+                        },
+                        span { "📖" }
+                        span { "Befehls-Halle ({my_unlocked_commands.len()}/16)" }
                     }
                     button {
                         style: "background: rgba(250, 204, 21, 0.15); border: 1px solid rgba(250, 204, 21, 0.4); color: #fde047; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;",
@@ -701,7 +732,30 @@ fn CockpitApp() -> Element {
                                 let _ = conn.reducers.advance_tutorial_step(target_step);
                             }
                         },
+                        on_open_hall: move |key: Option<String>| {
+                            hall_initial.set(key);
+                            show_command_hall.set(true);
+                        },
+                        on_open_base: move |_| show_heimatbasis_modal.set(true),
                     }
+                }
+            }
+
+            // Befehls-Ruhmeshalle
+            if show_command_hall() {
+                CommandHallModal {
+                    unlocked: my_unlocked_commands.clone(),
+                    initial: hall_initial(),
+                    on_close: move |_| show_command_hall.set(false),
+                }
+            }
+
+            // Lootbox-Enthüllung (nur solange die Lootbox der aktuellen Stufe wartet)
+            if loot_ready && loot_open_step() == Some(my_step) {
+                LootBoxRevealModal {
+                    step: my_step,
+                    unlocked: my_unlocked_commands.clone(),
+                    on_close: move |_| loot_open_step.set(None),
                 }
             }
 
@@ -725,6 +779,11 @@ fn CockpitApp() -> Element {
                             token: token.clone(),
                             stdb_url: stdb_url.clone(),
                             current_riddle: current_riddle.clone(),
+                            loot_ready,
+                            on_open_loot: move |_| {
+                                show_heimatbasis_modal.set(false);
+                                loot_open_step.set(Some(my_step));
+                            },
                             on_close: move |_| show_heimatbasis_modal.set(false),
                         }
                     }
@@ -2525,6 +2584,8 @@ fn HeimatbasisModal(
     token: String,
     stdb_url: String,
     current_riddle: Option<PublicRiddle>,
+    loot_ready: bool,
+    on_open_loot: EventHandler<()>,
     on_close: EventHandler<()>,
 ) -> Element {
     let ctx = use_spacetimedb_context();
@@ -2654,6 +2715,26 @@ fn HeimatbasisModal(
                 // Body
                 div {
                     style: "padding: 24px; display: flex; flex-direction: column; gap: 20px;",
+
+                    // 0. Befehls-Lootbox
+                    if loot_ready {
+                        div {
+                            style: "background: linear-gradient(135deg, rgba(250, 204, 21, 0.18), rgba(15, 23, 42, 0.95)); border: 2px solid rgba(250, 204, 21, 0.7); border-radius: 12px; padding: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; animation: pulse 1.5s infinite;",
+                            div {
+                                style: "display: flex; align-items: center; gap: 14px;",
+                                span { style: "font-size: 44px;", "🎁" }
+                                div {
+                                    div { style: "font-size: 15px; font-weight: 800; color: #fde047;", "Neue Befehls-Lootbox!" }
+                                    div { style: "font-size: 12px; color: #cbd5e1;", "Öffne sie, um neue Befehle für deinen Bot zu lernen." }
+                                }
+                            }
+                            button {
+                                style: "background: linear-gradient(90deg, #f59e0b, #fde047); color: #020617; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 800; font-size: 13px; cursor: pointer; white-space: nowrap;",
+                                onclick: move |_| on_open_loot.call(()),
+                                "Lootbox öffnen"
+                            }
+                        }
+                    }
 
                     // 1. Bot & AI Identity Management Panel
                     div {

@@ -417,16 +417,22 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
 
     let tutorial_step_label = |step: u8| -> &'static str {
         match step {
-            0 => "0/10 Registrierung",
-            1 => "1/10 Flug",
-            2 => "2/10 Basisbau",
-            3 => "3/10 Zed Editor",
-            4 => "4/10 Bot Start",
-            5 => "5/10 Erstes Erz",
-            6 => "6/10 Lieferung",
-            7 => "7/10 Drohne 2",
-            8 => "8/10 Flottenloop",
-            9 => "9/10 Forschung",
+            0 => "0/16 Registrierung",
+            1 => "1/16 Flug",
+            2 => "2/16 Basisbau",
+            3 => "3/16 Zed Editor",
+            4 => "4/16 Bot Start",
+            5 => "5/16 🎁 Lootbox 1",
+            6 => "6/16 Erstes Erz",
+            7 => "7/16 🎁 Lootbox 2",
+            8 => "8/16 Lieferung",
+            9 => "9/16 🎁 Lootbox 3",
+            10 => "10/16 Drohne 2",
+            11 => "11/16 🎁 Lootbox 4",
+            12 => "12/16 Flottenloop",
+            13 => "13/16 🎁 Lootbox 5",
+            14 => "14/16 Forschung",
+            15 => "15/16 🎁 Lootbox 6",
             _ => "Sandbox 🚀",
         }
     };
@@ -469,7 +475,7 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
                             div {
                                 style: "display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-top: 2px;",
                                 span {
-                                    style: if player.tutorial_step >= 10 {
+                                    style: if player.tutorial_step >= 16 {
                                         "padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; font-weight: 600;"
                                     } else {
                                         "padding: 2px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.15); color: #00e5ff; font-weight: 600;"

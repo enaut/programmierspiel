@@ -280,6 +280,18 @@ pub struct PlayerAchievement {
     pub unlocked_at: Timestamp,
 }
 
+#[table(accessor = unlocked_command, public)]
+#[derive(Debug, Clone)]
+pub struct UnlockedCommand {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub player: Identity,
+    pub command_key: String,
+    pub unlocked_at: Timestamp,
+}
+
 #[table(accessor = tick_schedule, scheduled(game_tick))]
 #[derive(Debug, Clone)]
 pub struct TickSchedule {
