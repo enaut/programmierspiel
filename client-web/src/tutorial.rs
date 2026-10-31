@@ -345,6 +345,54 @@ pub fn get_step_info(step: u8) -> StepInfo {
     }
 }
 
+fn viewed_step_after_progress_change(previous: u8, current: u8, viewed: u8) -> u8 {
+    if current > previous {
+        current
+    } else {
+        viewed.min(current)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::viewed_step_after_progress_change;
+
+    #[test]
+    fn progress_shows_the_new_step_even_when_viewing_an_older_one() {
+        assert_eq!(viewed_step_after_progress_change(8, 9, 3), 9);
+        assert_eq!(viewed_step_after_progress_change(3, 5, 0), 5);
+    }
+
+    #[test]
+    fn reset_keeps_the_view_if_it_is_still_available() {
+        assert_eq!(viewed_step_after_progress_change(8, 5, 3), 3);
+        assert_eq!(viewed_step_after_progress_change(8, 5, 5), 5);
+        assert_eq!(viewed_step_after_progress_change(8, 5, 7), 5);
+        assert_eq!(viewed_step_after_progress_change(8, 0, 3), 0);
+    }
+
+    #[test]
+    fn progress_after_a_reset_shows_the_new_step_again() {
+        let viewed = viewed_step_after_progress_change(8, 3, 7);
+        assert_eq!(viewed, 3);
+        assert_eq!(viewed_step_after_progress_change(3, 4, viewed), 4);
+        assert_eq!(viewed_step_after_progress_change(16, 16, 0), 0);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn reset_quest_scroll() {
+    if let Some(element) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("quest-drawer-scroll"))
+    {
+        element.set_scroll_top(0);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn reset_quest_scroll() {}
+
 #[component]
 pub fn QuestDrawer(
     step: u8,
@@ -356,19 +404,36 @@ pub fn QuestDrawer(
     on_open_base: EventHandler<()>,
 ) -> Element {
     let mut last_seen_step = use_signal(|| step);
+    let mut viewed_step = use_signal(|| step);
     let mut show_celebration = use_signal(|| false);
 
-    // Audio & Feier-Trigger bei Stufenaufstieg
-    use_effect(move || {
-        if step > last_seen_step() {
-            last_seen_step.set(step);
-            show_celebration.set(true);
-            SoundEffects::play_success_ping();
+    use_effect(use_reactive((&step,), move |(current_step,)| {
+        let previous_step = *last_seen_step.peek();
+        if current_step != previous_step {
+            last_seen_step.set(current_step);
+            let viewed = *viewed_step.peek();
+            let next_viewed =
+                viewed_step_after_progress_change(previous_step, current_step, viewed);
+            if next_viewed != viewed {
+                viewed_step.set(next_viewed);
+            }
+            if current_step > previous_step {
+                is_collapsed.set(false);
+                show_celebration.set(true);
+                SoundEffects::play_success_ping();
+            }
         }
+    }));
+
+    use_effect(move || {
+        let _ = viewed_step();
+        reset_quest_scroll();
     });
 
-    let step_info = get_step_info(step);
-    let coding_commands = commands_for_coding_step(step);
+    let viewed = viewed_step().min(step);
+    let is_current = viewed == step;
+    let step_info = get_step_info(viewed);
+    let coding_commands = commands_for_coding_step(viewed);
 
     // Filter kritische Events der letzten 20 Sekunden
     let critical_alert = events
@@ -402,21 +467,51 @@ pub fn QuestDrawer(
             div {
                 style: "padding: 14px 18px; background: rgba(15, 23, 42, 0.9); border-bottom: 1px solid rgba(0, 229, 255, 0.2); display: flex; flex-direction: column; gap: 8px;",
                 div {
-                    style: "display: flex; justify-content: space-between; align-items: center;",
+                    style: "display: flex; justify-content: space-between; align-items: center; gap: 8px;",
                     div {
                         style: "display: flex; align-items: center; gap: 8px;",
-                        span {
-                            style: "background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;",
-                            "STUFE {step} / 16"
+                        if viewed > 0 {
+                            button {
+                                style: "background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #f1f5f9; border-radius: 6px; padding: 5px 10px; cursor: pointer;",
+                                aria_label: "Vorherige Stufe",
+                                onclick: move |_| viewed_step.set(viewed.saturating_sub(1)),
+                                "◀"
+                            }
                         }
-                        if step == 16 {
-                            span { style: "font-size: 11px; color: #ffd700; font-weight: 700;", "🏆 MEISTER" }
+                        span {
+                            style: "background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; white-space: nowrap;",
+                            "STUFE {viewed} / 16"
                         }
                     }
-                    button {
-                        style: "background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #94a3b8; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all 0.2s;",
-                        onclick: move |_| is_collapsed.set(true),
-                        "◀"
+                    div {
+                        style: "display: flex; align-items: center; gap: 8px;",
+                        if !is_current {
+                            button {
+                                style: "background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #f1f5f9; border-radius: 6px; padding: 5px 10px; cursor: pointer;",
+                                aria_label: "Nächste Stufe",
+                                onclick: move |_| viewed_step.set(viewed.saturating_add(1).min(step)),
+                                "▶"
+                            }
+                            button {
+                                style: "background: rgba(0, 229, 255, 0.12); border: 1px solid rgba(0, 229, 255, 0.3); color: #00e5ff; border-radius: 6px; padding: 5px 10px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap;",
+                                onclick: move |_| viewed_step.set(step),
+                                "Zur aktuellen Mission"
+                            }
+                        }
+                        button {
+                            style: "background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #94a3b8; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; transition: all 0.2s;",
+                            aria_label: "Mission einklappen",
+                            title: "Mission einklappen",
+                            onclick: move |_| is_collapsed.set(true),
+                            "✗"
+                        }
+                    }
+                }
+                div {
+                    style: "font-size: 11px; color: #94a3b8;",
+                    "Aktueller Fortschritt: Stufe {step} / 16"
+                    if step == 16 {
+                        span { style: "margin-left: 8px; color: #ffd700; font-weight: 700;", "🏆 MEISTER" }
                     }
                 }
                 // Fortschrittsbalken
@@ -464,6 +559,7 @@ pub fn QuestDrawer(
 
             // Scrollbarer Aufgabenbereich
             div {
+                id: "quest-drawer-scroll",
                 style: "flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 16px;",
 
                 // Titel & Story
@@ -498,7 +594,7 @@ pub fn QuestDrawer(
                 }
 
                 // Lootbox-Shortcut zur Heimatbasis
-                if is_loot_box_step(step) {
+                if is_current && is_loot_box_step(viewed) {
                     button {
                         style: "background: linear-gradient(90deg, #f59e0b, #fde047); color: #020617; border: none; padding: 12px 16px; border-radius: 10px; font-weight: 800; font-size: 13px; cursor: pointer; animation: pulse 1s infinite;",
                         onclick: move |_| on_open_base.call(()),
@@ -531,7 +627,7 @@ pub fn QuestDrawer(
                 }
 
                 // Feste Fehlerhilfe-Checkliste (erst ab Stufe 5, wenn in Zed eigener Code geschrieben wird)
-                if step >= 6 {
+                if viewed >= 6 {
                     div {
                         style: "background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 12px;",
                         div { style: "font-size: 11px; font-weight: 700; color: #cbd5e1; margin-bottom: 6px;", "🛠️ Fehlerhilfe & Checkliste" }
@@ -548,7 +644,12 @@ pub fn QuestDrawer(
             // Footer mit Weiter-Button nur für Stufe 3
             div {
                 style: "padding: 14px 18px; background: rgba(15, 23, 42, 0.95); border-top: 1px solid rgba(0, 229, 255, 0.2); display: flex; justify-content: center; align-items: center;",
-                if step == 3 {
+                if !is_current {
+                    div {
+                        style: "color: #94a3b8; font-size: 11px; font-weight: 600;",
+                        "✓ Stufe abgeschlossen"
+                    }
+                } else if step == 3 {
                     button {
                         style: "width: 100%; background: linear-gradient(90deg, #0284c7, #00e5ff); color: #020617; border: none; padding: 10px 16px; border-radius: 8px; font-weight: 800; font-size: 13px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 14px rgba(0, 229, 255, 0.3);",
                         onclick: move |_| on_advance.call(3),
