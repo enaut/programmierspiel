@@ -917,10 +917,10 @@ pub fn render_player_radar(
         // 4. Draw Identified Asteroids
         let mut asteroid_pos_map = HashMap::new();
 
-        // Spotlight highlight for tutorial step 5 (target closest asteroid with ore)
+        // Spotlight highlight for tutorial step 10 (target closest asteroid with ore)
         if let Some(first_drone) = my_ships.first() {
             if let Some(player_me) = players.iter().find(|p| p.identity == first_drone.owner) {
-                if player_me.tutorial_step == 5 {
+                if player_me.tutorial_step == 10 {
                     if let Some(target_ast) = visible_asteroids
                         .iter()
                         .filter(|a| a.remaining_ore > 0)

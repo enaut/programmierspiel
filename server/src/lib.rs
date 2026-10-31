@@ -20,31 +20,29 @@ const INITIAL_ASTEROID_SCAN_RADIUS: f32 = 300.0;
 const MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY: u32 = 400;
 
 /// Tutorial steps at which a command loot box is waiting in the Heimatbasis.
-pub const LOOT_BOX_STEPS: [u8; 6] = [5, 7, 9, 11, 13, 15];
+pub const LOOT_BOX_STEPS: [u8; 8] = [5, 7, 9, 11, 13, 15, 17, 19];
+const TUTORIAL_COMPLETED_STEP: u8 = 20;
 
 /// Ordered command keys contained in the loot box of the given tutorial step.
 pub fn loot_box_commands(step: u8) -> &'static [&'static str] {
     match step {
-        5 => &[
-            "IF_LET_SOME",
-            "WORLD_FIRST_DRONE",
-            "WORLD_CLOSEST_ASTEROID",
-            "ACTIONS_MINE",
-        ],
-        7 => &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"],
-        9 => &[
+        5 => &["IF_LET_SOME", "WORLD_FIRST_DRONE"],
+        7 => &["WORLD_CLOSEST_ASTEROID"],
+        9 => &["ACTIONS_MINE"],
+        11 => &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"],
+        13 => &[
             "WORLD_FLEET_LEN",
             "WORLD_BASE_STORED_ORE",
             "ACTIONS_BUILD_DRONE_1",
         ],
-        11 => &["FOR_IN_FLEET"],
-        13 => &[
+        15 => &["FOR_IN_FLEET"],
+        17 => &[
             "WORLD_ACTIVE_RIDDLE",
             "ACTIONS_REQUEST_RESEARCH",
             "CLONE_AND_SORT",
             "ACTIONS_SOLVE_RIDDLE",
         ],
-        15 => &["ACTIONS_BUILD_DRONE_2"],
+        19 => &["ACTIONS_BUILD_DRONE_2"],
         _ => &[],
     }
 }
@@ -132,9 +130,7 @@ fn advance_tutorial(ctx: &ReducerContext, player_id: Identity, expected_step: u8
         if state.current_step == expected_step {
             state.current_step = next_step;
             state.step_started_at = ctx.timestamp;
-            if next_step >= 16 {
-                state.completed_at = Some(ctx.timestamp);
-            }
+            state.completed_at = (next_step >= TUTORIAL_COMPLETED_STEP).then_some(ctx.timestamp);
             ctx.db.tutorial_state().player().update(state);
 
             if let Some(mut player) = ctx.db.player().identity().find(&player_id) {
@@ -164,8 +160,27 @@ fn record_api_activity(ctx: &ReducerContext, sender: spacetimedb::Identity) {
         player.last_api_activity = Some(ctx.timestamp);
         player.has_api_connected = true;
         ctx.db.player().identity().update(player);
-        advance_tutorial(ctx, sender, 3, 5);
-        advance_tutorial(ctx, sender, 4, 5);
+    }
+}
+
+fn is_home_base_agent(agent: &AiAgent, base: &BaseStation) -> bool {
+    !agent.is_revoked
+        && agent.owner == base.owner
+        && agent.role == 0
+        && agent.bound_entity_id == base.base_id
+}
+
+fn advance_if_base_agent_connected(ctx: &ReducerContext, owner: Identity) {
+    if let Some(base) = ctx.db.base_station().owner().find(&owner) {
+        let connected = ctx
+            .db
+            .ai_agent()
+            .owner()
+            .filter(&owner)
+            .any(|agent| is_home_base_agent(&agent, &base));
+        if connected {
+            advance_tutorial(ctx, owner, 4, 5);
+        }
     }
 }
 
@@ -285,6 +300,10 @@ pub fn register_ai_agent(
             created_at: ctx.timestamp,
             is_revoked: false,
         });
+    }
+
+    if role == 0 {
+        advance_if_base_agent_connected(ctx, sender);
     }
 
     log::info!(
@@ -580,6 +599,106 @@ pub fn advance_tutorial_step(ctx: &ReducerContext, current_step: u8) -> Result<(
     }
 
     advance_tutorial(ctx, owner, 3, 4);
+    advance_if_base_agent_connected(ctx, owner);
+    Ok(())
+}
+
+fn first_tutorial_drone(ships: impl Iterator<Item = Ship>, base: &BaseStation) -> Option<Ship> {
+    ships
+        .filter(|ship| {
+            ship.owner == base.owner && ship.position.distance(&base.position) <= base.signal_radius
+        })
+        .min_by_key(|ship| ship.ship_id)
+}
+
+fn coordinates_match(position: Vec2, x: i32, y: i32) -> bool {
+    // Rust's {:.0} formatting rounds ties to even, unlike f32::round().
+    f64::from(position.x).round_ties_even() == f64::from(x)
+        && f64::from(position.y).round_ties_even() == f64::from(y)
+}
+
+fn tutorial_asteroid_is_visible(
+    mut asteroids: impl Iterator<Item = PerceivedAsteroid>,
+    owner: Identity,
+    asteroid_id: u32,
+) -> bool {
+    asteroids.any(|asteroid| asteroid.viewer == owner && asteroid.asteroid_id == asteroid_id)
+}
+
+fn tutorial_input_error(ctx: &ReducerContext, owner: Identity, event_type: &str, message: &str) {
+    ctx.db.game_event().insert(GameEvent {
+        event_id: 0,
+        player: owner,
+        event_type: event_type.to_string(),
+        message: message.to_string(),
+        timestamp: ctx.timestamp,
+    });
+}
+
+#[reducer]
+pub fn submit_drone_coordinates(ctx: &ReducerContext, x: i32, y: i32) -> Result<(), String> {
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    let state = ctx
+        .db
+        .tutorial_state()
+        .player()
+        .find(&owner)
+        .ok_or("Tutorial state not found")?;
+    if state.current_step != 6 {
+        return Err("Die Koordinatenübung ist nur in Tutorial-Stufe 6 verfügbar".to_string());
+    }
+
+    let drone = ctx
+        .db
+        .base_station()
+        .owner()
+        .find(&owner)
+        .and_then(|base| first_tutorial_drone(ctx.db.ship().owner().filter(&owner), &base));
+    match drone {
+        None => tutorial_input_error(
+            ctx,
+            owner,
+            "TUTORIAL_COORDINATES_ERROR",
+            "Keine eigene Drohne im Signalbereich der Heimatbasis sichtbar. Bitte erneut versuchen.",
+        ),
+        Some(drone) if !coordinates_match(drone.position, x, y) => tutorial_input_error(
+            ctx,
+            owner,
+            "TUTORIAL_COORDINATES_ERROR",
+            "Die Koordinaten stimmen nicht. Gib die aktuellen, auf ganze Zahlen gerundeten Koordinaten der ersten Drohne ein.",
+        ),
+        Some(_) => advance_tutorial(ctx, owner, 6, 7),
+    }
+    Ok(())
+}
+
+#[reducer]
+pub fn submit_asteroid_id(ctx: &ReducerContext, asteroid_id: u32) -> Result<(), String> {
+    let (owner, _) = resolve_sender_identity(ctx)?;
+    let state = ctx
+        .db
+        .tutorial_state()
+        .player()
+        .find(&owner)
+        .ok_or("Tutorial state not found")?;
+    if state.current_step != 8 {
+        return Err("Die Asteroidenübung ist nur in Tutorial-Stufe 8 verfügbar".to_string());
+    }
+
+    if tutorial_asteroid_is_visible(
+        ctx.db.perceived_asteroid().viewer().filter(&owner),
+        owner,
+        asteroid_id,
+    ) {
+        advance_tutorial(ctx, owner, 8, 9);
+    } else {
+        tutorial_input_error(
+            ctx,
+            owner,
+            "TUTORIAL_ASTEROID_ERROR",
+            "Diese Asteroiden-ID ist nicht sichtbar. Gib die ID eines identifizierten Asteroiden im Scannerbereich ein.",
+        );
+    }
     Ok(())
 }
 
@@ -703,7 +822,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
             "🛸",
         );
         if tier == 1 {
-            advance_tutorial(ctx, owner, 10, 11);
+            advance_tutorial(ctx, owner, 14, 15);
         }
     }
 
@@ -1008,7 +1127,7 @@ pub fn submit_riddle_solution(
             "🧪",
         );
 
-        advance_tutorial(ctx, owner, 14, 15);
+        advance_tutorial(ctx, owner, 18, 19);
 
         let (level, progress) = match track {
             1 => (
@@ -1152,17 +1271,18 @@ pub fn admin_set_tutorial_step(
         return Err("Unauthorized: Only teacher admin can override tutorial steps".to_string());
     }
 
-    if target_step > 16 {
-        return Err("Target step must be between 0 and 16".to_string());
+    if target_step > TUTORIAL_COMPLETED_STEP {
+        return Err(format!(
+            "Target step must be between 0 and {}",
+            TUTORIAL_COMPLETED_STEP
+        ));
     }
 
     if let Some(mut state) = ctx.db.tutorial_state().player().find(&target_player) {
         let old = state.current_step;
         state.current_step = target_step;
         state.step_started_at = ctx.timestamp;
-        if target_step >= 16 {
-            state.completed_at = Some(ctx.timestamp);
-        }
+        state.completed_at = (target_step >= TUTORIAL_COMPLETED_STEP).then_some(ctx.timestamp);
         ctx.db.tutorial_state().player().update(state);
 
         // Unlock commands of all loot boxes that were passed (never removes unlocks).
@@ -1193,6 +1313,9 @@ pub fn admin_set_tutorial_step(
             message: format!("Lehrkraft hat Tutorial-Stufe auf {} gesetzt", target_step),
             timestamp: ctx.timestamp,
         });
+        if target_step == 4 {
+            advance_if_base_agent_connected(ctx, target_player);
+        }
         Ok(())
     } else {
         Err("Student tutorial state not found".to_string())
@@ -1347,11 +1470,11 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 "⛏️",
                             );
                             if base.stored_ore >= 50 {
-                                advance_tutorial(ctx, ship.owner, 8, 9);
+                                advance_tutorial(ctx, ship.owner, 12, 13);
                             }
                             let fleet_count = ctx.db.ship().owner().filter(&ship.owner).count();
                             if fleet_count >= 2 {
-                                advance_tutorial(ctx, ship.owner, 12, 13);
+                                advance_tutorial(ctx, ship.owner, 16, 17);
                             }
                         }
                         // Recharge energy
@@ -1426,9 +1549,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                         let amount = 1.min(asteroid.remaining_ore);
                         if amount > 0 && ship.cargo_ore + amount <= ship.max_cargo {
                             ship.cargo_ore += amount;
-                            if ship.cargo_ore > 0 {
-                                advance_tutorial(ctx, ship.owner, 6, 7);
-                            }
+                            advance_tutorial(ctx, ship.owner, 10, 11);
                             asteroid.remaining_ore = asteroid.remaining_ore.saturating_sub(amount);
 
                             if asteroid.remaining_ore == 0 {
@@ -2283,6 +2404,209 @@ fn update_procedural_chunks(ctx: &ReducerContext, tick_count: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_base(owner: Identity) -> BaseStation {
+        BaseStation {
+            base_id: 7,
+            universe: 0,
+            owner,
+            position: Vec2::ZERO,
+            signal_radius: 100.0,
+            stored_ore: 0,
+            stored_energy: 0,
+            level: 1,
+            drone_scanner_level: 1,
+            drone_scanner_progress: 0,
+            base_scanner_level: 1,
+            base_scanner_progress: 0,
+            radar_horizon_level: 1,
+            radar_horizon_progress: 0,
+            last_ship_built_at: None,
+        }
+    }
+
+    fn test_ship(owner: Identity, ship_id: u32, position: Vec2) -> Ship {
+        Ship {
+            ship_id,
+            universe: 0,
+            owner,
+            ship_tier: 1,
+            position,
+            velocity: Vec2::ZERO,
+            target_position: None,
+            heading_rad: 0.0,
+            speed: 0.0,
+            max_speed: 0.0,
+            energy: 0.0,
+            max_energy: 0.0,
+            cargo_ore: 0,
+            max_cargo: 0,
+            target_asteroid_id: None,
+            is_mining: false,
+            is_stranded: false,
+            signal_countdown: 0,
+        }
+    }
+
+    fn test_asteroid(viewer: Identity, asteroid_id: u32) -> PerceivedAsteroid {
+        PerceivedAsteroid {
+            id: 0,
+            viewer,
+            asteroid_id,
+            position: Vec2::ZERO,
+            velocity: Vec2::ZERO,
+            resource_type: 0,
+            remaining_ore: 0,
+            radius: 0.0,
+        }
+    }
+
+    #[test]
+    fn tutorial_loot_boxes_have_the_expected_order_and_contents() {
+        let expected: &[(u8, &[&str])] = &[
+            (5, &["IF_LET_SOME", "WORLD_FIRST_DRONE"]),
+            (7, &["WORLD_CLOSEST_ASTEROID"]),
+            (9, &["ACTIONS_MINE"]),
+            (11, &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"]),
+            (
+                13,
+                &[
+                    "WORLD_FLEET_LEN",
+                    "WORLD_BASE_STORED_ORE",
+                    "ACTIONS_BUILD_DRONE_1",
+                ],
+            ),
+            (15, &["FOR_IN_FLEET"]),
+            (
+                17,
+                &[
+                    "WORLD_ACTIVE_RIDDLE",
+                    "ACTIONS_REQUEST_RESEARCH",
+                    "CLONE_AND_SORT",
+                    "ACTIONS_SOLVE_RIDDLE",
+                ],
+            ),
+            (19, &["ACTIONS_BUILD_DRONE_2"]),
+        ];
+        assert_eq!(
+            LOOT_BOX_STEPS.as_slice(),
+            expected.iter().map(|(step, _)| *step).collect::<Vec<_>>()
+        );
+        let mut keys = std::collections::HashSet::new();
+        for &(_, commands) in expected {
+            for &key in commands {
+                assert!(keys.insert(key), "duplicate command {key}");
+            }
+        }
+        for step in 0..=TUTORIAL_COMPLETED_STEP {
+            let commands = expected
+                .iter()
+                .find(|(s, _)| *s == step)
+                .map_or(&[][..], |(_, keys)| *keys);
+            assert_eq!(loot_box_commands(step), commands, "step {step}");
+        }
+    }
+
+    #[test]
+    fn tutorial_base_agent_must_be_active_and_bound_to_own_base() {
+        let owner = Identity::from_byte_array([1; 32]);
+        let mut agent = AiAgent {
+            agent_identity: Identity::from_byte_array([2; 32]),
+            owner,
+            role: 0,
+            bound_entity_id: 7,
+            label: String::new(),
+            created_at: spacetimedb::Timestamp::from_micros_since_unix_epoch(0),
+            is_revoked: false,
+        };
+        let base = test_base(owner);
+        assert!(is_home_base_agent(&agent, &base));
+        agent.role = 1;
+        assert!(!is_home_base_agent(&agent, &base));
+        agent.role = 0;
+        agent.bound_entity_id = 8;
+        assert!(!is_home_base_agent(&agent, &base));
+        agent.bound_entity_id = 7;
+        agent.is_revoked = true;
+        assert!(!is_home_base_agent(&agent, &base));
+        agent.is_revoked = false;
+        agent.owner = Identity::from_byte_array([3; 32]);
+        assert!(!is_home_base_agent(&agent, &base));
+    }
+
+    #[test]
+    fn tutorial_drone_selection_matches_base_sdk_fleet() {
+        let owner = Identity::from_byte_array([1; 32]);
+        let other = Identity::from_byte_array([2; 32]);
+        let base = test_base(owner);
+        let ships = vec![
+            test_ship(owner, 5, Vec2::new(0.0, 0.0)),
+            test_ship(other, 1, Vec2::new(0.0, 0.0)),
+            test_ship(owner, 2, Vec2::new(101.0, 0.0)),
+            test_ship(owner, 3, Vec2::new(100.0, 0.0)),
+        ];
+        assert_eq!(
+            first_tutorial_drone(ships.into_iter(), &base)
+                .unwrap()
+                .ship_id,
+            3
+        );
+        assert!(first_tutorial_drone(std::iter::empty(), &base).is_none());
+    }
+
+    #[test]
+    fn tutorial_coordinates_follow_zero_decimal_formatting() {
+        for position in [
+            Vec2::new(1.5, 2.5),
+            Vec2::new(-1.5, -2.5),
+            Vec2::new(-0.5, 0.49),
+            Vec2::new(12.51, -12.51),
+        ] {
+            let x = format!("{:.0}", position.x).parse::<i32>().unwrap();
+            let y = format!("{:.0}", position.y).parse::<i32>().unwrap();
+            assert!(coordinates_match(position, x, y));
+            assert!(!coordinates_match(position, x + 1, y));
+            assert!(!coordinates_match(position, x, y + 1));
+        }
+        assert!(!coordinates_match(Vec2::new(f32::NAN, 0.0), 0, 0));
+        assert!(!coordinates_match(
+            Vec2::new(f32::INFINITY, 0.0),
+            i32::MAX,
+            0
+        ));
+        assert!(!coordinates_match(
+            Vec2::new(2147483648.0, 0.0),
+            i32::MAX,
+            0
+        ));
+    }
+
+    #[test]
+    fn tutorial_asteroid_must_be_identified_for_the_owner() {
+        let owner = Identity::from_byte_array([1; 32]);
+        let other = Identity::from_byte_array([2; 32]);
+        let rows = vec![
+            test_asteroid(other, 1),
+            test_asteroid(owner, 2),
+            test_asteroid(owner, 3),
+        ];
+        assert!(!tutorial_asteroid_is_visible(
+            rows.clone().into_iter(),
+            owner,
+            1
+        ));
+        assert!(tutorial_asteroid_is_visible(
+            rows.clone().into_iter(),
+            owner,
+            2
+        ));
+        assert!(tutorial_asteroid_is_visible(
+            rows.clone().into_iter(),
+            owner,
+            3
+        ));
+        assert!(!tutorial_asteroid_is_visible(rows.into_iter(), owner, 4));
+    }
 
     #[test]
     fn test_calculate_riddle_cost() {

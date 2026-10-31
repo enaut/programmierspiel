@@ -6,7 +6,7 @@ use crate::module_bindings::dioxus::use_spacetimedb_context;
 use dioxus::prelude::*;
 
 /// Tutorial-Stufen, in denen eine Befehls-Lootbox in der Heimatbasis wartet.
-pub const LOOT_BOX_STEPS: [u8; 6] = [5, 7, 9, 11, 13, 15];
+pub const LOOT_BOX_STEPS: [u8; 8] = [5, 7, 9, 11, 13, 15, 17, 19];
 
 /// Gibt `true` zurück, wenn bei dieser Tutorial-Stufe eine Lootbox wartet.
 pub fn is_loot_box_step(step: u8) -> bool {
@@ -36,8 +36,8 @@ pub static COMMANDS: [CommandInfo; 16] = [
         category: "Rust-Syntax",
         title: "if let Some(x) = ...",
         summary: "Packt einen Wert sicher aus, falls er existiert.",
-        what: "Viele Abfragen liefern ein Option: Entweder gibt es einen Wert (Some) oder nichts (None). Mit if let Some(x) = ... wird der Block nur ausgeführt, wenn ein Wert vorhanden ist – so stürzt dein Programm nie ab, wenn z. B. keine Drohne oder kein Asteroid in Reichweite ist.",
-        how: "Schreibe links von = das Muster Some(name) und rechts den Ausdruck, der ein Option liefert. Innerhalb der geschweiften Klammern kannst du den ausgepackten Wert unter name benutzen.",
+        what: "Option bedeutet: Ein Ergebnis kann vorhanden sein (Some) oder fehlen (None). Zum Beispiel ist keine Drohne verfügbar, wenn die Flotte leer ist. if let Some führt seinen Block nur aus, wenn ein Wert vorhanden ist; bei None wird er übersprungen.",
+        how: "Links von = steht Some mit einem selbst gewählten Namen, rechts die Abfrage. Nur innerhalb der geschweiften Klammern steht der ausgepackte Wert unter diesem Namen zur Verfügung.",
         example: "if let Some(drone) = world.first_drone() {\n    // hier existiert eine Drohne\n}",
     },
     CommandInfo {
@@ -53,29 +53,29 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "WORLD_CLOSEST_ASTEROID",
-        box_step: 5,
+        box_step: 7,
         icon: "☄️",
         category: "Welt & Sensoren",
         title: "world.closest_asteroid_with_ore(pos)",
-        summary: "Findet den nächsten Asteroiden – bevorzugt mit Erz.",
-        what: "world.closest_asteroid_with_ore(pos) liefert den nächstgelegenen Asteroiden, der noch Erz enthält. Daneben gibt es world.closest_asteroid(pos): Das liefert den nächsten Asteroiden egal ob leer oder nicht – dort würde deine Drohne umsonst hinfliegen. Deshalb nimmst du fürs Schürfen die Variante mit _with_ore.",
-        how: "Übergib die Position, von der aus gesucht werden soll (meist drone.position). Das Ergebnis ist ein Option, das du mit if let Some(...) auspackst.",
+        summary: "Findet den nächsten bekannten Asteroiden mit Erz.",
+        what: "Durchsucht die von Basis- oder Drohnenscannern identifizierten Asteroiden und liefert den nächsten mit Erz. Ohne passenden bekannten Asteroiden ist das Ergebnis None. closest_asteroid sucht dagegen auch leere Asteroiden.",
+        how: "Übergib die Position, von der aus gesucht wird, zum Beispiel drone.position. Packe das Option mit if let Some aus. Der Asteroid besitzt das Feld asteroid_id.",
         example: "if let Some(asteroid) = world.closest_asteroid_with_ore(drone.position) {\n    // asteroid.asteroid_id verwenden\n}",
     },
     CommandInfo {
         key: "ACTIONS_MINE",
-        box_step: 5,
+        box_step: 9,
         icon: "⛏️",
         category: "Schiffs-Befehle",
         title: "actions.mine(ship_id, asteroid_id)",
         summary: "Schickt eine Drohne zum Erzabbau an einen Asteroiden.",
-        what: "Befiehlt einer Drohne, zum angegebenen Asteroiden zu fliegen und dort Erz abzubauen. Der Bohrer stoppt automatisch, wenn der Frachtraum voll ist.",
-        how: "Übergib zuerst die ship_id der Drohne, dann die asteroid_id des Ziels.",
+        what: "Beauftragt eine Drohne, zum angegebenen Asteroiden zu fliegen und Erz abzubauen. Der Abbau geschieht nicht sofort; der Bohrer stoppt, wenn der Frachtraum voll ist.",
+        how: "Übergib zuerst die ship_id der Drohne und dann die asteroid_id des Ziels. Setze den Befehl in tick ab, nachdem du Drohne und Asteroid mit if let Some gefunden hast.",
         example: "actions.mine(drone.ship_id, asteroid.asteroid_id);",
     },
     CommandInfo {
         key: "IF_ELSE",
-        box_step: 7,
+        box_step: 11,
         icon: "🔀",
         category: "Rust-Syntax",
         title: "if ... { ... } else { ... }",
@@ -86,7 +86,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "DRONE_CARGO_IS_FULL",
-        box_step: 7,
+        box_step: 11,
         icon: "📊",
         category: "Schiffs-Status",
         title: "drone.cargo_is_full()",
@@ -97,7 +97,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "ACTIONS_DOCK",
-        box_step: 7,
+        box_step: 11,
         icon: "🏛️",
         category: "Schiffs-Befehle",
         title: "actions.dock(ship_id)",
@@ -108,7 +108,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "WORLD_FLEET_LEN",
-        box_step: 9,
+        box_step: 13,
         icon: "🔢",
         category: "Welt & Sensoren",
         title: "world.fleet.len()",
@@ -119,7 +119,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "WORLD_BASE_STORED_ORE",
-        box_step: 9,
+        box_step: 13,
         icon: "🪨",
         category: "Welt & Sensoren",
         title: "world.base.stored_ore",
@@ -130,7 +130,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "ACTIONS_BUILD_DRONE_1",
-        box_step: 9,
+        box_step: 13,
         icon: "🔧",
         category: "Basis-Befehle",
         title: "actions.build_drone(1)",
@@ -141,7 +141,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "FOR_IN_FLEET",
-        box_step: 11,
+        box_step: 15,
         icon: "🔁",
         category: "Rust-Syntax",
         title: "for drone in world.fleet { ... }",
@@ -152,7 +152,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "WORLD_ACTIVE_RIDDLE",
-        box_step: 13,
+        box_step: 17,
         icon: "🧩",
         category: "Forschung",
         title: "world.active_riddle",
@@ -163,7 +163,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "ACTIONS_REQUEST_RESEARCH",
-        box_step: 13,
+        box_step: 17,
         icon: "🧪",
         category: "Forschung",
         title: "actions.request_research(track)",
@@ -174,7 +174,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "CLONE_AND_SORT",
-        box_step: 13,
+        box_step: 17,
         icon: "📑",
         category: "Rust-Syntax",
         title: "let mut sorted = numbers.clone(); sorted.sort();",
@@ -185,7 +185,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "ACTIONS_SOLVE_RIDDLE",
-        box_step: 13,
+        box_step: 17,
         icon: "✅",
         category: "Forschung",
         title: "actions.solve_riddle(solution)",
@@ -196,7 +196,7 @@ pub static COMMANDS: [CommandInfo; 16] = [
     },
     CommandInfo {
         key: "ACTIONS_BUILD_DRONE_2",
-        box_step: 15,
+        box_step: 19,
         icon: "🚀",
         category: "Basis-Befehle",
         title: "actions.build_drone(2)",
@@ -222,6 +222,68 @@ pub fn commands_for_coding_step(step: u8) -> Vec<&'static CommandInfo> {
         commands_for_box(step - 1)
     } else {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loot_boxes_and_following_missions_match_the_tutorial() {
+        let expected: &[(u8, &[&str])] = &[
+            (5, &["IF_LET_SOME", "WORLD_FIRST_DRONE"]),
+            (7, &["WORLD_CLOSEST_ASTEROID"]),
+            (9, &["ACTIONS_MINE"]),
+            (11, &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"]),
+            (
+                13,
+                &[
+                    "WORLD_FLEET_LEN",
+                    "WORLD_BASE_STORED_ORE",
+                    "ACTIONS_BUILD_DRONE_1",
+                ],
+            ),
+            (15, &["FOR_IN_FLEET"]),
+            (
+                17,
+                &[
+                    "WORLD_ACTIVE_RIDDLE",
+                    "ACTIONS_REQUEST_RESEARCH",
+                    "CLONE_AND_SORT",
+                    "ACTIONS_SOLVE_RIDDLE",
+                ],
+            ),
+            (19, &["ACTIONS_BUILD_DRONE_2"]),
+        ];
+        assert_eq!(
+            LOOT_BOX_STEPS.as_slice(),
+            expected.iter().map(|(step, _)| *step).collect::<Vec<_>>()
+        );
+        for (step, keys) in expected {
+            let box_keys: Vec<_> = commands_for_box(*step).iter().map(|c| c.key).collect();
+            let coding_keys: Vec<_> = commands_for_coding_step(*step + 1)
+                .iter()
+                .map(|c| c.key)
+                .collect();
+            assert_eq!(box_keys, *keys);
+            assert_eq!(coding_keys, *keys);
+            assert!(is_loot_box_step(*step));
+            assert!(!is_loot_box_step(*step + 1));
+        }
+        assert!(commands_for_coding_step(0).is_empty());
+    }
+
+    #[test]
+    fn previously_claimed_box_can_be_completed_after_reset() {
+        let commands = commands_for_box(5);
+        assert!(!box_fully_claimed(&commands, &[]));
+        assert!(!box_fully_claimed(&commands, &["IF_LET_SOME".into()]));
+        assert!(box_fully_claimed(
+            &commands,
+            &["WORLD_FIRST_DRONE".into(), "IF_LET_SOME".into()]
+        ));
+        assert!(!box_fully_claimed(&commands_for_box(6), &[]));
     }
 }
 
@@ -384,6 +446,13 @@ pub fn CommandHallModal(
     }
 }
 
+fn box_fully_claimed(box_commands: &[&CommandInfo], unlocked: &[String]) -> bool {
+    !box_commands.is_empty()
+        && box_commands
+            .iter()
+            .all(|command| unlocked.iter().any(|key| key == command.key))
+}
+
 /// Lootbox in der Heimatbasis: Öffnen, danach Karte für Karte einsammeln.
 /// Jeder Klick auf "Einsammeln" speichert den Befehl serverseitig; nach der letzten Karte schaltet der Server die nächste Mission frei.
 #[component]
@@ -406,7 +475,28 @@ pub fn LootBoxRevealModal(step: u8, unlocked: Vec<String>, on_close: EventHandle
         div {
             style: "position: fixed; inset: 0; background: rgba(3, 7, 18, 0.92); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 1100; padding: 20px; user-select: none;",
             style { "{KEYFRAMES}" }
-            if !opened() || next.is_none() {
+            if box_fully_claimed(&box_cmds, &unlocked) {
+                div {
+                    style: "display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center;",
+                    div { style: "font-size: 64px;", "🎁" }
+                    div { style: "font-size: 20px; font-weight: 800; color: #ffd700;", "Alle Befehle bereits eingesammelt" }
+                    div { style: "font-size: 13px; color: #94a3b8;", "Schließe diese Lootbox ab, um die nächste Mission freizuschalten." }
+                    button {
+                        style: "background: linear-gradient(90deg, #f59e0b, #fde047); color: #020617; border: none; padding: 12px 16px; border-radius: 10px; font-weight: 800; font-size: 14px; cursor: pointer;",
+                        onclick: move |_| {
+                            if let Some(conn) = (ctx.connection)() {
+                                let _ = conn.reducers.claim_next_command();
+                            }
+                        },
+                        "Lootbox abschließen ✔"
+                    }
+                    button {
+                        style: "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #94a3b8; padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;",
+                        onclick: move |_| on_close.call(()),
+                        "Später abschließen"
+                    }
+                }
+            } else if !opened() {
                 div {
                     style: "display: flex; flex-direction: column; align-items: center; gap: 20px; text-align: center;",
                     div {

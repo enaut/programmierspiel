@@ -112,6 +112,9 @@ fn print_missing_file_help() {
     eprintln!();
     eprintln!("  server_url = \"http://127.0.0.1:3000\"");
     eprintln!("  module_name = \"server\"");
-    eprintln!("  auth_token = \"<dein_kopierter_token>\"");
+    eprintln!("  auth_token = \"\"");
+    eprintln!();
+    eprintln!("Beim ersten Start wird der geheime Token automatisch gespeichert.");
+    eprintln!("Kopiere anschließend die Bot-Identität aus dem Terminal in die Heimatbasis.");
     eprintln!("{}\n", "=".repeat(80));
 }

@@ -41,10 +41,10 @@ flowchart TD
 | Crate | Target | Role & Responsibilities |
 |---|---|---|
 | [`server`](file:///home/dietrich/Projekte/Source/programmierspiel/server) | `wasm32-unknown-unknown` (`cdylib`) | SpacetimeDB backend module: relational tables, transactional reducers, caller-filtered views, procedural asteroid field chunks, and research riddle generators. |
-| [`client-web`](file:///home/dietrich/Projekte/Source/programmierspiel/client-web) | `wasm32-unknown-unknown` (Dioxus Web) | Interactive player cockpit: 2D HTML5 canvas radar, directional flight control, beginner quest drawer, audio feedback, and personal API token export. |
+| [`client-web`](file:///home/dietrich/Projekte/Source/programmierspiel/client-web) | `wasm32-unknown-unknown` (Dioxus Web) | Interactive player cockpit: 2D HTML5 canvas radar, directional flight control, beginner quest drawer, audio feedback, and bot identity pairing. |
 | [`admin`](file:///home/dietrich/Projekte/Source/programmierspiel/admin) | `wasm32-unknown-unknown` (Dioxus Web) | Teacher/operator console: god-view radar, live player/base inspection, game-loop controls, and manual asteroid replenishment. |
 | [`space_bot_sdk`](file:///home/dietrich/Projekte/Source/programmierspiel/space_bot_sdk) | Native Rust | High-level client SDK for bot development: exposes the [`BaseController`](file:///home/dietrich/Projekte/Source/programmierspiel/space_bot_sdk/src/world.rs#L59-L65) trait, sensory [`World`](file:///home/dietrich/Projekte/Source/programmierspiel/space_bot_sdk/src/world.rs#L8-L56) snapshot, [`Actions`](file:///home/dietrich/Projekte/Source/programmierspiel/space_bot_sdk/src/action.rs#L50-L106) buffer, and algorithmic research solvers. |
-| [`testclient`](file:///home/dietrich/Projekte/Source/programmierspiel/testclient) | Native Rust binary | Starter bot implementation showing autonomous mining, docking cycles, drone construction, and research requests. |
+| [`testclient`](file:///home/dietrich/Projekte/Source/programmierspiel/testclient) | Native Rust binary | Starter bot for implementing home-base and fleet control. |
 
 ---
 
@@ -88,20 +88,18 @@ dx serve -p client-web
 ### 4. Deploy Base & Connect a Bot
 
 1. Open [http://localhost:8081](http://localhost:8081), register a player callsign and colors.
-2. Fly the Tier 0 Builder Ship outside the exclusion zone (> 250m from Mega-Station) and click **Deploy Base**.
-3. Open the cockpit drawer, copy your **Personal API Identity Token**.
-4. Paste the token into [`testclient/config.toml`](file:///home/dietrich/Projekte/Source/programmierspiel/testclient/config.toml):
-   ```toml
-   server_url = "http://127.0.0.1:3000"
-   module_name = "server"
-   auth_token = "<PASTE_YOUR_COPIED_TOKEN_HERE>"
-   ```
-5. Run the bot:
+2. Fly the Tier 0 Builder Ship outside the exclusion zone (at least 250m from the Mega-Station), find a location with at least 400 ore in scan range, and deploy your home base.
+3. Check `server_url` and `module_name` in [`testclient/config.toml`](testclient/config.toml) for your instance. No cockpit token needs to be copied. Start the bot from the `testclient` directory so it loads that configuration:
    ```bash
+   cd testclient
    cargo run -p testclient
    ```
+4. Copy the 64-character **Identität** printed in the bot terminal. In the cockpit, open the home base, paste the identity under **Heimatbasis-AI Steuerung**, and click **Bot binden**. Leave the bot running.
+5. Edit [`testclient/src/main.rs`](testclient/src/main.rs) to implement your bot's `tick`, then restart the bot after changes. The starter code does not automatically mine ore.
 
-**Completion criterion:** Terminal prints `Verbindung erfolgreich!` and the bot starts issuing tick commands. In the web radar, your drones navigate to asteroids, mine ore, and dock at your base station.
+**Completion criterion:** The terminal prints `Verbindung erfolgreich!`, the home base shows **Gekoppelt**, and the bot can see its assigned base. Drone behavior depends on the code in `tick`.
+
+On the first connection the SDK automatically saves the bot's connection token in `config.toml` and reuses it on subsequent starts. The token is secret and is not the identity used for pairing; do not share or commit it. Check the configuration before committing, and check terminal errors and file permissions if saving fails.
 
 ### 5. Launch the Admin Console (Optional)
 
@@ -262,8 +260,9 @@ Always write out **"Kommunikationszentrum"** in full, or use neutral terminology
 For schools and training workshops, students access their coding environment via [`uhlaunch`](file:///home/dietrich/Projekte/Source/uhlaunch):
 1. Launch `uhlaunch` from the desktop environment.
 2. Select **Programmierspiel** to clone/fork the student repository and open it automatically in the Zed editor.
-3. Configure `config.toml` with the API token from the web cockpit.
-4. Execute `cargo run` in the integrated Zed terminal to connect the player fleet.
+3. Deploy a home base in the web cockpit and check that `config.toml` points to the correct server and module.
+4. Run `cargo run` in the project directory (or use Zed's **Run Bot** task). Copy the bot identity from the terminal into **Heimatbasis-AI Steuerung** in the home-base modal and click **Bot binden**.
+5. Implement the fleet logic in `src/main.rs`. The SDK saves the connection token automatically; keep it secret and out of Git. The student project uses `space_bot_sdk` from Git `main`, so its resolved revision must contain the pairing and token-persistence changes.
 
 ---
 

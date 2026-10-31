@@ -436,9 +436,15 @@ fn CockpitApp() -> Element {
         let err = (ctx.error)();
         #[cfg(target_arch = "wasm32")]
         {
+            let status = match current_state {
+                ConnectionState::Disconnected => "Disconnected",
+                ConnectionState::Connecting => "Connecting",
+                ConnectionState::Reconnecting { .. } => "Reconnecting",
+                ConnectionState::Connected(..) => "Connected",
+                ConnectionState::Error => "Error",
+            };
             web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
-                "[SpacetimeDB] ConnectionState: {:?}, Error: {:?}",
-                current_state, err
+                "[SpacetimeDB] ConnectionState: {status}, Error: {err:?}"
             )));
         }
     });
@@ -1517,7 +1523,7 @@ fn BuilderNavigationScreen(
 }
 
 // ==========================================
-// Stage 3: Home Base Dashboard, Local Radar & Token Export (API Mode)
+// Stage 3: Home Base Dashboard & Local Radar
 // ==========================================
 
 #[component]
@@ -1530,8 +1536,6 @@ fn BaseDashboardScreen(
     on_open_heimatbasis: EventHandler<()>,
 ) -> Element {
     let ctx = use_spacetimedb_context();
-    let state = (ctx.state)();
-    let mut copied = use_signal(|| false);
     let mut selected_target = use_signal(|| None::<SelectedEntity>);
     let mut cam_offset_x = use_signal(|| 0.0f64);
     let mut cam_offset_y = use_signal(|| 0.0f64);
@@ -1542,11 +1546,6 @@ fn BaseDashboardScreen(
 
     let active_riddles = (ctx.tables.my_active_riddle)();
     let current_riddle = active_riddles.first().cloned();
-
-    let token = match state {
-        ConnectionState::Connected(_, ref t) => t.clone(),
-        _ => "".to_string(),
-    };
 
     let p_hue = player.color_hue;
     let p_sec_hue = player.secondary_color_hue;
@@ -2030,7 +2029,7 @@ fn BaseDashboardScreen(
             aside {
                 style: "width: 340px; height: 100%; background: #0a1020; border-left: 1px solid rgba(80, 120, 200, 0.2); padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;",
 
-                // Notification & Token Box: Shown until API connects or during Tutorial Steps <= 4
+                // Notification shown until the bot has connected
                 if !player.has_api_connected || player.tutorial_step <= 4 {
                     div {
                         style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(80, 120, 200, 0.3); border-radius: 12px; padding: 16px;",
@@ -2050,78 +2049,7 @@ fn BaseDashboardScreen(
                         }
                     }
 
-                    // Token Box: Shown until API connects
-                    {
-                        let bot_token = {
-                            #[cfg(target_arch = "wasm32")]
-                            {
-                                oauth::get_local_storage()
-                                    .and_then(|s| s.get_item("base_ai_token").ok().flatten())
-                                    .unwrap_or_else(|| token.clone())
-                            }
-                            #[cfg(not(target_arch = "wasm32"))]
-                            {
-                                token.clone()
-                            }
-                        };
-                        let is_perm = bot_token != token;
-                        let copy_bot_token = {
-                            let t = bot_token.clone();
-                            move |_| {
-                                #[cfg(target_arch = "wasm32")]
-                                {
-                                    if let Some(w) = web_sys::window() {
-                                        let nav = w.navigator();
-                                        let clipboard = nav.clipboard();
-                                        let _ = clipboard.write_text(&t);
-                                        copied.set(true);
-                                    }
-                                }
-                            }
-                        };
-                        rsx! {
-                            div {
-                                style: if player.tutorial_step == 3 {
-                                    "background: #0f172a; border: 2px solid #00e5ff; box-shadow: 0 0 24px rgba(0, 229, 255, 0.4); border-radius: 10px; padding: 14px;"
-                                } else {
-                                    "background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px;"
-                                },
-                                div {
-                                    style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
-                                    div {
-                                        style: "font-size: 11px; font-weight: 700; color: #8da2c0; letter-spacing: 0.5px;",
-                                        if is_perm { "🤖 DEIN PERMANENTER BASE-AI TOKEN:" } else { "DEIN PERSÖNLICHER API-TOKEN:" }
-                                    }
-                                    if player.tutorial_step == 3 {
-                                        span { style: "font-size: 10px; color: #00e5ff; font-weight: 700; animation: pulse 1s infinite;", "👉 HIER KOPIEREN" }
-                                    } else if is_perm {
-                                        span { style: "font-size: 10px; color: #00e676; font-weight: 600;", "✔ Permanent (kein 60s Timeout)" }
-                                    }
-                                }
-                                div {
-                                    style: "display: flex; gap: 8px;",
-                                    input {
-                                        readonly: true,
-                                        style: "flex: 1; background: #020617; border: 1px solid #1e293b; color: #38bdf8; padding: 8px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; outline: none; min-width: 0;",
-                                        value: "{bot_token}",
-                                    }
-                                    button {
-                                        style: if copied() {
-                                            "background: #059669; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                        } else {
-                                            "background: #0284c7; hover:background: #0369a1; color: #fff; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s;"
-                                        },
-                                        onclick: copy_bot_token,
-                                        if copied() { "✔" } else { "📋" }
-                                    }
-                                }
-                                div {
-                                    style: "font-size: 11px; color: #64748b; margin-top: 6px;",
-                                    "In " code { style: "color: #38bdf8;", "config.toml" } " deines Zed-Projekts einfügen (oder in Heimatbasis verwalten)."
-                                }
-                            }
-                        }
-                    }
+
                 }
 
                 // Current Research Target Card
@@ -2597,7 +2525,7 @@ fn HeimatbasisModal(
 
     let mut input_identity = use_signal(|| String::new());
     let mut input_label = use_signal(|| "Heimatbasis AI".to_string());
-    let mut bind_error = use_signal(|| Option::<String>::None);
+    let mut bind_error = use_signal_sync(|| Option::<String>::None);
     let mut copied = use_signal(|| false);
 
     let mut edit_primary_hue = use_signal(move || player.color_hue);
@@ -2607,7 +2535,13 @@ fn HeimatbasisModal(
 
     let is_api_recently_active = player.last_api_activity.as_ref().map_or(false, |ts| {
         let ts_sec = (ts.to_micros_since_unix_epoch() / 1_000_000) as f64;
+        #[cfg(target_arch = "wasm32")]
         let now_sec = js_sys::Date::now() / 1000.0;
+        #[cfg(not(target_arch = "wasm32"))]
+        let now_sec = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
         (now_sec - ts_sec) <= 30.0
     });
 
@@ -2629,18 +2563,28 @@ fn HeimatbasisModal(
                         } else {
                             label
                         };
-                        match conn
-                            .reducers
-                            .register_ai_agent(agent_id, 0, base_id, final_label)
-                        {
-                            Ok(_) => {
-                                input_identity.set(String::new());
-                                bind_error.set(None);
-                            }
-                            Err(e) => {
-                                bind_error.set(Some(format!("Fehler beim Registrieren: {e}")));
-                            }
+                        bind_error.set(None);
+                        if let Err(e) = conn.reducers.register_ai_agent_then(
+                            agent_id,
+                            0,
+                            base_id,
+                            final_label,
+                            move |_, result| match result {
+                                Ok(Ok(())) => bind_error.set(None),
+                                Ok(Err(e)) => {
+                                    bind_error.set(Some(format!("Kopplung fehlgeschlagen: {e}")))
+                                }
+                                Err(e) => bind_error.set(Some(format!("Verbindungsfehler: {e}"))),
+                            },
+                        ) {
+                            bind_error
+                                .set(Some(format!("Kopplung konnte nicht gesendet werden: {e}")));
                         }
+                    } else {
+                        bind_error.set(Some(
+                            "Keine Verbindung zum Spielserver. Bitte versuche es erneut."
+                                .to_string(),
+                        ));
                     }
                 }
                 Err(_) => {
