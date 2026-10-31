@@ -60,26 +60,36 @@ impl Actions {
         Self::default()
     }
 
+    fn set_ship_command(&mut self, ship_id: u32, cmd: ShipCommand) {
+        if let Some(existing) = self
+            .ship_commands
+            .iter_mut()
+            .find(|(existing_id, _)| *existing_id == ship_id)
+        {
+            existing.1 = cmd;
+        } else {
+            self.ship_commands.push((ship_id, cmd));
+        }
+    }
+
     /// Befiehlt einem Schiff, zum angegebenen Asteroiden zu fliegen und Erz abzubauen.
     pub fn mine(&mut self, ship_id: u32, asteroid_id: u32) {
-        self.ship_commands
-            .push((ship_id, ShipCommand::Mine(asteroid_id)));
+        self.set_ship_command(ship_id, ShipCommand::Mine(asteroid_id));
     }
 
     /// Befiehlt einem Schiff, zur Heimatbasis zurückzukehren und anzudocken.
     pub fn dock(&mut self, ship_id: u32) {
-        self.ship_commands.push((ship_id, ShipCommand::Dock));
+        self.set_ship_command(ship_id, ShipCommand::Dock);
     }
 
     /// Lässt ein Schiff zu den angegebenen 2D-Koordinaten fliegen.
     pub fn fly_to(&mut self, ship_id: u32, target: Vec2) {
-        self.ship_commands
-            .push((ship_id, ShipCommand::FlyTo(target)));
+        self.set_ship_command(ship_id, ShipCommand::FlyTo(target));
     }
 
     /// Stoppt das Schiff sofort.
     pub fn stop(&mut self, ship_id: u32) {
-        self.ship_commands.push((ship_id, ShipCommand::Stop));
+        self.set_ship_command(ship_id, ShipCommand::Stop);
     }
 
     /// Gibt eine neue Drohne an der Basis in Auftrag (Tier 1: 50 Erz bzw. Notfall kostenlos; Tier 2: 150 Erz).

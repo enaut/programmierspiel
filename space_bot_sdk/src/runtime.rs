@@ -14,16 +14,123 @@ use crate::module_bindings::visible_bases_table::VisibleBasesTableAccess;
 use crate::module_bindings::visible_drones_table::VisibleDronesTableAccess;
 use crate::module_bindings::{
     BaseStation, DbConnection, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Ship, ShipCommand,
-    UnidentifiedContact,
+    UnidentifiedContact, Vec2,
 };
 use crate::research::RiddleTask;
 use crate::world::{BaseController, ShipController, ShipWorld, World};
 use spacetimedb_sdk::{DbContext, Table};
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+
+/// Number of 100ms ticks to wait before re-sending a command whose server state has not taken effect.
+const COMMAND_RESEND_COOLDOWN_TICKS: u64 = 10;
+
+/// Ensures that starting a new bot instance (e.g. clicking Zed's `▶` button again)
+/// causes any previously started bot instance using the same config to exit cleanly
+/// instead of competing for control over the same fleet.
+struct InstanceLock {
+    lock_path: PathBuf,
+    pid: u32,
+}
+
+impl InstanceLock {
+    fn acquire(config_path: &Path) -> Self {
+        let canonical =
+            std::fs::canonicalize(config_path).unwrap_or_else(|_| config_path.to_path_buf());
+        let mut hasher = DefaultHasher::new();
+        canonical.hash(&mut hasher);
+        let hash = hasher.finish();
+        let lock_path = std::env::temp_dir().join(format!("space_bot_{:016x}.pid", hash));
+        let pid = std::process::id();
+        let _ = std::fs::write(&lock_path, pid.to_string());
+        Self { lock_path, pid }
+    }
+
+    fn is_superseded(&self) -> bool {
+        match std::fs::read_to_string(&self.lock_path) {
+            Ok(content) => match content.trim().parse::<u32>() {
+                Ok(active_pid) => active_pid != self.pid,
+                Err(_) => false,
+            },
+            Err(_) => false,
+        }
+    }
+}
+
+/// Checks whether a ship's replicated server state matches the given `ShipCommand`.
+pub(crate) fn is_ship_executing_command(
+    ship: &Ship,
+    base_pos: Option<Vec2>,
+    cmd: &ShipCommand,
+) -> bool {
+    match cmd {
+        ShipCommand::Mine(ast_id) => ship.is_mining && ship.target_asteroid_id == Some(*ast_id),
+        ShipCommand::Dock => {
+            if ship.is_mining || ship.target_asteroid_id.is_some() {
+                return false;
+            }
+            match base_pos {
+                Some(bpos) => {
+                    let heading_to_base = ship
+                        .target_position
+                        .as_ref()
+                        .is_some_and(|t| t.distance(&bpos) <= 1.0);
+                    let already_at_base = ship.position.distance(&bpos) <= 45.0;
+                    heading_to_base || already_at_base
+                }
+                None => ship.target_position.is_some(),
+            }
+        }
+        ShipCommand::FlyTo(target) => {
+            if ship.is_mining || ship.target_asteroid_id.is_some() {
+                return false;
+            }
+            let heading_to_target = ship
+                .target_position
+                .as_ref()
+                .is_some_and(|t| t.distance(target) <= 1.0);
+            let already_at_target = ship.position.distance(target) <= 10.0;
+            heading_to_target || already_at_target
+        }
+        ShipCommand::Stop => {
+            !ship.is_mining && ship.target_asteroid_id.is_none() && ship.target_position.is_none()
+        }
+    }
+}
+
+/// Decides whether `cmd` should be sent to the server on `current_tick`.
+/// Sends immediately when `cmd` differs from the last sent command for `ship_id`,
+/// and retries after `COMMAND_RESEND_COOLDOWN_TICKS` if the server ship state
+/// does not reflect `cmd` (e.g. if a previous reducer call was rejected or overwritten).
+pub(crate) fn should_send_ship_command(
+    last_sent: Option<&(ShipCommand, u64)>,
+    cmd: &ShipCommand,
+    ship: Option<&Ship>,
+    base_pos: Option<Vec2>,
+    current_tick: u64,
+) -> bool {
+    match last_sent {
+        None => true,
+        Some((last_cmd, sent_tick)) => {
+            if last_cmd != cmd {
+                return true;
+            }
+            if current_tick < sent_tick.saturating_add(COMMAND_RESEND_COOLDOWN_TICKS) {
+                return false;
+            }
+            match ship {
+                Some(s) => !is_ship_executing_command(s, base_pos, cmd),
+                None => false,
+            }
+        }
+    }
+}
 
 /// Startet den Bot-Laufzeitzyklus mit einem zustandsbehafteten `BaseController`.
 pub fn run<C: BaseController>(mut controller: C) {
@@ -33,6 +140,8 @@ pub fn run<C: BaseController>(mut controller: C) {
             std::process::exit(1);
         }
     };
+
+    let instance_lock = InstanceLock::acquire(&config_path);
 
     println!("================================================================================");
     println!("🚀 [SPACE BOT] Starte Heimatbasis- und Flottensteuerung...");
@@ -133,11 +242,19 @@ pub fn run<C: BaseController>(mut controller: C) {
         .unwrap_or_else(std::time::Instant::now);
 
     let mut actions = Actions::new();
-    let mut last_commands: HashMap<u32, ShipCommand> = HashMap::new();
+    let mut last_commands: HashMap<u32, (ShipCommand, u64)> = HashMap::new();
 
     loop {
         thread::sleep(Duration::from_millis(100));
         tick_counter += 1;
+
+        if instance_lock.is_superseded() {
+            println!(
+                "ℹ️ [SPACE BOT] Neue Bot-Instanz wurde gestartet – beende diese ältere Instanz (PID {}).",
+                instance_lock.pid
+            );
+            break;
+        }
 
         if !is_subscribed.load(Ordering::SeqCst) {
             continue;
@@ -168,7 +285,8 @@ pub fn run<C: BaseController>(mut controller: C) {
             }
         };
 
-        let my_ships: Vec<Ship> = conn.db.my_ships().iter().collect();
+        let mut my_ships: Vec<Ship> = conn.db.my_ships().iter().collect();
+        my_ships.sort_by_key(|s| s.ship_id);
         let asteroids: Vec<PerceivedAsteroid> = conn.db.visible_asteroids().iter().collect();
         let drones: Vec<PerceivedDrone> = conn.db.visible_drones().iter().collect();
         let bases: Vec<PerceivedBase> = conn.db.visible_bases().iter().collect();
@@ -204,13 +322,18 @@ pub fn run<C: BaseController>(mut controller: C) {
         // Schüler-Tick aufrufen
         controller.tick(&world, &mut actions);
 
-        // 1. Schiffsbefehle abarbeiten (nur bei Befehlsänderung senden & loggen)
+        // 1. Schiffsbefehle abarbeiten (bei Befehlsänderung oder Server-Abweichung senden & loggen)
         for (ship_id, cmd) in actions.ship_commands.drain(..) {
-            let has_changed = last_commands
-                .get(&ship_id)
-                .map_or(true, |last_cmd| *last_cmd != cmd);
+            let ship_state = my_ships.iter().find(|s| s.ship_id == ship_id);
+            let should_send = should_send_ship_command(
+                last_commands.get(&ship_id),
+                &cmd,
+                ship_state,
+                Some(base.position),
+                tick_counter,
+            );
 
-            if has_changed {
+            if should_send {
                 log_command(ship_id, &cmd);
                 if let Err(e) = conn.reducers.command_ship(ship_id, cmd.clone()) {
                     eprintln!(
@@ -218,7 +341,7 @@ pub fn run<C: BaseController>(mut controller: C) {
                         ship_id, e
                     );
                 }
-                last_commands.insert(ship_id, cmd);
+                last_commands.insert(ship_id, (cmd, tick_counter));
             }
         }
 
@@ -265,6 +388,8 @@ pub fn run_ship<C: ShipController>(mut controller: C) {
             std::process::exit(1);
         }
     };
+
+    let instance_lock = InstanceLock::acquire(&config_path);
 
     println!("================================================================================");
     println!("🚀 [SPACE BOT] Starte Einzelschiff-/Kriegsschiffsteuerung...");
@@ -358,11 +483,19 @@ pub fn run_ship<C: ShipController>(mut controller: C) {
         .unwrap_or_else(std::time::Instant::now);
 
     let mut actions = Actions::new();
-    let mut last_commands: HashMap<u32, ShipCommand> = HashMap::new();
+    let mut last_commands: HashMap<u32, (ShipCommand, u64)> = HashMap::new();
 
     loop {
         thread::sleep(Duration::from_millis(100));
         tick_counter += 1;
+
+        if instance_lock.is_superseded() {
+            println!(
+                "ℹ️ [SPACE BOT] Neue Bot-Instanz wurde gestartet – beende diese ältere Instanz (PID {}).",
+                instance_lock.pid
+            );
+            break;
+        }
 
         if !is_subscribed.load(Ordering::SeqCst) {
             continue;
@@ -374,7 +507,8 @@ pub fn run_ship<C: ShipController>(mut controller: C) {
             let _ = conn.reducers.api_heartbeat();
         }
 
-        let my_ships: Vec<Ship> = conn.db.my_ships().iter().collect();
+        let mut my_ships: Vec<Ship> = conn.db.my_ships().iter().collect();
+        my_ships.sort_by_key(|s| s.ship_id);
 
         // Wenn noch kein Schiff sichtbar/zugewiesen ist: warten
         let ship = match my_ships.first() {
@@ -412,12 +546,18 @@ pub fn run_ship<C: ShipController>(mut controller: C) {
 
         controller.tick(&ship_world, &mut actions);
 
+        let base_pos = my_base.as_ref().map(|b| b.position);
         for (ship_id, cmd) in actions.ship_commands.drain(..) {
-            let has_changed = last_commands
-                .get(&ship_id)
-                .map_or(true, |last_cmd| *last_cmd != cmd);
+            let ship_state = my_ships.iter().find(|s| s.ship_id == ship_id);
+            let should_send = should_send_ship_command(
+                last_commands.get(&ship_id),
+                &cmd,
+                ship_state,
+                base_pos,
+                tick_counter,
+            );
 
-            if has_changed {
+            if should_send {
                 log_command(ship_id, &cmd);
                 if let Err(e) = conn.reducers.command_ship(ship_id, cmd.clone()) {
                     eprintln!(
@@ -425,7 +565,7 @@ pub fn run_ship<C: ShipController>(mut controller: C) {
                         ship_id, e
                     );
                 }
-                last_commands.insert(ship_id, cmd);
+                last_commands.insert(ship_id, (cmd, tick_counter));
             }
         }
     }
@@ -454,5 +594,99 @@ fn log_command(ship_id: u32, cmd: &ShipCommand) {
         ShipCommand::Stop => {
             println!("🛸 [DROHNE #{}] Neuer Befehl: Stopp", ship_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spacetimedb_sdk::Identity;
+
+    fn sample_ship(
+        ship_id: u32,
+        position: Vec2,
+        target_position: Option<Vec2>,
+        target_asteroid_id: Option<u32>,
+        is_mining: bool,
+    ) -> Ship {
+        Ship {
+            ship_id,
+            owner: Identity::ZERO,
+            universe: 0,
+            ship_tier: 1,
+            position,
+            velocity: Vec2::new(0.0, 0.0),
+            target_position,
+            heading_rad: 0.0,
+            speed: 0.0,
+            max_speed: 140.0,
+            energy: 100.0,
+            max_energy: 100.0,
+            cargo_ore: 50,
+            max_cargo: 50,
+            target_asteroid_id,
+            is_mining,
+            is_stranded: false,
+            signal_countdown: 20,
+        }
+    }
+
+    #[test]
+    fn resends_dock_when_ship_still_mining_on_server_after_cooldown() {
+        let base_pos = Vec2::new(1529.0, -1248.55);
+        // Drone #2 is still sitting on Asteroid #1490 with is_mining = true
+        let stuck_drone = sample_ship(2, Vec2::new(1606.17, -1199.31), None, Some(1490), true);
+        let last_sent = (ShipCommand::Dock, 10);
+
+        // Within cooldown window (ticks 11..19): do not spam
+        assert!(!should_send_ship_command(
+            Some(&last_sent),
+            &ShipCommand::Dock,
+            Some(&stuck_drone),
+            Some(base_pos),
+            15,
+        ));
+
+        // Once cooldown expires (tick 20): ship is still mining Asteroid #1490, so Dock must be re-sent!
+        assert!(should_send_ship_command(
+            Some(&last_sent),
+            &ShipCommand::Dock,
+            Some(&stuck_drone),
+            Some(base_pos),
+            20,
+        ));
+    }
+
+    #[test]
+    fn does_not_resend_dock_when_ship_is_already_flying_to_base_or_docked() {
+        let base_pos = Vec2::new(1529.0, -1248.55);
+        let returning_drone =
+            sample_ship(2, Vec2::new(1580.0, -1210.0), Some(base_pos), None, false);
+        let last_sent = (ShipCommand::Dock, 10);
+
+        assert!(!should_send_ship_command(
+            Some(&last_sent),
+            &ShipCommand::Dock,
+            Some(&returning_drone),
+            Some(base_pos),
+            25,
+        ));
+
+        let docked_drone = sample_ship(2, base_pos, None, None, false);
+        assert!(!should_send_ship_command(
+            Some(&last_sent),
+            &ShipCommand::Dock,
+            Some(&docked_drone),
+            Some(base_pos),
+            25,
+        ));
+    }
+
+    #[test]
+    fn actions_keep_latest_command_per_ship_within_tick() {
+        let mut actions = Actions::new();
+        actions.mine(2, 1490);
+        actions.dock(2);
+        assert_eq!(actions.ship_commands, vec![(2, ShipCommand::Dock)]);
     }
 }

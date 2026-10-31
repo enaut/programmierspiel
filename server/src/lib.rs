@@ -1259,14 +1259,11 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                         // Recharge energy
                         ship.energy = ship.max_energy;
                         ctx.db.base_station().owner().update(base);
-                        ship.target_position = None;
                     }
                 }
 
-                // If not mining and arrived, clear target
-                if !ship.is_mining {
-                    ship.target_position = None;
-                }
+                // Clear target position upon arrival at destination
+                ship.target_position = None;
                 if ship.ship_tier == 0 {
                     let dist = ship.position.distance(&config.megastation_pos);
                     if dist >= MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY
@@ -1316,6 +1313,12 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
             }
         }
 
+        // Stop mining laser automatically when cargo hold is full
+        if ship.is_mining && ship.cargo_ore >= ship.max_cargo {
+            ship.is_mining = false;
+            ship.target_asteroid_id = None;
+        }
+
         // Mining logic (mines 1 ore every 200ms = 4 ticks, approx 5 ore/sec)
         let is_mining_tick = tick_count % 4 == 0;
         if is_mining_tick && ship.is_mining && ship.cargo_ore < ship.max_cargo {
@@ -1348,10 +1351,14 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 ship.is_mining = false;
                             } else {
                                 ctx.db.asteroid().asteroid_id().update(asteroid);
+                                if ship.cargo_ore >= ship.max_cargo {
+                                    ship.target_asteroid_id = None;
+                                    ship.is_mining = false;
+                                }
                             }
                         }
-                    } else {
-                        // Drifted out of laser range: cancel mining
+                    } else if ship.target_position.is_none() {
+                        // Not in transit and outside laser range: cancel mining
                         ship.is_mining = false;
                         ship.target_asteroid_id = None;
                     }
