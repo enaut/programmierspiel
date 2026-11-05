@@ -550,16 +550,26 @@ fn CockpitApp() -> Element {
         .map(|id| achievements.iter().filter(|a| a.player == id).count())
         .unwrap_or(0);
 
-    let my_unlocked_commands: Vec<String> = my_identity
-        .map(|id| {
-            (ctx.tables.unlocked_command)()
-                .iter()
-                .filter(|c| c.player == id)
-                .map(|c| c.command_key.clone())
-                .collect()
-        })
-        .unwrap_or_default();
     let my_step = my_player.as_ref().map(|p| p.tutorial_step).unwrap_or(0);
+    let my_unlocked_commands: Vec<String> = {
+        let mut list: Vec<String> = my_identity
+            .map(|id| {
+                (ctx.tables.unlocked_command)()
+                    .iter()
+                    .filter(|c| c.player == id)
+                    .map(|c| c.command_key.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if my_step >= 22 {
+            for cmd in commands::commands_for_box(22) {
+                if !list.iter().any(|k| k == cmd.key) {
+                    list.push(cmd.key.to_string());
+                }
+            }
+        }
+        list
+    };
     let loot_ready = is_loot_box_step(my_step);
 
     let reg_err_msg = use_signal_sync(|| None::<String>);
@@ -599,7 +609,7 @@ fn CockpitApp() -> Element {
                             }
                             span { style: "color: #ffd700;", "⛏️ {base.stored_ore} Erz" }
                             span { style: "color: #64748b;", "|" }
-                            span { style: "color: #00e5ff;", "⚡ {base.stored_energy} Energie" }
+                            span { style: "color: #00e5ff;", "⚡ {base.stored_energy:.0} Energie" }
                         }
                     } else {
                         span {
@@ -632,7 +642,7 @@ fn CockpitApp() -> Element {
                             show_command_hall.set(true);
                         },
                         span { "📖" }
-                        span { "Befehls-Halle ({my_unlocked_commands.len()}/16)" }
+                        span { "Befehls-Halle ({my_unlocked_commands.len()}/{commands::COMMANDS.len()})" }
                     }
                     button {
                         style: "background: rgba(250, 204, 21, 0.15); border: 1px solid rgba(250, 204, 21, 0.4); color: #fde047; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px;",
@@ -2147,6 +2157,10 @@ fn BaseDashboardScreen(
                                                 "color: #ef4444; font-weight: 700; font-size: 11px;"
                                             } else if s.is_mining {
                                                 "color: #00e5ff; font-weight: 700; font-size: 11px;"
+                                            } else if s.is_docked && s.energy < s.max_energy {
+                                                "color: #fde047; font-weight: 700; font-size: 11px;"
+                                            } else if s.is_docked {
+                                                "color: #38bdf8; font-weight: 700; font-size: 11px;"
                                             } else {
                                                 "color: #00e676; font-size: 11px;"
                                             },
@@ -2154,6 +2168,10 @@ fn BaseDashboardScreen(
                                                 "GESTRANDET"
                                             } else if s.is_mining {
                                                 "BAUT AB ⛏️"
+                                            } else if s.is_docked && s.energy < s.max_energy {
+                                                "LÄDT AUF ⚡"
+                                            } else if s.is_docked {
+                                                "ANGEDOCKT 🏛️"
                                             } else {
                                                 "BEREIT (API)"
                                             }
@@ -2277,6 +2295,10 @@ fn TargetInspectorHud(
                             ("🚨 GESTRANDET", "#ef4444")
                         } else if s.is_mining {
                             ("⛏️ BAUT AB", "#00e5ff")
+                        } else if s.is_docked && s.energy < s.max_energy {
+                            ("⚡ LÄDT AUF", "#fde047")
+                        } else if s.is_docked {
+                            ("🏛️ ANGEDOCKT", "#38bdf8")
                         } else {
                             ("● BEREIT", "#00e676")
                         };
@@ -2432,7 +2454,15 @@ fn TargetInspectorHud(
                             }
                             div {
                                 style: "display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-top: 6px;",
-                                span { if d.is_mining { "Status: ⛏️ Baut Erz ab" } else { "Status: Im Flug" } }
+                                span {
+                                    if d.is_mining {
+                                        "Status: ⛏️ Baut Erz ab"
+                                    } else if d.is_docked {
+                                        "Status: 🏛️ Angedockt"
+                                    } else {
+                                        "Status: Im Flug"
+                                    }
+                                }
                                 span { "{d.speed as u32} px/s" }
                             }
                             div {
@@ -2808,7 +2838,7 @@ fn HeimatbasisModal(
                             div {
                                 style: "padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",
                                 div { style: "font-size: 11px; color: #8da2c0;", "ENERGIE" }
-                                div { style: "font-size: 20px; font-weight: 700; color: #00e5ff; margin-top: 2px;", "{base.stored_energy}" }
+                                div { style: "font-size: 20px; font-weight: 700; color: #00e5ff; margin-top: 2px;", "{base.stored_energy:.0}" }
                             }
                             div {
                                 style: "padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px;",

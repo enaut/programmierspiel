@@ -15,8 +15,8 @@ pub use radar::{
     UnidentifiedContact, Vec2,
 };
 pub use research::{
-    DenoisePayload, DenoiseSolution, DistancePayload, DistanceSolution, RiddleSolution, RiddleTask,
-    SortPayload, SortSolution, UpgradeTrack,
+    DenoisePayload, DenoiseSolution, DistancePayload, DistanceSolution, EnergyPayload,
+    EnergySolution, RiddleSolution, RiddleTask, SortPayload, SortSolution, UpgradeTrack,
 };
 pub use runtime::{run, run_ship};
 pub use world::{BaseController, ShipController, ShipWorld, World};

@@ -25,6 +25,7 @@ pub struct Ship {
     pub max_cargo: u32,
     pub target_asteroid_id: Option<u32>,
     pub is_mining: bool,
+    pub is_docked: bool,
     pub is_stranded: bool,
     pub signal_countdown: u16,
 }
@@ -53,6 +54,7 @@ pub struct ShipCols {
     pub max_cargo: __sdk::__query_builder::Col<Ship, u32>,
     pub target_asteroid_id: __sdk::__query_builder::Col<Ship, Option<u32>>,
     pub is_mining: __sdk::__query_builder::Col<Ship, bool>,
+    pub is_docked: __sdk::__query_builder::Col<Ship, bool>,
     pub is_stranded: __sdk::__query_builder::Col<Ship, bool>,
     pub signal_countdown: __sdk::__query_builder::Col<Ship, u16>,
 }
@@ -77,6 +79,7 @@ impl __sdk::__query_builder::HasCols for Ship {
             max_cargo: __sdk::__query_builder::Col::new(table_name, "max_cargo"),
             target_asteroid_id: __sdk::__query_builder::Col::new(table_name, "target_asteroid_id"),
             is_mining: __sdk::__query_builder::Col::new(table_name, "is_mining"),
+            is_docked: __sdk::__query_builder::Col::new(table_name, "is_docked"),
             is_stranded: __sdk::__query_builder::Col::new(table_name, "is_stranded"),
             signal_countdown: __sdk::__query_builder::Col::new(table_name, "signal_countdown"),
         }

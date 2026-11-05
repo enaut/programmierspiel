@@ -15,7 +15,7 @@ pub struct BaseStation {
     pub position: Vec2,
     pub signal_radius: f32,
     pub stored_ore: u32,
-    pub stored_energy: u32,
+    pub stored_energy: f32,
     pub level: u8,
     pub drone_scanner_level: u8,
     pub drone_scanner_progress: u8,
@@ -23,6 +23,8 @@ pub struct BaseStation {
     pub base_scanner_progress: u8,
     pub radar_horizon_level: u8,
     pub radar_horizon_progress: u8,
+    pub energy_production_level: u8,
+    pub energy_production_progress: u8,
     pub last_ship_built_at: Option<__sdk::Timestamp>,
 }
 
@@ -40,7 +42,7 @@ pub struct BaseStationCols {
     pub position: __sdk::__query_builder::Col<BaseStation, Vec2>,
     pub signal_radius: __sdk::__query_builder::Col<BaseStation, f32>,
     pub stored_ore: __sdk::__query_builder::Col<BaseStation, u32>,
-    pub stored_energy: __sdk::__query_builder::Col<BaseStation, u32>,
+    pub stored_energy: __sdk::__query_builder::Col<BaseStation, f32>,
     pub level: __sdk::__query_builder::Col<BaseStation, u8>,
     pub drone_scanner_level: __sdk::__query_builder::Col<BaseStation, u8>,
     pub drone_scanner_progress: __sdk::__query_builder::Col<BaseStation, u8>,
@@ -48,6 +50,8 @@ pub struct BaseStationCols {
     pub base_scanner_progress: __sdk::__query_builder::Col<BaseStation, u8>,
     pub radar_horizon_level: __sdk::__query_builder::Col<BaseStation, u8>,
     pub radar_horizon_progress: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub energy_production_level: __sdk::__query_builder::Col<BaseStation, u8>,
+    pub energy_production_progress: __sdk::__query_builder::Col<BaseStation, u8>,
     pub last_ship_built_at: __sdk::__query_builder::Col<BaseStation, Option<__sdk::Timestamp>>,
 }
 
@@ -83,6 +87,14 @@ impl __sdk::__query_builder::HasCols for BaseStation {
             radar_horizon_progress: __sdk::__query_builder::Col::new(
                 table_name,
                 "radar_horizon_progress",
+            ),
+            energy_production_level: __sdk::__query_builder::Col::new(
+                table_name,
+                "energy_production_level",
+            ),
+            energy_production_progress: __sdk::__query_builder::Col::new(
+                table_name,
+                "energy_production_progress",
             ),
             last_ship_built_at: __sdk::__query_builder::Col::new(table_name, "last_ship_built_at"),
         }

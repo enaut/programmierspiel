@@ -1,7 +1,7 @@
 use crate::module_bindings::{PublicRiddle, Vec2};
 use serde::{Deserialize, Serialize};
 
-/// Die drei verfügbaren Upgrade-Zweige für die Heimatbasis.
+/// Die vier verfügbaren Upgrade-Zweige für die Heimatbasis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpgradeTrack {
     /// 1: Erhöht die Drohnenscan-Reichweite (150m bis 350m). Rätsel: Listen sortieren.
@@ -10,6 +10,8 @@ pub enum UpgradeTrack {
     BaseAsteroidScanner = 2,
     /// 3: Erhöht den Radar-Horizont für Kontakte (600m bis 1200m). Rätsel: Spikes filtern (Denoising).
     RadarHorizon = 3,
+    /// 4: Erhöht die Energieproduktion der Heimatbasis (3 bis 18 Stufe-1-Drohnen). Rätsel: Energiebudget.
+    EnergyProduction = 4,
 }
 
 impl UpgradeTrack {
@@ -22,6 +24,7 @@ impl UpgradeTrack {
             1 => Some(Self::DroneScanner),
             2 => Some(Self::BaseAsteroidScanner),
             3 => Some(Self::RadarHorizon),
+            4 => Some(Self::EnergyProduction),
             _ => None,
         }
     }
@@ -31,6 +34,7 @@ impl UpgradeTrack {
             Self::DroneScanner => "Drohnen-Scanner",
             Self::BaseAsteroidScanner => "Basen- & Asteroidenscan",
             Self::RadarHorizon => "Radar-Horizont",
+            Self::EnergyProduction => "Energieproduktion",
         }
     }
 }
@@ -77,6 +81,19 @@ pub struct DenoiseSolution {
     pub cleaned: Vec<f32>,
 }
 
+/// Aufgabenstellung für Track 4: Energiebudget (wie viele Verbraucher passen ins Budget?)
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EnergyPayload {
+    pub consumers: Vec<i64>,
+    pub budget: i64,
+}
+
+/// Lösung für Track 4: Anzahl der Verbraucher, die (die kleinsten zuerst) ins Budget passen
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EnergySolution {
+    pub supported: i64,
+}
+
 /// Stark typisierte Aufgabenstellung eines Forschungsrätsels.
 #[derive(Debug, Clone)]
 pub enum RiddleTask {
@@ -86,6 +103,8 @@ pub enum RiddleTask {
     Distance { base: Vec2, targets: Vec<Vec2> },
     /// Track 3: Radar-Horizont (Störsignale über Schwellenwert entfernen)
     Denoise { readings: Vec<f32>, threshold: f32 },
+    /// Track 4: Energieproduktion (Anzahl Verbraucher bestimmen, die ins Budget passen)
+    Energy { consumers: Vec<i64>, budget: i64 },
 }
 
 impl RiddleTask {
@@ -115,6 +134,13 @@ impl RiddleTask {
                     threshold: payload.threshold,
                 })
             }
+            4 => {
+                let payload: EnergyPayload = serde_json::from_str(&riddle.payload).ok()?;
+                Some(Self::Energy {
+                    consumers: payload.consumers,
+                    budget: payload.budget,
+                })
+            }
             _ => None,
         }
     }
@@ -126,6 +152,7 @@ pub enum RiddleSolution {
     Sort(Vec<i64>),
     Distance(Vec<f32>),
     Denoise(Vec<f32>),
+    Energy(i64),
 }
 
 impl RiddleSolution {
@@ -143,6 +170,10 @@ impl RiddleSolution {
                 cleaned: cleaned.clone(),
             })
             .unwrap_or_default(),
+            Self::Energy(supported) => serde_json::to_string(&EnergySolution {
+                supported: *supported,
+            })
+            .unwrap_or_default(),
         }
     }
 
@@ -151,6 +182,7 @@ impl RiddleSolution {
             Self::Sort(_) => 1,
             Self::Distance(_) => 2,
             Self::Denoise(_) => 3,
+            Self::Energy(_) => 4,
         }
     }
 }

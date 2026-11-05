@@ -20,31 +20,82 @@ const INITIAL_ASTEROID_SCAN_RADIUS: f32 = 300.0;
 const MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY: u32 = 400;
 
 /// Tutorial steps at which a command loot box is waiting in the Heimatbasis.
-pub const LOOT_BOX_STEPS: [u8; 8] = [5, 7, 9, 11, 13, 15, 17, 19];
-const TUTORIAL_COMPLETED_STEP: u8 = 20;
+pub const LOOT_BOX_STEPS: [u8; 9] = [5, 7, 9, 11, 13, 15, 17, 19, 21];
+const TUTORIAL_COMPLETED_STEP: u8 = 22;
 
 /// Ordered command keys contained in the loot box of the given tutorial step.
 pub fn loot_box_commands(step: u8) -> &'static [&'static str] {
     match step {
-        5 => &["IF_LET_SOME", "WORLD_FIRST_DRONE"],
-        7 => &["WORLD_CLOSEST_ASTEROID"],
-        9 => &["ACTIONS_MINE"],
+        5 => &[
+            "IF_LET_SOME",
+            "WORLD_FIRST_DRONE",
+            "PRINTLN",
+            "DRONE_POSITION",
+            "FORMAT_NO_DECIMALS",
+        ],
+        7 => &["WORLD_CLOSEST_ASTEROID", "ASTEROID_ID"],
+        9 => &["DRONE_SHIP_ID", "ACTIONS_MINE"],
         11 => &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"],
         13 => &[
             "WORLD_FLEET_LEN",
             "WORLD_BASE_STORED_ORE",
+            "COMPARISONS",
+            "LOGICAL_AND",
             "ACTIONS_BUILD_DRONE_1",
         ],
         15 => &["FOR_IN_FLEET"],
-        17 => &[
+        17 => &["DRONE_IS_DOCKED", "DRONE_ENERGY", "ELSE_IF"],
+        19 => &[
             "WORLD_ACTIVE_RIDDLE",
+            "OPTION_IS_NONE",
             "ACTIONS_REQUEST_RESEARCH",
+            "LET_BINDING",
             "CLONE_AND_SORT",
+            "RIDDLE_SORT",
+            "RIDDLE_DISTANCE",
+            "RIDDLE_DENOISE",
+            "RIDDLE_ENERGY",
             "ACTIONS_SOLVE_RIDDLE",
         ],
-        19 => &["ACTIONS_BUILD_DRONE_2"],
+        21 => &["ACTIONS_BUILD_DRONE_2"],
         _ => &[],
     }
+}
+
+/// Additional SDK commands unlocked automatically once the player reaches Free Play (step 22).
+pub fn free_play_commands() -> &'static [&'static str] {
+    &[
+        "ACTIONS_FLY_TO",
+        "ACTIONS_STOP",
+        "VEC2_NEW",
+        "VEC2_DISTANCE",
+        "WORLD_SHIP",
+        "WORLD_CLOSEST_ASTEROID_ANY",
+        "WORLD_ASTEROIDS",
+        "WORLD_OTHER_DRONES",
+        "WORLD_OTHER_BASES",
+        "WORLD_TICK",
+        "DRONE_TIER",
+        "DRONE_CARGO",
+        "DRONE_MOTION",
+        "DRONE_TARGETS_AND_STATUS",
+        "DRONE_SIGNAL_AND_STRANDED",
+        "DRONE_DISTANCE_TO",
+        "BASE_STORED_ENERGY",
+        "BASE_POSITION_AND_SIGNAL",
+        "BASE_RESEARCH_LEVELS",
+        "ASTEROID_POSITION_AND_DISTANCE",
+        "ASTEROID_ORE_AND_TYPE",
+        "SDK_DRONE_COSTS",
+    ]
+}
+
+fn is_ship_docked(ship: &Ship, base_pos: Option<Vec2>) -> bool {
+    ship.ship_tier > 0
+        && !ship.is_stranded
+        && !ship.is_mining
+        && ship.target_position.is_none()
+        && base_pos.is_some_and(|bpos| bpos.distance(&ship.position) < 40.0)
 }
 
 /// Idempotently records an unlocked command. Returns true if newly inserted.
@@ -132,6 +183,12 @@ fn advance_tutorial(ctx: &ReducerContext, player_id: Identity, expected_step: u8
             state.step_started_at = ctx.timestamp;
             state.completed_at = (next_step >= TUTORIAL_COMPLETED_STEP).then_some(ctx.timestamp);
             ctx.db.tutorial_state().player().update(state);
+
+            if next_step >= TUTORIAL_COMPLETED_STEP {
+                for key in free_play_commands() {
+                    unlock_command_key(ctx, player_id, key);
+                }
+            }
 
             if let Some(mut player) = ctx.db.player().identity().find(&player_id) {
                 player.tutorial_step = next_step;
@@ -414,6 +471,7 @@ pub fn register_player(
         max_cargo: 100,
         target_asteroid_id: None,
         is_mining: false,
+        is_docked: false,
         is_stranded: false,
         signal_countdown: 30, // 30 seconds buffer
     });
@@ -518,7 +576,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         position: ship.position,
         signal_radius: DEFAULT_SIGNAL_RADIUS,
         stored_ore: 0,
-        stored_energy: 500,
+        stored_energy: base_energy_capacity(0),
         level: 1,
         drone_scanner_level: 1,
         drone_scanner_progress: 0,
@@ -526,6 +584,8 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         base_scanner_progress: 0,
         radar_horizon_level: 1,
         radar_horizon_progress: 0,
+        energy_production_level: 0,
+        energy_production_progress: 0,
         last_ship_built_at: Some(ctx.timestamp),
     });
 
@@ -549,6 +609,7 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         max_cargo: 50,
         target_asteroid_id: None,
         is_mining: false,
+        is_docked: true,
         is_stranded: false,
         signal_countdown: 20, // 20 seconds buffer
     });
@@ -785,10 +846,19 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         ));
     }
 
+    let energy_cost = if is_emergency { 0.0 } else { max_energy };
+    if base.stored_energy < energy_cost {
+        return Err(format!(
+            "Insufficient energy: need {:.0} but have {:.0}",
+            energy_cost, base.stored_energy
+        ));
+    }
+
     base.last_ship_built_at = Some(ctx.timestamp);
     if cost > 0 {
         base.stored_ore -= cost;
     }
+    base.stored_energy -= energy_cost;
     ctx.db.base_station().owner().update(base.clone());
 
     ctx.db.ship().insert(Ship {
@@ -808,6 +878,7 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
         max_cargo,
         target_asteroid_id: None,
         is_mining: false,
+        is_docked: true,
         is_stranded: false,
         signal_countdown: 20, // 20 seconds buffer
     });
@@ -984,6 +1055,14 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
         }
     }
 
+    let base_pos = ctx
+        .db
+        .base_station()
+        .owner()
+        .find(&owner)
+        .map(|b| b.position);
+    ship.is_docked = is_ship_docked(&ship, base_pos);
+
     ctx.db.ship().ship_id().update(ship);
     Ok(())
 }
@@ -991,6 +1070,28 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
 // ==========================================
 // Base Station Research & Upgrades Reducers
 // ==========================================
+
+/// Maximum research level of every upgrade track.
+pub const MAX_RESEARCH_LEVEL: u8 = 5;
+/// Energy produced per second per supported tier-1 drone.
+pub const ENERGY_PER_DRONE_PER_SEC: f32 = 0.8;
+/// Maximum energy a docked drone can draw from the base per second.
+pub const DOCK_CHARGE_RATE_PER_SEC: f32 = 10.0;
+
+/// Number of tier-1 drones the base energy production supports at the given energy research level.
+pub fn supported_drones(energy_level: u8) -> u32 {
+    3 + 3 * energy_level.min(MAX_RESEARCH_LEVEL) as u32
+}
+
+/// Energy produced by the base per second.
+pub fn base_energy_production(energy_level: u8) -> f32 {
+    supported_drones(energy_level) as f32 * ENERGY_PER_DRONE_PER_SEC
+}
+
+/// Maximum energy the base can store.
+pub fn base_energy_capacity(energy_level: u8) -> f32 {
+    500.0 + 200.0 * energy_level.min(MAX_RESEARCH_LEVEL) as f32
+}
 
 /// Calculates ore cost for conducting research on a riddle:
 /// Stufe 1: 1..100 Erz
@@ -1003,8 +1104,8 @@ pub fn calculate_riddle_cost(level: u8, progress: u8) -> u32 {
 
 #[reducer]
 pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
-    if !(1..=3).contains(&track) {
-        return Err("Invalid upgrade track. Must be 1 (Drone Scanner), 2 (Base & Asteroid), or 3 (Radar Horizon)".to_string());
+    if !(1..=4).contains(&track) {
+        return Err("Invalid upgrade track. Must be 1 (Drone Scanner), 2 (Base & Asteroid), 3 (Radar Horizon), or 4 (Energy Production)".to_string());
     }
 
     let (owner, _) = resolve_sender_identity(ctx)?;
@@ -1020,10 +1121,14 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         1 => (base.drone_scanner_level, base.drone_scanner_progress),
         2 => (base.base_scanner_level, base.base_scanner_progress),
         3 => (base.radar_horizon_level, base.radar_horizon_progress),
+        4 => (
+            base.energy_production_level,
+            base.energy_production_progress,
+        ),
         _ => unreachable!(),
     };
 
-    if current_level >= 5 {
+    if current_level >= MAX_RESEARCH_LEVEL {
         return Err(format!(
             "Upgrade track {} is already at maximum Level 5",
             track
@@ -1040,7 +1145,13 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         }
     }
 
-    let cost = calculate_riddle_cost(current_level, current_progress);
+    // The energy track starts at level 0, the others at level 1.
+    let cost_level = if track == 4 {
+        current_level + 1
+    } else {
+        current_level
+    };
+    let cost = calculate_riddle_cost(cost_level, current_progress);
     if base.stored_ore < cost {
         return Err(format!(
             "Base Station must store at least {} ore to conduct research on track {} (currently has {})",
@@ -1127,7 +1238,7 @@ pub fn submit_riddle_solution(
             "🧪",
         );
 
-        advance_tutorial(ctx, owner, 18, 19);
+        advance_tutorial(ctx, owner, 20, 21);
 
         let (level, progress) = match track {
             1 => (
@@ -1141,6 +1252,10 @@ pub fn submit_riddle_solution(
             3 => (
                 &mut base.radar_horizon_level,
                 &mut base.radar_horizon_progress,
+            ),
+            4 => (
+                &mut base.energy_production_level,
+                &mut base.energy_production_progress,
             ),
             _ => unreachable!(),
         };
@@ -1156,6 +1271,7 @@ pub fn submit_riddle_solution(
                 1 => "Drone Scanner Range",
                 2 => "Base & Asteroid Range",
                 3 => "Radar Horizon",
+                4 => "Energy Production",
                 _ => "Sensor",
             };
 
@@ -1201,6 +1317,7 @@ pub fn submit_riddle_solution(
                 1 => base.drone_scanner_progress = 0,
                 2 => base.base_scanner_progress = 0,
                 3 => base.radar_horizon_progress = 0,
+                4 => base.energy_production_progress = 0,
                 _ => unreachable!(),
             }
             ctx.db.base_station().owner().update(base);
@@ -1291,6 +1408,11 @@ pub fn admin_set_tutorial_step(
                 for key in loot_box_commands(box_step) {
                     unlock_command_key(ctx, target_player, key);
                 }
+            }
+        }
+        if target_step >= TUTORIAL_COMPLETED_STEP {
+            for key in free_play_commands() {
+                unlock_command_key(ctx, target_player, key);
             }
         }
 
@@ -1430,12 +1552,46 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
     let tick_count = ctx.timestamp.to_micros_since_unix_epoch() / tick_interval_micros;
     let ticks_per_sec = (1000 / config.tick_interval_ms).max(1) as i64;
 
+    // 0. Base energy production (applied once per second)
+    if tick_count % ticks_per_sec == 0 {
+        for mut base in ctx.db.base_station().iter() {
+            let capacity = base_energy_capacity(base.energy_production_level);
+            let produced = base_energy_production(base.energy_production_level);
+            // Always clamp so stale/out-of-range values (e.g. from older data) self-heal.
+            let current = if base.stored_energy.is_finite() {
+                base.stored_energy.max(0.0)
+            } else {
+                0.0
+            };
+            let next = (current + produced).min(capacity);
+            if next != base.stored_energy {
+                base.stored_energy = next;
+                ctx.db.base_station().owner().update(base);
+            }
+        }
+    }
+
     // 1. Update Ships
     let mut ships_to_update = Vec::new();
     let mut ships_to_delete = Vec::new();
 
     for mut ship in ctx.db.ship().iter() {
         if ship.is_stranded {
+            if ship.energy <= 0.0 && tick_count % 60 == 0 {
+                ship.energy += 1.0;
+                ship.is_stranded = false;
+                let base_pos = ctx
+                    .db
+                    .base_station()
+                    .owner()
+                    .find(&ship.owner)
+                    .map(|b| b.position);
+                ship.is_docked = is_ship_docked(&ship, base_pos);
+                ships_to_update.push(ship);
+            } else if ship.is_docked {
+                ship.is_docked = false;
+                ships_to_update.push(ship);
+            }
             continue;
         }
 
@@ -1477,8 +1633,6 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 advance_tutorial(ctx, ship.owner, 16, 17);
                             }
                         }
-                        // Recharge energy
-                        ship.energy = ship.max_energy;
                         ctx.db.base_station().owner().update(base);
                     }
                 }
@@ -1524,12 +1678,30 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                 }
 
                 // Burn energy while flying
-                let energy_cost = 0.8 * dt;
+                let energy_cost = 2.0 * dt;
                 ship.energy = (ship.energy - energy_cost).max(0.0);
                 if ship.energy <= 0.0 {
                     ship.is_stranded = true;
                     ship.velocity = Vec2::ZERO;
                     ship.speed = 0.0;
+                }
+            }
+        }
+
+        // Charge docked drones from the base's stored energy
+        if ship.target_position.is_none() && ship.energy < ship.max_energy {
+            if let Some(mut base) = ctx.db.base_station().owner().find(&ship.owner) {
+                if base.position.distance(&ship.position) < 40.0 {
+                    let wanted = (ship.max_energy - ship.energy).min(DOCK_CHARGE_RATE_PER_SEC * dt);
+                    let drawn = wanted.min(base.stored_energy);
+                    if drawn > 0.0 {
+                        ship.energy = (ship.energy + drawn).min(ship.max_energy);
+                        base.stored_energy -= drawn;
+                        ctx.db.base_station().owner().update(base);
+                        if ship.energy >= ship.max_energy {
+                            advance_tutorial(ctx, ship.owner, 18, 19);
+                        }
+                    }
                 }
             }
         }
@@ -1542,7 +1714,8 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
 
         // Mining logic (mines 1 ore every 200ms = 4 ticks, approx 5 ore/sec)
         let is_mining_tick = tick_count % 4 == 0;
-        if is_mining_tick && ship.is_mining && ship.cargo_ore < ship.max_cargo {
+        if is_mining_tick && ship.is_mining && ship.cargo_ore < ship.max_cargo && ship.energy >= 1.0
+        {
             if let Some(ast_id) = ship.target_asteroid_id {
                 if let Some(mut asteroid) = ctx.db.asteroid().asteroid_id().find(&ast_id) {
                     if ship.position.distance(&asteroid.position) <= asteroid.radius + 35.0 {
@@ -1551,6 +1724,10 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                             ship.cargo_ore += amount;
                             advance_tutorial(ctx, ship.owner, 10, 11);
                             asteroid.remaining_ore = asteroid.remaining_ore.saturating_sub(amount);
+                            ship.energy -= 1.0;
+                            if ship.energy == 0.0 {
+                                ship.is_stranded = true;
+                            }
 
                             if asteroid.remaining_ore == 0 {
                                 ctx.db.asteroid().asteroid_id().delete(&ast_id);
@@ -1590,7 +1767,8 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
         }
 
         // Signal range check (countdown decrements once per second)
-        if let Some(base) = ctx.db.base_station().owner().find(&ship.owner) {
+        let base_for_ship = ctx.db.base_station().owner().find(&ship.owner);
+        if let Some(ref base) = base_for_ship {
             let dist_to_base = ship.position.distance(&base.position);
             if dist_to_base > base.signal_radius {
                 // Outside signal! Continuous signal tether: halt immediately upon leaving controller signal bubble
@@ -1642,6 +1820,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
             }
         }
 
+        ship.is_docked = is_ship_docked(&ship, base_for_ship.as_ref().map(|b| b.position));
         ships_to_update.push(ship);
     }
 
@@ -1774,6 +1953,7 @@ fn update_radar_sensors(ctx: &ReducerContext) {
                     heading_rad: s.heading_rad,
                     speed: s.speed,
                     is_mining: s.is_mining,
+                    is_docked: s.is_docked,
                 });
             } else if s.owner != p_id && dist_hub.map_or(false, |d| d <= radar_horizon_range) {
                 ctx.db.unidentified_contact().insert(UnidentifiedContact {
@@ -2405,6 +2585,16 @@ fn update_procedural_chunks(ctx: &ReducerContext, tick_count: u64) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn energy_production_scales_with_research() {
+        assert_eq!(supported_drones(0), 3);
+        assert_eq!(supported_drones(5), 18);
+        assert!((base_energy_production(0) - 2.4).abs() < 1e-4);
+        assert!((base_energy_production(5) - 14.4).abs() < 1e-4);
+        assert_eq!(base_energy_capacity(0), 500.0);
+        assert_eq!(base_energy_capacity(5), 1500.0);
+    }
+
     fn test_base(owner: Identity) -> BaseStation {
         BaseStation {
             base_id: 7,
@@ -2413,7 +2603,7 @@ mod tests {
             position: Vec2::ZERO,
             signal_radius: 100.0,
             stored_ore: 0,
-            stored_energy: 0,
+            stored_energy: 0.0,
             level: 1,
             drone_scanner_level: 1,
             drone_scanner_progress: 0,
@@ -2421,6 +2611,8 @@ mod tests {
             base_scanner_progress: 0,
             radar_horizon_level: 1,
             radar_horizon_progress: 0,
+            energy_production_level: 0,
+            energy_production_progress: 0,
             last_ship_built_at: None,
         }
     }
@@ -2443,9 +2635,46 @@ mod tests {
             max_cargo: 0,
             target_asteroid_id: None,
             is_mining: false,
+            is_docked: false,
             is_stranded: false,
             signal_countdown: 0,
         }
+    }
+
+    #[test]
+    fn is_ship_docked_checks_base_radius_and_idle_state() {
+        let owner = Identity::from_byte_array([1; 32]);
+        let base_pos = Some(Vec2::new(100.0, 200.0));
+        let mut ship = test_ship(owner, 1, Vec2::new(130.0, 200.0));
+        assert!(is_ship_docked(&ship, base_pos));
+
+        // Spawn offset (25, 25) -> dist ~35.35 < 40.0
+        ship.position = Vec2::new(125.0, 225.0);
+        assert!(is_ship_docked(&ship, base_pos));
+
+        // Outside 40m radius
+        ship.position = Vec2::new(141.0, 200.0);
+        assert!(!is_ship_docked(&ship, base_pos));
+
+        // In transit (has target_position)
+        ship.position = Vec2::new(100.0, 200.0);
+        ship.target_position = Some(Vec2::new(100.0, 200.0));
+        assert!(!is_ship_docked(&ship, base_pos));
+
+        // Mining
+        ship.target_position = None;
+        ship.is_mining = true;
+        assert!(!is_ship_docked(&ship, base_pos));
+
+        // Stranded
+        ship.is_mining = false;
+        ship.is_stranded = true;
+        assert!(!is_ship_docked(&ship, base_pos));
+
+        // Tier-0 builder ship
+        ship.is_stranded = false;
+        ship.ship_tier = 0;
+        assert!(!is_ship_docked(&ship, base_pos));
     }
 
     fn test_asteroid(viewer: Identity, asteroid_id: u32) -> PerceivedAsteroid {
@@ -2464,29 +2693,47 @@ mod tests {
     #[test]
     fn tutorial_loot_boxes_have_the_expected_order_and_contents() {
         let expected: &[(u8, &[&str])] = &[
-            (5, &["IF_LET_SOME", "WORLD_FIRST_DRONE"]),
-            (7, &["WORLD_CLOSEST_ASTEROID"]),
-            (9, &["ACTIONS_MINE"]),
+            (
+                5,
+                &[
+                    "IF_LET_SOME",
+                    "WORLD_FIRST_DRONE",
+                    "PRINTLN",
+                    "DRONE_POSITION",
+                    "FORMAT_NO_DECIMALS",
+                ],
+            ),
+            (7, &["WORLD_CLOSEST_ASTEROID", "ASTEROID_ID"]),
+            (9, &["DRONE_SHIP_ID", "ACTIONS_MINE"]),
             (11, &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"]),
             (
                 13,
                 &[
                     "WORLD_FLEET_LEN",
                     "WORLD_BASE_STORED_ORE",
+                    "COMPARISONS",
+                    "LOGICAL_AND",
                     "ACTIONS_BUILD_DRONE_1",
                 ],
             ),
             (15, &["FOR_IN_FLEET"]),
+            (17, &["DRONE_IS_DOCKED", "DRONE_ENERGY", "ELSE_IF"]),
             (
-                17,
+                19,
                 &[
                     "WORLD_ACTIVE_RIDDLE",
+                    "OPTION_IS_NONE",
                     "ACTIONS_REQUEST_RESEARCH",
+                    "LET_BINDING",
                     "CLONE_AND_SORT",
+                    "RIDDLE_SORT",
+                    "RIDDLE_DISTANCE",
+                    "RIDDLE_DENOISE",
+                    "RIDDLE_ENERGY",
                     "ACTIONS_SOLVE_RIDDLE",
                 ],
             ),
-            (19, &["ACTIONS_BUILD_DRONE_2"]),
+            (21, &["ACTIONS_BUILD_DRONE_2"]),
         ];
         assert_eq!(
             LOOT_BOX_STEPS.as_slice(),
@@ -2497,6 +2744,9 @@ mod tests {
             for &key in commands {
                 assert!(keys.insert(key), "duplicate command {key}");
             }
+        }
+        for &key in free_play_commands() {
+            assert!(keys.insert(key), "duplicate command {key}");
         }
         for step in 0..=TUTORIAL_COMPLETED_STEP {
             let commands = expected

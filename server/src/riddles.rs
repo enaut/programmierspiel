@@ -33,6 +33,17 @@ pub struct DenoiseSolution {
     pub cleaned: Vec<f32>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EnergyPayload {
+    pub consumers: Vec<i64>,
+    pub budget: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EnergySolution {
+    pub supported: i64,
+}
+
 /// Generates riddle payload and expected solution based on track and target level.
 pub fn generate_riddle(track: u8, target_level: u8, base_pos: Vec2, seed: u64) -> (String, String) {
     let mut rng = SimpleRng::new(seed);
@@ -135,6 +146,38 @@ pub fn generate_riddle(track: u8, target_level: u8, base_pos: Vec2, seed: u64) -
             let solution = serde_json::to_string(&DenoiseSolution { cleaned }).unwrap_or_default();
             (payload, solution)
         }
+        4 => {
+            // Track 4: Energy Production — Energy budget (greedy: how many consumers fit)
+            let count = match target_level {
+                1 | 2 => 10,
+                3 => 25,
+                4 => 50,
+                _ => 100,
+            };
+            let mut consumers = Vec::with_capacity(count);
+            for _ in 0..count {
+                consumers.push(rng.next_i64_range(1, 100));
+            }
+            let total: i64 = consumers.iter().sum();
+            let budget = total / 3;
+
+            let mut sorted = consumers.clone();
+            sorted.sort();
+            let mut used = 0i64;
+            let mut supported = 0i64;
+            for c in sorted {
+                if used + c > budget {
+                    break;
+                }
+                used += c;
+                supported += 1;
+            }
+
+            let payload =
+                serde_json::to_string(&EnergyPayload { consumers, budget }).unwrap_or_default();
+            let solution = serde_json::to_string(&EnergySolution { supported }).unwrap_or_default();
+            (payload, solution)
+        }
         _ => ("{}".to_string(), "{}".to_string()),
     }
 }
@@ -229,6 +272,20 @@ pub fn verify_solution(
                     }
                     true
                 }
+                _ => false,
+            }
+        }
+        4 => {
+            // Track 4: Energy budget
+            // Accept either {"supported": n} or direct n
+            let parse = |t: &str| -> Option<i64> {
+                serde_json::from_str::<EnergySolution>(t)
+                    .map(|s| s.supported)
+                    .or_else(|_| serde_json::from_str::<i64>(t))
+                    .ok()
+            };
+            match (parse(student_trimmed), parse(expected_json)) {
+                (Some(s), Some(e)) => s == e,
                 _ => false,
             }
         }
@@ -328,5 +385,19 @@ mod tests {
                 "{\"cleaned\": []}"
             ));
         }
+    }
+
+    #[test]
+    fn test_track_4_energy() {
+        let (payload, solution) = generate_riddle(4, 2, Vec2::ZERO, 42);
+        let p: EnergyPayload = serde_json::from_str(&payload).unwrap();
+        assert_eq!(p.consumers.len(), 10);
+        assert!(verify_solution(4, &payload, &solution, &solution));
+        assert!(!verify_solution(
+            4,
+            &payload,
+            &solution,
+            "{\"supported\": -1}"
+        ));
     }
 }

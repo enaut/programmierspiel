@@ -57,6 +57,18 @@ impl Ship {
             0.0
         }
     }
+
+    /// Gibt zurück, ob die Drohne aktuell an der Heimatbasis angedockt ist.
+    pub fn is_docked(&self) -> bool {
+        self.is_docked
+    }
+}
+
+impl PerceivedDrone {
+    /// Gibt zurück, ob die fremde Drohne aktuell an ihrer Heimatbasis angedockt ist.
+    pub fn is_docked(&self) -> bool {
+        self.is_docked
+    }
 }
 
 impl BaseStation {
@@ -194,6 +206,7 @@ mod tests {
             max_cargo: 100,
             target_asteroid_id: None,
             is_mining: false,
+            is_docked: true,
             is_stranded: false,
             signal_countdown: 30,
         };
@@ -201,6 +214,7 @@ mod tests {
         assert!(ship.cargo_is_full());
         assert_eq!(ship.cargo_free_space(), 0);
         assert!((ship.energy_percent() - 0.5).abs() < 1e-5);
+        assert!(ship.is_docked());
     }
 
     #[test]

@@ -205,10 +205,10 @@ fn main() {
 ### Command Buffer ([`Actions`](file:///home/dietrich/Projekte/Source/programmierspiel/space_bot_sdk/src/action.rs#L50-L106))
 
 - `actions.mine(ship_id, asteroid_id)`: Orders a drone to fly to an asteroid and mine ore.
-- `actions.dock(ship_id)`: Orders a drone to dock at the home base, unload cargo, and recharge energy.
+- `actions.dock(ship_id)`: Orders a drone to dock at the home base, unload cargo, and recharge energy (drawn from the base's stored energy).
 - `actions.fly_to(ship_id, target_vec)`: Moves a ship to explicit 2D coordinates.
 - `actions.stop(ship_id)`: Immediately arrests ship velocity.
-- `actions.build_drone(tier)`: Queues drone construction at base (Tier 1: 50 ore; Tier 2: 150 ore).
+- `actions.build_drone(tier)`: Queues drone construction at base (Tier 1: 50 ore + 100 energy; Tier 2: 150 ore + 200 energy).
 - `actions.request_research(track)`: Requests a research riddle for a base subsystem.
 - `actions.solve_riddle(solution)`: Submits algorithmic solution to advance research progress.
 
@@ -219,6 +219,7 @@ fn main() {
 | **1: `DroneScanner`** | Drone Sensor Pod | Increases drone vision radius (150m to 350m) | **List Sorting**: Sort integer telemetries in ascending order. |
 | **2: `BaseAsteroidScanner`** | Base Radar Array | Increases asteroid/base scan radius (300m to 700m) | **Euclidean Geometry**: Calculate 2D Pythagorean distances from base to target vectors. |
 | **3: `RadarHorizon`** | Deep Space Receiver | Extends horizon for unidentified contacts (600m to 1200m) | **Signal Denoising**: Filter isolated noise spikes exceeding a dynamic threshold. |
+| **4: `EnergyProduction`** | Reactor | Base energy production supports 3 (level 0) to 18 (level 5) tier-1 drones (tier 2 needs double); storage 500 + 200 per level | **Energy Budget**: Count how many consumers fit into the budget, smallest first. |
 
 ---
 

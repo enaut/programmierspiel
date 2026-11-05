@@ -18,6 +18,7 @@ pub struct PerceivedDrone {
     pub heading_rad: f32,
     pub speed: f32,
     pub is_mining: bool,
+    pub is_docked: bool,
 }
 
 impl __sdk::InModule for PerceivedDrone {
@@ -37,6 +38,7 @@ pub struct PerceivedDroneCols {
     pub heading_rad: __sdk::__query_builder::Col<PerceivedDrone, f32>,
     pub speed: __sdk::__query_builder::Col<PerceivedDrone, f32>,
     pub is_mining: __sdk::__query_builder::Col<PerceivedDrone, bool>,
+    pub is_docked: __sdk::__query_builder::Col<PerceivedDrone, bool>,
 }
 
 impl __sdk::__query_builder::HasCols for PerceivedDrone {
@@ -52,6 +54,7 @@ impl __sdk::__query_builder::HasCols for PerceivedDrone {
             heading_rad: __sdk::__query_builder::Col::new(table_name, "heading_rad"),
             speed: __sdk::__query_builder::Col::new(table_name, "speed"),
             is_mining: __sdk::__query_builder::Col::new(table_name, "is_mining"),
+            is_docked: __sdk::__query_builder::Col::new(table_name, "is_docked"),
         }
     }
 }

@@ -626,6 +626,7 @@ mod tests {
             max_cargo: 50,
             target_asteroid_id,
             is_mining,
+            is_docked: false,
             is_stranded: false,
             signal_countdown: 20,
         }

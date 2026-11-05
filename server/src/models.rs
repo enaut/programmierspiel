@@ -58,7 +58,7 @@ pub struct BaseStation {
     pub position: Vec2,
     pub signal_radius: f32,
     pub stored_ore: u32,
-    pub stored_energy: u32,
+    pub stored_energy: f32,
     pub level: u8,
     pub drone_scanner_level: u8,
     pub drone_scanner_progress: u8,
@@ -66,6 +66,9 @@ pub struct BaseStation {
     pub base_scanner_progress: u8,
     pub radar_horizon_level: u8,
     pub radar_horizon_progress: u8,
+    /// Energy production research level (0..=5). Each level supports 3 more tier-1 drones.
+    pub energy_production_level: u8,
+    pub energy_production_progress: u8,
     pub last_ship_built_at: Option<Timestamp>,
 }
 
@@ -92,6 +95,7 @@ pub struct Ship {
     pub max_cargo: u32,
     pub target_asteroid_id: Option<u32>,
     pub is_mining: bool,
+    pub is_docked: bool,
     pub is_stranded: bool,
     pub signal_countdown: u16,
 }
@@ -173,6 +177,7 @@ pub struct PerceivedDrone {
     pub heading_rad: f32,
     pub speed: f32,
     pub is_mining: bool,
+    pub is_docked: bool,
 }
 
 #[table(accessor = perceived_base)]

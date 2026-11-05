@@ -126,48 +126,48 @@ pub fn get_step_info(step: u8) -> StepInfo {
         },
         5 => StepInfo {
             title: "🎁 Befehls-Lootbox #1: Deine erste Drohne",
-            story: "Dein Bot ist verbunden! In der Heimatbasis warten if let Some und world.first_drone() auf dich.",
+            story: "Dein Bot ist verbunden! In der Heimatbasis warten die ersten Befehle auf dich: if let Some, world.first_drone(), println! und die Position deiner Drohne.",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Öffne deine Heimatbasis und klicke auf die leuchtende Befehls-Lootbox.",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Lies die Karten und sammle beide Befehle ein.",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
                     code_hint: None,
                 },
             ],
         },
         7 => StepInfo {
             title: "🎁 Befehls-Lootbox #2: Asteroiden finden",
-            story: "Mit dem nächsten Befehl findest du bekannte Asteroiden, die noch Erz enthalten.",
+            story: "Mit dem nächsten Befehl findest du bekannte Asteroiden, die noch Erz enthalten, und liest ihre Kennnummer aus.",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Öffne die Heimatbasis und die leuchtende Befehls-Lootbox.",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Lies die Karte und sammle den Befehl ein.",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
                     code_hint: None,
                 },
             ],
         },
         9 => StepInfo {
             title: "🎁 Befehls-Lootbox #3: Erz schürfen",
-            story: "Jetzt lernst du den Befehl, mit dem deine Drohne einen Asteroiden abbaut.",
+            story: "Jetzt lernst du die Kennnummer deiner Drohne und den Befehl, mit dem sie einen Asteroiden abbaut.",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Öffne die Heimatbasis und die leuchtende Befehls-Lootbox.",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
                     code_hint: None,
                 },
                 SubTask {
                     num: "2",
-                    text: "Lies die Karte und sammle den Befehl ein.",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
                     code_hint: None,
                 },
             ],
@@ -190,7 +190,7 @@ pub fn get_step_info(step: u8) -> StepInfo {
         },
         13 => StepInfo {
             title: "🎁 Befehls-Lootbox #5: Flotten-Konstruktion",
-            story: "Deine Lieferung war erfolgreich! Öffne die Lootbox in der Heimatbasis, um zu lernen, wie du neue Drohnen baust.",
+            story: "Deine Lieferung war erfolgreich! Öffne die Lootbox in der Heimatbasis, um zu lernen, wie du Werte vergleichst, Bedingungen verknüpfst und neue Drohnen baust.",
             subtasks: vec![
                 SubTask {
                     num: "1",
@@ -221,8 +221,8 @@ pub fn get_step_info(step: u8) -> StepInfo {
             ],
         },
         17 => StepInfo {
-            title: "🎁 Befehls-Lootbox #7: Telemetrie & Algorithmen",
-            story: "Deine Flotte arbeitet! Öffne die Lootbox in der Heimatbasis für die Befehle der Sensorforschung.",
+            title: "🎁 Befehls-Lootbox #7: Energiemanagement & Laden",
+            story: "Deine Flotte schürft fleißig! Doch Fliegen und Bohren verbrauchen Batterie-Energie. In der Heimatbasis wartet eine Lootbox, mit der deine Drohnen rechtzeitig vor leerer Batterie umkehren und an der Basis vollladen.",
             subtasks: vec![
                 SubTask {
                     num: "1",
@@ -237,7 +237,23 @@ pub fn get_step_info(step: u8) -> StepInfo {
             ],
         },
         19 => StepInfo {
-            title: "🎁 Befehls-Lootbox #8: Schwere Flotte",
+            title: "🎁 Befehls-Lootbox #8: Telemetrie & Algorithmen",
+            story: "Deine Drohnen laden zuverlässig an der Basis auf! Öffne die Lootbox in der Heimatbasis für die Befehle aller vier Forschungsbäume.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Öffne deine Heimatbasis (Button '🏛️ Heimatbasis öffnen' oder oben in der Leiste).",
+                    code_hint: None,
+                },
+                SubTask {
+                    num: "2",
+                    text: "Klicke auf die leuchtende Befehls-Lootbox und sammle jede Karte mit einem Klick ein.",
+                    code_hint: None,
+                },
+            ],
+        },
+        21 => StepInfo {
+            title: "🎁 Befehls-Lootbox #9: Schwere Flotte",
             story: "Forschung abgeschlossen! Die letzte Lootbox verrät dir, wie du schwere Stufe-2-Drohnen baust.",
             subtasks: vec![
                 SubTask {
@@ -378,26 +394,49 @@ pub fn get_step_info(step: u8) -> StepInfo {
             ],
         },
         18 => StepInfo {
-            title: "Sensor-Upgrade durch Algorithmen",
-            story: "Die Sensoren deiner Heimatbasis erfassen Asteroiden aktuell nur auf kurze Distanz. Um weiter entfernte Erzvorkommen zu entdecken, musst du das Sensorsystem kalibrieren, indem du Messreihen sortierst.",
+            title: "Rechtzeitig an die Steckdose (Energiemanagement)",
+            story: "Wenn eine Drohne das Erz an der Basis abliefert, ist ihr Frachtraum sofort wieder leer – ohne Zusatzprüfung fliegt sie ungeladen wieder los, bis ihr mitten im All der Strom ausgeht und nur noch der langsame Not-Generator tröpfchenweise hilft. Halte angedockte Drohnen an der Basis, bis ihre Batterie voll ist (1.0), und schicke Drohnen mit niedrigem Batteriestand (< 0.25) rechtzeitig zum Andocken!",
             subtasks: vec![
                 SubTask {
                     num: "1",
-                    text: "Fordere ein Forschungsrätsel für den Drohnen-Scanner an, falls noch keines aktiv ist:",
+                    text: "Prüfe in deiner for-Schleife zuerst, ob die Drohne angedockt ist und ihre Batterie noch lädt (der Block bleibt leer, damit sie an der Basis weiterlädt):",
+                    code_hint: Some("if drone.is_docked() && drone.energy_percent() < 1.0 { }"),
+                },
+                SubTask {
+                    num: "2",
+                    text: "Prüfe mit else if, ob der Frachtraum voll oder die Batterie unter 25 % gefallen ist, und befiehl das Andocken:",
                     code_hint: Some(
-                        "if world.active_riddle.is_none() { actions.request_research(UpgradeTrack::DroneScanner); }",
+                        "else if drone.cargo_is_full() || drone.energy_percent() < 0.25 { actions.dock(drone.ship_id); }",
+                    ),
+                },
+                SubTask {
+                    num: "3",
+                    text: "Lass die Drohne im else-Zweig wie bisher den nächsten Asteroiden mit Erz abbauen und warte, bis eine Drohne an der Basis vollständig aufgeladen wurde.",
+                    code_hint: None,
+                },
+            ],
+        },
+        20 => StepInfo {
+            title: "Forschung: Vier Technologiebäume",
+            story: "Deine Heimatbasis kann in vier Forschungsbäumen ausgebaut werden, und du darfst frei wählen, welchen du zuerst und in welcher Reihenfolge du sie erforschst: 1) Drohnen-Scanner (größere Scanreichweite der Drohnen, Rätsel: Zahlen sortieren), 2) Basen- & Asteroidenscan (größerer Scanbereich der Basis, Rätsel: Distanzen berechnen), 3) Radar-Horizont (Kontakte weiter erkennen, Rätsel: Störsignale filtern), 4) Energieproduktion (die Basis erzeugt mehr Energie und kann mehr Drohnen versorgen: anfangs 3 Stufe-1-Drohnen, voll erforscht 18; Stufe-2-Drohnen brauchen doppelt so viel Energie; Rätsel: Energiebudget). Drohnen laden an der Basis auf und verbrauchen dabei deren Energie. Löse für diese Aufgabe ein Rätsel eines beliebigen Baums.",
+            subtasks: vec![
+                SubTask {
+                    num: "1",
+                    text: "Wähle einen beliebigen Forschungsbaum und fordere ein Rätsel an, falls noch keines aktiv ist:",
+                    code_hint: Some(
+                        "if world.active_riddle.is_none() { actions.request_research(UpgradeTrack::DroneScanner); } // oder BaseAsteroidScanner, RadarHorizon, EnergyProduction",
                     ),
                 },
                 SubTask {
                     num: "2",
-                    text: "Prüfe auf ein aktives Sortier-Rätsel, klone die Zahlenreihe und sortiere sie aufsteigend:",
+                    text: "Prüfe auf ein aktives Rätsel und berechne die Lösung passend zum gewählten Baum (z. B. Sort: sortieren, Energy: kleinste Verbraucher zuerst addieren, bis das Budget erreicht ist):",
                     code_hint: Some(
                         "if let Some(RiddleTask::Sort { numbers }) = world.active_riddle { let mut sorted = numbers.clone(); sorted.sort(); ... }",
                     ),
                 },
                 SubTask {
                     num: "3",
-                    text: "Reiche die sortierte Liste innerhalb des if-Blocks mit actions.solve_riddle(...) ein:",
+                    text: "Reiche die Lösung innerhalb des if-Blocks mit actions.solve_riddle(...) ein:",
                     code_hint: Some("actions.solve_riddle(RiddleSolution::Sort(sorted));"),
                 },
             ],
@@ -641,9 +680,9 @@ mod navigation_tests {
 
     #[test]
     fn new_final_step_respects_progress_and_reset() {
-        assert_eq!(viewed_step_after_progress_change(19, 20, 6), 20);
-        assert_eq!(viewed_step_after_progress_change(20, 16, 19), 16);
-        assert_eq!(viewed_step_after_progress_change(20, 8, 6), 6);
+        assert_eq!(viewed_step_after_progress_change(21, 22, 6), 22);
+        assert_eq!(viewed_step_after_progress_change(22, 16, 21), 16);
+        assert_eq!(viewed_step_after_progress_change(22, 8, 6), 6);
         assert_eq!(viewed_step_after_progress_change(8, 9, 6), 9);
     }
 }
@@ -760,7 +799,7 @@ pub fn QuestDrawer(
             button {
                 style: "position: fixed; left: 16px; top: 76px; z-index: 50; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.5); color: #00e5ff; padding: 8px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 229, 255, 0.2); backdrop-filter: blur(8px); display: flex; align-items: center; gap: 8px;",
                 onclick: move |_| is_collapsed.set(false),
-                span { "🛸 Mission: Stufe {step}/20" }
+                span { "🛸 Mission: Stufe {step}/22" }
                 span { style: "font-size: 10px; color: #94a3b8;", "▶ Ausklappen" }
             }
         };
@@ -787,7 +826,7 @@ pub fn QuestDrawer(
                         }
                         span {
                             style: "background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; white-space: nowrap;",
-                            "STUFE {viewed} / 20"
+                            "STUFE {viewed} / 22"
                         }
                     }
                     div {
@@ -816,8 +855,8 @@ pub fn QuestDrawer(
                 }
                 div {
                     style: "font-size: 11px; color: #94a3b8;",
-                    "Aktueller Fortschritt: Stufe {step} / 20"
-                    if step >= 20 {
+                    "Aktueller Fortschritt: Stufe {step} / 22"
+                    if step >= 22 {
                         span { style: "margin-left: 8px; color: #ffd700; font-weight: 700;", "🏆 MEISTER" }
                     }
                 }
@@ -825,7 +864,7 @@ pub fn QuestDrawer(
                 div {
                     style: "width: 100%; height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden;",
                     div {
-                        style: "height: 100%; width: {(step.min(20) as f32 / 20.0) * 100.0}%; background: linear-gradient(90deg, #00b4d8, #00e5ff); border-radius: 3px; transition: width 0.5s ease-out;"
+                        style: "height: 100%; width: {(step.min(22) as f32 / 22.0) * 100.0}%; background: linear-gradient(90deg, #00b4d8, #00e5ff); border-radius: 3px; transition: width 0.5s ease-out;"
                     }
                 }
             }
@@ -1077,7 +1116,7 @@ pub fn QuestDrawer(
                         onclick: move |_| on_advance.call(3),
                         "Ich habe Zed geöffnet und den Bot gestartet ➔ Weiter zu Stufe 4"
                     }
-                } else if step >= 20 {
+                } else if step >= 22 {
                     div {
                         style: "color: #ffd700; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px;",
                         span { "🏆" }
@@ -1398,7 +1437,7 @@ mod drawer_tests {
 
     #[test]
     fn server_reset_clamps_the_view_and_removes_completion() {
-        let (mut dom, progress) = setup(20);
+        let (mut dom, progress) = setup(22);
         assert!(format!("{:?}", drawer(&dom)).contains("🏆 MEISTER"));
         click(&mut dom, "Vorherige Stufe");
         click(&mut dom, "Vorherige Stufe");
@@ -1406,8 +1445,8 @@ mod drawer_tests {
         dom.render_immediate_to_vec();
         dom.render_immediate_to_vec();
         let reset = format!("{:?}", drawer(&dom));
-        assert!(reset.contains("STUFE 16 / 20"));
-        assert!(reset.contains("Aktueller Fortschritt: Stufe 16 / 20"));
+        assert!(reset.contains("STUFE 16 / 22"));
+        assert!(reset.contains("Aktueller Fortschritt: Stufe 16 / 22"));
         assert!(!reset.contains("🏆 MEISTER"));
         assert!(reset.contains("Multitasking für Fortgeschrittene"));
     }
@@ -1419,9 +1458,9 @@ mod drawer_tests {
         click(&mut dom, "Vorherige Stufe");
         let previous = format!("{:?}", drawer(&dom));
         assert!(previous.contains("Wo ist deine Drohne?"));
-        assert!(previous.contains("STUFE 6 / 20"));
-        assert!(previous.contains("Aktueller Fortschritt: Stufe 8 / 20"));
-        assert!(previous.contains("width: 40%"));
+        assert!(previous.contains("STUFE 6 / 22"));
+        assert!(previous.contains("Aktueller Fortschritt: Stufe 8 / 22"));
+        assert!(previous.contains("width: 36.36"));
         assert!(previous.contains("🛸 world.first_drone()"));
         assert!(!previous.contains("☄️ world.closest_asteroid_with_ore(pos)"));
         assert!(find_listener(drawer(&dom), None, "oninput").is_none());
@@ -1461,13 +1500,14 @@ mod tests {
             (12, "Frachtraum voll! Kurs Heimatbasis"),
             (14, "Flottenausbau (Zweite Drohne bauen)"),
             (16, "Multitasking für Fortgeschrittene (Flottenschleife)"),
-            (18, "Sensor-Upgrade durch Algorithmen"),
-            (20, "Tutorial abgeschlossen – Freies Spiel!"),
+            (18, "Rechtzeitig an die Steckdose (Energiemanagement)"),
+            (20, "Forschung: Vier Technologiebäume"),
+            (22, "Tutorial abgeschlossen – Freies Spiel!"),
         ];
         for (step, title) in titles {
             assert_eq!(get_step_info(step).title, title);
         }
-        for step in [5, 7, 9, 11, 13, 15, 17, 19] {
+        for step in [5, 7, 9, 11, 13, 15, 17, 19, 21] {
             assert!(get_step_info(step).title.contains("Lootbox"));
         }
     }
