@@ -6,4 +6,5 @@ members = [
     "client-web",
     "space_bot_sdk",
     "testclient",
+    "curriculum",
 ]

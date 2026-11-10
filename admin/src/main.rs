@@ -416,31 +416,9 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
         .collect();
 
     let tutorial_step_label = |step: u8| -> &'static str {
-        match step {
-            0 => "0/22 Registrierung",
-            1 => "1/22 Flug",
-            2 => "2/22 Basisbau",
-            3 => "3/22 Bot Start",
-            4 => "4/22 Bot-Kopplung",
-            5 => "5/22 🎁 Lootbox 1: Drohne",
-            6 => "6/22 Drohne",
-            7 => "7/22 🎁 Lootbox 2: Asteroid",
-            8 => "8/22 Asteroid",
-            9 => "9/22 🎁 Lootbox 3: Mining",
-            10 => "10/22 Erstes Erz",
-            11 => "11/22 🎁 Lootbox 4",
-            12 => "12/22 Lieferung",
-            13 => "13/22 🎁 Lootbox 5",
-            14 => "14/22 Drohne 2",
-            15 => "15/22 🎁 Lootbox 6",
-            16 => "16/22 Flottenloop",
-            17 => "17/22 🎁 Lootbox 7: Energie",
-            18 => "18/22 Energiemanagement",
-            19 => "19/22 🎁 Lootbox 8: Forschung",
-            20 => "20/22 Forschung",
-            21 => "21/22 🎁 Lootbox 9: Tier 2",
-            _ => "22/22 Sandbox 🚀",
-        }
+        curriculum::step(step)
+            .map(|s| s.admin_label)
+            .unwrap_or("22/22 Sandbox 🚀")
     };
 
     rsx! {
@@ -481,7 +459,7 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
                             div {
                                 style: "display: flex; align-items: center; justify-content: space-between; font-size: 11px; margin-top: 2px;",
                                 span {
-                                    style: if player.tutorial_step >= 22 {
+                                    style: if player.tutorial_step >= curriculum::FINAL_STEP {
                                         "padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.15); color: #00e676; font-weight: 600;"
                                     } else {
                                         "padding: 2px 6px; border-radius: 4px; background: rgba(0, 229, 255, 0.15); color: #00e5ff; font-weight: 600;"
@@ -514,7 +492,7 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
                                             move |evt: MouseEvent| {
                                                 evt.stop_propagation();
                                                 if let Some(conn) = (ctx.connection)() {
-                                                    let _ = conn.reducers.admin_set_tutorial_step(p_id, p_step.saturating_add(1).min(22));
+                                                    let _ = conn.reducers.admin_set_tutorial_step(p_id, p_step.saturating_add(1).min(curriculum::FINAL_STEP));
                                                 }
                                             }
                                         },

@@ -1,6 +1,7 @@
 pub mod math;
 pub mod models;
 pub mod riddles;
+pub mod tutorial;
 
 use math::{SimpleRng, Vec2, chunk_seed, pack_chunk_key, unpack_chunk_key};
 pub use models::*;
@@ -15,80 +16,14 @@ const DEFAULT_WORLD_HEIGHT: f32 = 10000.0;
 const DEFAULT_MEGASTATION_POS: Vec2 = Vec2::new(0.0, 0.0);
 const DEFAULT_TICK_INTERVAL_MS: u32 = 50; // 20 Ticks/s (50ms interval)
 const DEFAULT_SIGNAL_RADIUS: f32 = 1200.0;
-const MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY: f32 = 250.0;
-const INITIAL_ASTEROID_SCAN_RADIUS: f32 = 300.0;
-const MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY: u32 = 400;
+pub use tutorial::{
+    INITIAL_ASTEROID_SCAN_RADIUS, MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY,
+    MIN_ORE_IN_SCAN_RADIUS_TO_DEPLOY,
+};
 
-/// Tutorial steps at which a command loot box is waiting in the Heimatbasis.
-pub const LOOT_BOX_STEPS: [u8; 9] = [5, 7, 9, 11, 13, 15, 17, 19, 21];
-const TUTORIAL_COMPLETED_STEP: u8 = 22;
-
-/// Ordered command keys contained in the loot box of the given tutorial step.
-pub fn loot_box_commands(step: u8) -> &'static [&'static str] {
-    match step {
-        5 => &[
-            "IF_LET_SOME",
-            "WORLD_FIRST_DRONE",
-            "PRINTLN",
-            "DRONE_POSITION",
-            "FORMAT_NO_DECIMALS",
-        ],
-        7 => &["WORLD_CLOSEST_ASTEROID", "ASTEROID_ID"],
-        9 => &["DRONE_SHIP_ID", "ACTIONS_MINE"],
-        11 => &["IF_ELSE", "DRONE_CARGO_IS_FULL", "ACTIONS_DOCK"],
-        13 => &[
-            "WORLD_FLEET_LEN",
-            "WORLD_BASE_STORED_ORE",
-            "COMPARISONS",
-            "LOGICAL_AND",
-            "ACTIONS_BUILD_DRONE_1",
-        ],
-        15 => &["FOR_IN_FLEET"],
-        17 => &["DRONE_IS_DOCKED", "DRONE_ENERGY", "ELSE_IF"],
-        19 => &[
-            "WORLD_ACTIVE_RIDDLE",
-            "OPTION_IS_NONE",
-            "ACTIONS_REQUEST_RESEARCH",
-            "LET_BINDING",
-            "CLONE_AND_SORT",
-            "RIDDLE_SORT",
-            "RIDDLE_DISTANCE",
-            "RIDDLE_DENOISE",
-            "RIDDLE_ENERGY",
-            "ACTIONS_SOLVE_RIDDLE",
-        ],
-        21 => &["ACTIONS_BUILD_DRONE_2"],
-        _ => &[],
-    }
-}
-
-/// Additional SDK commands unlocked automatically once the player reaches Free Play (step 22).
-pub fn free_play_commands() -> &'static [&'static str] {
-    &[
-        "ACTIONS_FLY_TO",
-        "ACTIONS_STOP",
-        "VEC2_NEW",
-        "VEC2_DISTANCE",
-        "WORLD_SHIP",
-        "WORLD_CLOSEST_ASTEROID_ANY",
-        "WORLD_ASTEROIDS",
-        "WORLD_OTHER_DRONES",
-        "WORLD_OTHER_BASES",
-        "WORLD_TICK",
-        "DRONE_TIER",
-        "DRONE_CARGO",
-        "DRONE_MOTION",
-        "DRONE_TARGETS_AND_STATUS",
-        "DRONE_SIGNAL_AND_STRANDED",
-        "DRONE_DISTANCE_TO",
-        "BASE_STORED_ENERGY",
-        "BASE_POSITION_AND_SIGNAL",
-        "BASE_RESEARCH_LEVELS",
-        "ASTEROID_POSITION_AND_DISTANCE",
-        "ASTEROID_ORE_AND_TYPE",
-        "SDK_DRONE_COSTS",
-    ]
-}
+pub use curriculum::{
+    free_play_commands, loot_box_commands, FINAL_STEP as TUTORIAL_COMPLETED_STEP, LOOT_BOX_STEPS,
+};
 
 fn is_ship_docked(ship: &Ship, base_pos: Option<Vec2>) -> bool {
     ship.ship_tier > 0
@@ -236,7 +171,12 @@ fn advance_if_base_agent_connected(ctx: &ReducerContext, owner: Identity) {
             .filter(&owner)
             .any(|agent| is_home_base_agent(&agent, &base));
         if connected {
-            advance_tutorial(ctx, owner, 4, 5);
+            tutorial::apply_event(
+                ctx,
+                owner,
+                &tutorial::TutorialEvent::BaseAgentConnected,
+                &tutorial::TutorialSnapshot::default(),
+            );
         }
     }
 }
@@ -631,8 +571,12 @@ pub fn deploy_base_station(ctx: &ReducerContext, ship_id: u32) -> Result<(), Str
         "🏛️",
     );
 
-    advance_tutorial(ctx, sender, 1, 3);
-    advance_tutorial(ctx, sender, 2, 3);
+    tutorial::apply_event(
+        ctx,
+        sender,
+        &tutorial::TutorialEvent::BaseDeployed,
+        &tutorial::TutorialSnapshot::default(),
+    );
 
     log::info!(
         "Player {:?} established Base Station at {:?}.",
@@ -659,8 +603,22 @@ pub fn advance_tutorial_step(ctx: &ReducerContext, current_step: u8) -> Result<(
         );
     }
 
-    advance_tutorial(ctx, owner, 3, 4);
-    advance_if_base_agent_connected(ctx, owner);
+    let connected = ctx.db.base_station().owner().find(&owner).is_some_and(|base| {
+        ctx.db
+            .ai_agent()
+            .owner()
+            .filter(&owner)
+            .any(|agent| is_home_base_agent(&agent, &base))
+    });
+    tutorial::apply_event(
+        ctx,
+        owner,
+        &tutorial::TutorialEvent::BridgeConfirmed,
+        &tutorial::TutorialSnapshot {
+            base_agent_connected: connected,
+            ..Default::default()
+        },
+    );
     Ok(())
 }
 
@@ -715,21 +673,16 @@ pub fn submit_drone_coordinates(ctx: &ReducerContext, x: i32, y: i32) -> Result<
         .owner()
         .find(&owner)
         .and_then(|base| first_tutorial_drone(ctx.db.ship().owner().filter(&owner), &base));
-    match drone {
-        None => tutorial_input_error(
-            ctx,
-            owner,
-            "TUTORIAL_COORDINATES_ERROR",
-            "Keine eigene Drohne im Signalbereich der Heimatbasis sichtbar. Bitte erneut versuchen.",
-        ),
-        Some(drone) if !coordinates_match(drone.position, x, y) => tutorial_input_error(
-            ctx,
-            owner,
-            "TUTORIAL_COORDINATES_ERROR",
-            "Die Koordinaten stimmen nicht. Gib die aktuellen, auf ganze Zahlen gerundeten Koordinaten der ersten Drohne ein.",
-        ),
-        Some(_) => advance_tutorial(ctx, owner, 6, 7),
-    }
+    let snapshot = tutorial::TutorialSnapshot {
+        primary_drone_position: drone.as_ref().map(|d| d.position),
+        ..Default::default()
+    };
+    tutorial::apply_event(
+        ctx,
+        owner,
+        &tutorial::TutorialEvent::SubmitCoordinates { x, y },
+        &snapshot,
+    );
     Ok(())
 }
 
@@ -746,20 +699,21 @@ pub fn submit_asteroid_id(ctx: &ReducerContext, asteroid_id: u32) -> Result<(), 
         return Err("Die Asteroidenübung ist nur in Tutorial-Stufe 8 verfügbar".to_string());
     }
 
-    if tutorial_asteroid_is_visible(
+    let is_visible = tutorial_asteroid_is_visible(
         ctx.db.perceived_asteroid().viewer().filter(&owner),
         owner,
         asteroid_id,
-    ) {
-        advance_tutorial(ctx, owner, 8, 9);
-    } else {
-        tutorial_input_error(
-            ctx,
-            owner,
-            "TUTORIAL_ASTEROID_ERROR",
-            "Diese Asteroiden-ID ist nicht sichtbar. Gib die ID eines identifizierten Asteroiden im Scannerbereich ein.",
-        );
-    }
+    );
+    let snapshot = tutorial::TutorialSnapshot {
+        is_asteroid_visible: is_visible,
+        ..Default::default()
+    };
+    tutorial::apply_event(
+        ctx,
+        owner,
+        &tutorial::TutorialEvent::SubmitAsteroidId { asteroid_id },
+        &snapshot,
+    );
     Ok(())
 }
 
@@ -796,9 +750,14 @@ pub fn claim_next_command(ctx: &ReducerContext) -> Result<(), String> {
         unlock_command_key(ctx, owner, key);
     }
     // Advance once nothing besides the command just claimed was left.
-    if remaining.len() <= 1 {
-        advance_tutorial(ctx, owner, step, step + 1);
-    }
+    tutorial::apply_event(
+        ctx,
+        owner,
+        &tutorial::TutorialEvent::LootBoxClaimed {
+            remaining_in_box: remaining.len(),
+        },
+        &tutorial::TutorialSnapshot::default(),
+    );
     Ok(())
 }
 

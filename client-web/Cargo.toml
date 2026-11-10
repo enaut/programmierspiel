@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+curriculum = { path = "../curriculum" }
 dioxus = { version = "0.7.1", features = ["router"] }
 futures-channel = "0.3"
 log = "0.4"

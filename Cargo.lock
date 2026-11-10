@@ -12,6 +12,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "admin"
 version = "0.1.0"
 dependencies = [
+ "curriculum",
  "dioxus",
  "futures-channel",
  "getrandom 0.3.4",
@@ -629,6 +630,7 @@ name = "client-web"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "curriculum",
  "dioxus",
  "futures-channel",
  "getrandom 0.3.4",
@@ -1007,6 +1009,10 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "curriculum"
+version = "0.1.0"
 
 [[package]]
 name = "darling"
@@ -5327,6 +5333,7 @@ dependencies = [
 name = "server"
 version = "0.1.0"
 dependencies = [
+ "curriculum",
  "log",
  "serde",
  "serde_json",
@@ -5544,6 +5551,7 @@ dependencies = [
 name = "space_bot_sdk"
 version = "0.1.0"
 dependencies = [
+ "curriculum",
  "log",
  "serde",
  "serde_json",
