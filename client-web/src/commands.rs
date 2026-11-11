@@ -6,8 +6,8 @@ use crate::module_bindings::dioxus::use_spacetimedb_context;
 use dioxus::prelude::*;
 
 pub use curriculum::{
-    all_commands, command as find_command, is_loot_box_step, Command as CommandInfo, COMMANDS,
-    LOOT_BOX_STEPS,
+    COMMANDS, Command as CommandInfo, LOOT_BOX_STEPS, all_commands, command as find_command,
+    is_loot_box_step,
 };
 
 /// Befehle einer Lootbox in der festgelegten Reihenfolge.
@@ -162,127 +162,168 @@ pub fn CommandHallModal(
         .filter(|c| unlocked.iter().any(|u| u == c.key))
         .collect();
     let unlocked_count = unlocked_list.len();
+    let mut selected_category = use_signal(String::new);
+    let category = selected_category();
+    let mut categories: Vec<&'static str> = Vec::new();
+    for command in COMMANDS.iter() {
+        if !categories.contains(&command.category) {
+            categories.push(command.category);
+        }
+    }
+    categories.sort_unstable();
+    let visible_commands: Vec<&'static CommandInfo> = COMMANDS
+        .iter()
+        .filter(|command| category.is_empty() || command.category == category)
+        .collect();
 
+    let visible_unlocked_list: Vec<&'static CommandInfo> = visible_commands
+        .iter()
+        .copied()
+        .filter(|command| unlocked.iter().any(|u| u == command.key))
+        .collect();
     let current = selected().and_then(|k| find_command(&k));
-    let current_idx = current.and_then(|c| unlocked_list.iter().position(|x| x.key == c.key));
-    let prev_list = unlocked_list.clone();
-    let next_list = unlocked_list.clone();
+    let current_idx = current.and_then(|c| {
+        visible_unlocked_list
+            .iter()
+            .position(|command| command.key == c.key)
+    });
+    let prev_list = visible_unlocked_list.clone();
+    let next_list = visible_unlocked_list.clone();
 
     rsx! {
-        div {
-            style: "position: fixed; inset: 0; background: rgba(3, 7, 18, 0.85); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; user-select: none;",
-            onclick: move |_| on_close.call(()),
             div {
-                style: "background: #0b1329; border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 16px; width: 100%; max-width: 900px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.8); display: flex; flex-direction: column; user-select: none;",
-                onclick: move |e| e.stop_propagation(),
-
+                style: "position: fixed; inset: 0; background: rgba(3, 7, 18, 0.85); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; user-select: none;",
+                onclick: move |_| on_close.call(()),
                 div {
-                    style: "padding: 20px 24px; border-bottom: 1px solid rgba(80, 120, 200, 0.2); display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6);",
-                    div {
-                        style: "display: flex; align-items: center; gap: 10px;",
-                        span { style: "font-size: 24px;", "📖" }
-                        div {
-                            h2 { style: "margin: 0; font-size: 18px; font-weight: 700; color: #ffd700;", "Befehls-Ruhmeshalle" }
-                            div { style: "font-size: 11px; color: #94a3b8; margin-top: 2px;", "{unlocked_count} / {COMMANDS.len()} Befehle gesammelt" }
-                        }
-                    }
-                    button {
-                        style: "background: rgba(255, 255, 255, 0.08); border: none; color: #cbd5e1; font-size: 16px; width: 32px; height: 32px; border-radius: 50%; cursor: pointer;",
-                        onclick: move |_| on_close.call(()),
-                        "✕"
-                    }
-                }
+                    style: "background: #0b1329; border: 1px solid rgba(250, 204, 21, 0.4); border-radius: 16px; width: 100%; max-width: 900px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.8); display: flex; flex-direction: column; user-select: none;",
+                    onclick: move |e| e.stop_propagation(),
 
-                if let Some(cmd) = current {
                     div {
-                        style: "padding: 24px; display: flex; flex-direction: column; gap: 16px;",
+                        style: "padding: 20px 24px; border-bottom: 1px solid rgba(80, 120, 200, 0.2); display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6);",
                         div {
-                            style: "display: flex; justify-content: space-between; align-items: center;",
-                            button {
-                                style: "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;",
-                                onclick: move |_| selected.set(None),
-                                "◀ Zur Übersicht"
-                            }
+                            style: "display: flex; align-items: center; gap: 10px;",
+                            span { style: "font-size: 24px;", "📖" }
                             div {
-                                style: "display: flex; gap: 8px;",
-                                button {
-                                    style: "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;",
-                                    onclick: move |_| {
-                                        if let Some(i) = current_idx {
-                                            if i > 0 {
-                                                selected.set(Some(prev_list[i - 1].key.to_string()));
-                                            }
-                                        }
-                                    },
-                                    "◀ Vorheriger"
-                                }
-                                button {
-                                    style: "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;",
-                                    onclick: move |_| {
-                                        if let Some(i) = current_idx {
-                                            if i + 1 < next_list.len() {
-                                                selected.set(Some(next_list[i + 1].key.to_string()));
-                                            }
-                                        }
-                                    },
-                                    "Nächster ▶"
-                                }
+                                h2 { style: "margin: 0; font-size: 18px; font-weight: 700; color: #ffd700;", "Befehls-Ruhmeshalle" }
+                                div { style: "font-size: 11px; color: #94a3b8; margin-top: 2px;", "{unlocked_count} / {COMMANDS.len()} Befehle gesammelt" }
                             }
                         }
-                        div {
-                            style: "display: flex; align-items: center; gap: 12px;",
-                            span { style: "font-size: 36px;", "{cmd.icon}" }
-                            div {
-                                span { style: "font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: rgba(0, 229, 255, 0.15); color: #00e5ff;", "{cmd.category}" }
-                                div { style: "font-family: monospace; font-size: 16px; font-weight: 700; color: #ffd700; margin-top: 6px;", "{cmd.title}" }
-                            }
+                        button {
+                            style: "background: rgba(255, 255, 255, 0.08); border: none; color: #cbd5e1; font-size: 16px; width: 32px; height: 32px; border-radius: 50%; cursor: pointer;",
+                            onclick: move |_| on_close.call(()),
+                            "✕"
                         }
-                        div {
-                            div { style: "font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px; margin-bottom: 4px;", "WAS MACHT ES?" }
-                            p { style: "margin: 0; font-size: 13px; line-height: 1.6; color: #cbd5e1;", "{cmd.what}" }
-                        }
-                        div {
-                            div { style: "font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px; margin-bottom: 4px;", "WIE BENUTZT MAN ES?" }
-                            p { style: "margin: 0; font-size: 13px; line-height: 1.6; color: #cbd5e1;", "{cmd.how}" }
-                        }
-                        pre {
-                            style: "margin: 0; background: #020617; border: 1px solid rgba(0, 229, 255, 0.25); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; color: #38bdf8; white-space: pre-wrap; user-select: none;",
-                            "{cmd.example}"
-                        }
-                        div { style: "font-size: 11px; color: #64748b;", "✍️ Tippe den Code selbst in Zed – nur so lernst du ihn wirklich." }
                     }
-                } else {
                     div {
-                        style: "padding: 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px;",
-                        for cmd in COMMANDS.iter() {
-                            {
-                                let is_unlocked = unlocked.iter().any(|u| u == cmd.key);
-                                let key = cmd.key.to_string();
-                                rsx! {
-                                    div {
-                                        key: "{cmd.key}",
-                                        style: card_style(is_unlocked),
+                        style: "padding: 12px 24px; border-bottom: 1px solid rgba(80, 120, 200, 0.2); display: flex; align-items: center; gap: 8px;",
+                        label { style: "font-size: 12px; font-weight: 700; color: #cbd5e1;", "Kategorie" }
+                        select {
+                            style: "background: #0f172a; border: 1px solid rgba(255,255,255,0.2); color: #cbd5e1; padding: 7px 10px; border-radius: 6px; font-size: 12px; cursor: pointer;",
+                            value: "{category}",
+                            onchange: move |event| {
+                                selected_category.set(event.value());
+                                selected.set(None);
+                            },
+                            option { value: "", "Alle Kategorien" }
+                            for category_option in categories.iter() {
+                                option { value: "{category_option}", "{category_option}" }
+                            }
+                        }
+                    }
+
+                    if let Some(cmd) = current {
+                        div {
+                            style: "padding: 24px; display: flex; flex-direction: column; gap: 16px;",
+                            div {
+                                style: "display: flex; justify-content: space-between; align-items: center;",
+                                button {
+                                    style: "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;",
+                                    onclick: move |_| selected.set(None),
+                                    "◀ Zur Übersicht"
+                                }
+                                div {
+                                    style: "display: flex; gap: 8px;",
+                                    button {
+                                        style: "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;",
                                         onclick: move |_| {
-                                            if is_unlocked {
-                                                selected.set(Some(key.clone()));
+                                            if let Some(i) = current_idx {
+                                                if i > 0 {
+                                                    selected.set(Some(prev_list[i - 1].key.to_string()));
+                                                }
                                             }
                                         },
-                                        div {
-                                            style: "display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;",
-                                            span { style: "font-size: 24px;", if is_unlocked { "{cmd.icon}" } else { "❓" } }
-                                            if is_unlocked {
-                                                span { style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.2); color: #00e676;", "✔ GESAMMELT" }
-                                            } else {
-                                                span { style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); color: #94a3b8;", "🔒 Stufe {cmd.box_step}" }
+                                        "◀ Vorheriger"
+                                    }
+                                    button {
+                                        style: "background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;",
+                                        onclick: move |_| {
+                                            if let Some(i) = current_idx {
+                                                if i + 1 < next_list.len() {
+                                                    selected.set(Some(next_list[i + 1].key.to_string()));
+                                                }
                                             }
-                                        }
-                                        if is_unlocked {
-                                            div { style: "font-size: 10px; color: #00e5ff; margin-bottom: 2px;", "{cmd.category}" }
-                                            div { style: "font-family: monospace; font-size: 12px; font-weight: 700; color: #ffd700; margin-bottom: 4px; word-break: break-all;", "{cmd.title}" }
-                                            div { style: "font-size: 11px; color: #94a3b8; line-height: 1.3;", "{cmd.summary}" }
-                                        } else {
-                                            div { style: "font-size: 12px; font-weight: 700; color: #cbd5e1; margin-bottom: 4px;", "???" }
-                                            div { style: "font-size: 11px; color: #94a3b8;", "🔒 Freigeschaltet ab Stufe {cmd.box_step}" }
+                                        },
+                                        "Nächster ▶"
+                                    }
+                                }
+                            }
+                            div {
+                                style: "display: flex; align-items: center; gap: 12px;",
+                                span { style: "font-size: 36px;", "{cmd.icon}" }
+                                div {
+                                    span { style: "font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; background: rgba(0, 229, 255, 0.15); color: #00e5ff;", "{cmd.category}" }
+                                    div { style: "font-family: monospace; font-size: 16px; font-weight: 700; color: #ffd700; margin-top: 6px;", "{cmd.title}" }
+                                }
+                            }
+                            div {
+                                div { style: "font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px; margin-bottom: 4px;", "WAS MACHT ES?" }
+                                p { style: "margin: 0; font-size: 13px; line-height: 1.6; color: #cbd5e1;", "{cmd.what}" }
+                            }
+                            div {
+                                div { style: "font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px; margin-bottom: 4px;", "WIE BENUTZT MAN ES?" }
+                                p { style: "margin: 0; font-size: 13px; line-height: 1.6; color: #cbd5e1;", "{cmd.how}" }
+                            }
+                            pre {
+                                style: "margin: 0; background: #020617; border: 1px solid rgba(0, 229, 255, 0.25); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 13px; color: #38bdf8; white-space: pre-wrap; user-select: none;",
+                                "{cmd.example}"
+                            }
+                            div { style: "font-size: 11px; color: #64748b;", "✍️ Tippe den Code selbst in Zed – nur so lernst du ihn wirklich." }
+                        }
+                    } else {
+                        div {
+                            style: "padding: 24px;",
+                            div {
+                                style: "display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px;",
+                                for cmd in visible_commands.iter() {
+                                {
+                                    let is_unlocked = unlocked.iter().any(|u| u == cmd.key);
+                                    let key = cmd.key.to_string();
+                                    rsx! {
+                                        div {
+                                            key: "{cmd.key}",
+                                            style: card_style(is_unlocked),
+                                            onclick: move |_| {
+                                                if is_unlocked {
+                                                    selected.set(Some(key.clone()));
+                                                }
+                                            },
+                                            div {
+                                                style: "display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;",
+                                                span { style: "font-size: 24px;", if is_unlocked { "{cmd.icon}" } else { "❓" } }
+                                                if is_unlocked {
+                                                    span { style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(0, 230, 118, 0.2); color: #00e676;", "✔ GESAMMELT" }
+                                                } else {
+                                                    span { style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05); color: #94a3b8;", "🔒 Stufe {cmd.box_step}" }
+                                                }
+                                            }
+                                            if is_unlocked {
+                                                div { style: "font-size: 10px; color: #00e5ff; margin-bottom: 2px;", "{cmd.category}" }
+                                                div { style: "font-family: monospace; font-size: 12px; font-weight: 700; color: #ffd700; margin-bottom: 4px; word-break: break-all;", "{cmd.title}" }
+                                                div { style: "font-size: 11px; color: #94a3b8; line-height: 1.3;", "{cmd.summary}" }
+                                            } else {
+                                                div { style: "font-size: 12px; font-weight: 700; color: #cbd5e1; margin-bottom: 4px;", "???" }
+                                                div { style: "font-size: 11px; color: #94a3b8;", "🔒 Freigeschaltet ab Stufe {cmd.box_step}" }
+                                            }
                                         }
                                     }
                                 }

@@ -367,8 +367,9 @@ pub fn run<C: BaseController>(mut controller: C) {
         // 4. Rätsel-Lösungen einreichen
         for solution in actions.riddle_solutions.drain(..) {
             println!(
-                "💡 [SPACE BOT] Reiche Lösung für Forschungs-Track {} ein...",
-                solution.track()
+                "💡 [SPACE BOT] Reiche Lösung für Forschungs-Track {} ein...\n{}",
+                solution.track(),
+                solution.to_json_string()
             );
             if let Err(e) = conn
                 .reducers
