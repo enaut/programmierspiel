@@ -1,9 +1,11 @@
 use super::engine::{self, TransitionOutcome, TutorialEvent, TutorialSnapshot};
-use crate::models::{GameEvent, Identity};
+use crate::models::GameEvent;
+use crate::models::game_event;
+use crate::models::player;
+use crate::models::tutorial_state;
 use crate::unlock_command_key;
 use curriculum::FINAL_STEP;
-use spacetimedb::{ReducerContext, Table};
-
+use spacetimedb::{Identity, ReducerContext, Table};
 /// Evaluates a domain event through the pure tutorial engine and applies any resulting transitions
 /// to the SpacetimeDB database tables (`TutorialState` and `Player`).
 pub fn apply_event(

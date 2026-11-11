@@ -1,4 +1,4 @@
-use crate::models::Vec2;
+use crate::math::Vec2;
 use curriculum::FINAL_STEP;
 
 pub const MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY: f32 = 250.0;
@@ -19,36 +19,22 @@ pub enum TutorialEvent {
     /// AI agent bound to home base station (Step 4 -> 5)
     BaseAgentConnected,
     /// Command card claimed from lootbox (Odd steps 5..=21)
-    LootBoxClaimed {
-        remaining_in_box: usize,
-    },
+    LootBoxClaimed { remaining_in_box: usize },
     /// Student submitted drone coordinates (Step 6 -> 7)
-    SubmitCoordinates {
-        x: i32,
-        y: i32,
-    },
+    SubmitCoordinates { x: i32, y: i32 },
     /// Student submitted asteroid ID (Step 8 -> 9)
-    SubmitAsteroidId {
-        asteroid_id: u32,
-    },
+    SubmitAsteroidId { asteroid_id: u32 },
     /// Drone mined ore from asteroid (Step 10 -> 11)
-    OreMined {
-        amount: u32,
-    },
+    OreMined { amount: u32 },
     /// Ore delivered to home base station (Step 12 -> 13, Step 16 -> 17)
     OreDelivered {
         base_stored_ore: u32,
         fleet_size: usize,
     },
     /// New ship constructed at home base (Step 14 -> 15)
-    ShipBuilt {
-        tier: u8,
-    },
+    ShipBuilt { tier: u8 },
     /// Drone battery recharged at base dock (Step 18 -> 19)
-    DroneRecharged {
-        energy: f32,
-        max_energy: f32,
-    },
+    DroneRecharged { energy: f32, max_energy: f32 },
     /// Telemetry research riddle solved (Step 20 -> 21)
     RiddleSolved,
 }
@@ -140,13 +126,11 @@ pub fn evaluate_transition(
         (6, TutorialEvent::SubmitCoordinates { x, y }) => match snapshot.primary_drone_position {
             None => TransitionOutcome::Rejected {
                 error_code: "TUTORIAL_COORDINATES_ERROR",
-                message:
-                    "Keine eigene Drohne im Signalbereich der Heimatbasis sichtbar. Bitte erneut versuchen.",
+                message: "Keine eigene Drohne im Signalbereich der Heimatbasis sichtbar. Bitte erneut versuchen.",
             },
             Some(pos) if !coordinates_match(pos, *x, *y) => TransitionOutcome::Rejected {
                 error_code: "TUTORIAL_COORDINATES_ERROR",
-                message:
-                    "Die Koordinaten stimmen nicht. Gib die aktuellen, auf ganze Zahlen gerundeten Koordinaten der ersten Drohne ein.",
+                message: "Die Koordinaten stimmen nicht. Gib die aktuellen, auf ganze Zahlen gerundeten Koordinaten der ersten Drohne ein.",
             },
             Some(_) => TransitionOutcome::advance(6, 7),
         },
@@ -158,8 +142,7 @@ pub fn evaluate_transition(
             } else {
                 TransitionOutcome::Rejected {
                     error_code: "TUTORIAL_ASTEROID_ERROR",
-                    message:
-                        "Diese Asteroiden-ID ist nicht sichtbar. Gib die ID eines identifizierten Asteroiden im Scannerbereich ein.",
+                    message: "Diese Asteroiden-ID ist nicht sichtbar. Gib die ID eines identifizierten Asteroiden im Scannerbereich ein.",
                 }
             }
         }
@@ -170,14 +153,15 @@ pub fn evaluate_transition(
         }
 
         // Step 12 -> 13: Ore delivery to base >= 50
-        (12, TutorialEvent::OreDelivered { base_stored_ore, .. }) if *base_stored_ore >= 50 => {
-            TransitionOutcome::advance(12, 13)
-        }
+        (
+            12,
+            TutorialEvent::OreDelivered {
+                base_stored_ore, ..
+            },
+        ) if *base_stored_ore >= 50 => TransitionOutcome::advance(12, 13),
 
         // Step 14 -> 15: Second drone built (tier 1)
-        (14, TutorialEvent::ShipBuilt { tier }) if *tier == 1 => {
-            TransitionOutcome::advance(14, 15)
-        }
+        (14, TutorialEvent::ShipBuilt { tier }) if *tier == 1 => TransitionOutcome::advance(14, 15),
 
         // Step 16 -> 17: Multi-drone ore delivery with fleet >= 2
         (16, TutorialEvent::OreDelivered { fleet_size, .. }) if *fleet_size >= 2 => {
@@ -316,7 +300,11 @@ mod tests {
 
         // Rounding ties: (13, -13)
         assert_eq!(
-            evaluate_transition(6, &TutorialEvent::SubmitCoordinates { x: 13, y: -13 }, &snap),
+            evaluate_transition(
+                6,
+                &TutorialEvent::SubmitCoordinates { x: 13, y: -13 },
+                &snap
+            ),
             TransitionOutcome::Advance {
                 from_step: 6,
                 to_step: 7,
@@ -326,7 +314,11 @@ mod tests {
         );
 
         // Wrong input
-        match evaluate_transition(6, &TutorialEvent::SubmitCoordinates { x: 12, y: -12 }, &snap) {
+        match evaluate_transition(
+            6,
+            &TutorialEvent::SubmitCoordinates { x: 12, y: -12 },
+            &snap,
+        ) {
             TransitionOutcome::Rejected { error_code, .. } => {
                 assert_eq!(error_code, "TUTORIAL_COORDINATES_ERROR");
             }

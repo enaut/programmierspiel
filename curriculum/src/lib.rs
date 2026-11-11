@@ -809,7 +809,7 @@ pub static COMMANDS: [Command; 54] = [
         category: "Schiffs-Status",
         title: "drone.energy / drone.max_energy / drone.energy_percent()",
         summary: "Batteriestand, maximale Kapazität und Anteil von 0.0 bis 1.0.",
-        what: "Fliegen und Schürfen verbrauchen Batterie-Energie. Sinkt drone.energy auf 0, bleibt die Drohne liegen und muss auf den langsamen Not-Generator warten. drone.energy_percent() gibt den Füllstand als Zahl zwischen 0.0 (leer) und 1.0 (voll) zurück.",
+        what: "Fliegen und Schürfen verbrauchen Batterie-Energie. Sinkt drone.energy auf 0, bleibt die Drohne liegen. Der Not-Generator lädt sie langsam mit 1 Energie pro 3 Sekunden auf, damit sie nach und nach kurze Strecken weiterfliegen kann. drone.energy_percent() gibt den Füllstand als Zahl zwischen 0.0 (leer) und 1.0 (voll) zurück.",
         how: "Prüfe z. B. mit drone.energy_percent() < 0.25, ob weniger als 25 % übrig sind, und mit drone.energy_percent() < 1.0, ob die Batterie beim Laden noch nicht ganz voll ist.",
         example: "if drone.energy_percent() < 0.25 {\n    actions.dock(drone.ship_id);\n}",
     },

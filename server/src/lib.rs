@@ -15,6 +15,7 @@ const DEFAULT_WORLD_WIDTH: f32 = 10000.0;
 const DEFAULT_WORLD_HEIGHT: f32 = 10000.0;
 const DEFAULT_MEGASTATION_POS: Vec2 = Vec2::new(0.0, 0.0);
 const DEFAULT_TICK_INTERVAL_MS: u32 = 50; // 20 Ticks/s (50ms interval)
+const EMERGENCY_CHARGE_RATE_PER_SEC: f32 = 1.0 / 3.0;
 const DEFAULT_SIGNAL_RADIUS: f32 = 1200.0;
 pub use tutorial::{
     INITIAL_ASTEROID_SCAN_RADIUS, MIN_DISTANCE_FROM_MEGASTATION_TO_DEPLOY,
@@ -31,6 +32,31 @@ fn is_ship_docked(ship: &Ship, base_pos: Option<Vec2>) -> bool {
         && !ship.is_mining
         && ship.target_position.is_none()
         && base_pos.is_some_and(|bpos| bpos.distance(&ship.position) < 40.0)
+}
+
+fn strand_ship_if_energy_insufficient(ship: &mut Ship) -> bool {
+    if ship.energy <= 0.0 || (ship.is_mining && ship.energy < 1.0) {
+        ship.is_stranded = true;
+        ship.velocity = Vec2::ZERO;
+        ship.speed = 0.0;
+        ship.is_docked = false;
+        true
+    } else {
+        false
+    }
+}
+
+fn charge_stranded_ship(ship: &mut Ship, dt: f32) -> bool {
+    if !ship.is_stranded || ship.energy >= 1.0 {
+        return false;
+    }
+
+    ship.energy = (ship.energy + EMERGENCY_CHARGE_RATE_PER_SEC * dt).min(1.0);
+    if ship.energy >= 1.0 - 1e-4 {
+        ship.energy = 1.0;
+        ship.is_stranded = false;
+    }
+    true
 }
 
 /// Idempotently records an unlocked command. Returns true if newly inserted.
@@ -1536,16 +1562,18 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
 
     for mut ship in ctx.db.ship().iter() {
         if ship.is_stranded {
-            if ship.energy <= 0.0 && tick_count % 60 == 0 {
-                ship.energy += 1.0;
-                ship.is_stranded = false;
-                let base_pos = ctx
-                    .db
-                    .base_station()
-                    .owner()
-                    .find(&ship.owner)
-                    .map(|b| b.position);
-                ship.is_docked = is_ship_docked(&ship, base_pos);
+            if charge_stranded_ship(&mut ship, dt) {
+                if ship.is_stranded {
+                    ship.is_docked = false;
+                } else {
+                    let base_pos = ctx
+                        .db
+                        .base_station()
+                        .owner()
+                        .find(&ship.owner)
+                        .map(|b| b.position);
+                    ship.is_docked = is_ship_docked(&ship, base_pos);
+                }
                 ships_to_update.push(ship);
             } else if ship.is_docked {
                 ship.is_docked = false;
@@ -1684,9 +1712,7 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                             advance_tutorial(ctx, ship.owner, 10, 11);
                             asteroid.remaining_ore = asteroid.remaining_ore.saturating_sub(amount);
                             ship.energy -= 1.0;
-                            if ship.energy == 0.0 {
-                                ship.is_stranded = true;
-                            }
+                            strand_ship_if_energy_insufficient(&mut ship);
 
                             if asteroid.remaining_ore == 0 {
                                 ctx.db.asteroid().asteroid_id().delete(&ast_id);
@@ -1724,6 +1750,8 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                 }
             }
         }
+
+        strand_ship_if_energy_insufficient(&mut ship);
 
         // Signal range check (countdown decrements once per second)
         let base_for_ship = ctx.db.base_station().owner().find(&ship.owner);
@@ -2598,6 +2626,29 @@ mod tests {
             is_stranded: false,
             signal_countdown: 0,
         }
+    }
+
+    #[test]
+    fn mining_ship_with_less_than_one_energy_becomes_stranded() {
+        let owner = Identity::from_byte_array([1; 32]);
+        let mut ship = test_ship(owner, 1, Vec2::ZERO);
+        ship.is_mining = true;
+        ship.energy = 0.100105;
+
+        assert!(strand_ship_if_energy_insufficient(&mut ship));
+        assert!(ship.is_stranded);
+    }
+
+    #[test]
+    fn stranded_ship_receives_emergency_energy_while_waiting() {
+        let owner = Identity::from_byte_array([1; 32]);
+        let mut ship = test_ship(owner, 1, Vec2::ZERO);
+        ship.is_stranded = true;
+        ship.energy = 0.100105;
+
+        assert!(charge_stranded_ship(&mut ship, 0.05));
+        assert!(ship.energy > 0.0);
+        assert!(ship.is_stranded);
     }
 
     #[test]
