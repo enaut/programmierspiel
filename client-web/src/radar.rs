@@ -250,7 +250,7 @@ fn render_tinted_sprite(
     let scratch_ctx: web_sys::CanvasRenderingContext2d =
         scratch_canvas.get_context("2d").ok()??.dyn_into().ok()?;
 
-    scratch_ctx.set_fill_style(&JsValue::from_str(tint_color));
+    scratch_ctx.set_fill_style_str(tint_color);
     scratch_ctx.fill_rect(0.0, 0.0, size, size);
 
     let _ = scratch_ctx.set_global_composite_operation("destination-in");
@@ -312,7 +312,7 @@ fn render_dual_tinted_sprite(
         scratch_canvas.get_context("2d").ok()??.dyn_into().ok()?;
 
     // 1. Primary Tint (Mask 1)
-    scratch_ctx.set_fill_style(&JsValue::from_str(color1));
+    scratch_ctx.set_fill_style_str(color1);
     scratch_ctx.fill_rect(0.0, 0.0, size, size);
     let _ = scratch_ctx.set_global_composite_operation("destination-in");
     let _ = scratch_ctx
@@ -340,7 +340,7 @@ fn render_dual_tinted_sprite(
     // 2. Secondary Tint (Mask 2)
     let _ = scratch_ctx.set_global_composite_operation("source-over");
     scratch_ctx.clear_rect(0.0, 0.0, size, size);
-    scratch_ctx.set_fill_style(&JsValue::from_str(color2));
+    scratch_ctx.set_fill_style_str(color2);
     scratch_ctx.fill_rect(0.0, 0.0, size, size);
     let _ = scratch_ctx.set_global_composite_operation("destination-in");
     let _ = scratch_ctx
@@ -535,7 +535,7 @@ fn draw_target_reticle(
     let r = radius + 8.0 + pulse;
     let arm = 7.0;
 
-    ctx.set_stroke_style(&JsValue::from_str(color));
+    ctx.set_stroke_style_str(color);
     ctx.set_line_width(2.0);
 
     // Top-left corner
@@ -597,10 +597,10 @@ fn draw_infinite_grid(
         ctx.move_to(x, min_y);
         ctx.line_to(x, max_y);
         if x.abs() < 1.0 {
-            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+            ctx.set_stroke_style_str("rgba(0, 229, 255, 0.4)");
             ctx.set_line_width(line_w * 2.0);
         } else {
-            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.05)"));
+            ctx.set_stroke_style_str("rgba(0, 229, 255, 0.05)");
             ctx.set_line_width(line_w);
         }
         ctx.stroke();
@@ -613,10 +613,10 @@ fn draw_infinite_grid(
         ctx.move_to(min_x, y);
         ctx.line_to(max_x, y);
         if y.abs() < 1.0 {
-            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+            ctx.set_stroke_style_str("rgba(0, 229, 255, 0.4)");
             ctx.set_line_width(line_w * 2.0);
         } else {
-            ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.05)"));
+            ctx.set_stroke_style_str("rgba(0, 229, 255, 0.05)");
             ctx.set_line_width(line_w);
         }
         ctx.stroke();
@@ -689,13 +689,13 @@ fn draw_offscreen_indicator(
     ctx.line_to(-4.0, 0.0);
     ctx.line_to(-8.0, 8.0);
     ctx.close_path();
-    ctx.set_fill_style(&JsValue::from_str(color));
+    ctx.set_fill_style_str(color);
     ctx.fill();
     let _ = ctx.restore();
 
     // Distance label
     ctx.set_font("bold 11px monospace");
-    ctx.set_fill_style(&JsValue::from_str("#ffffff"));
+    ctx.set_fill_style_str("#ffffff");
     ctx.set_text_align("center");
     let text = format!("{} ({:.0}m)", label, world_dist);
     let text_y = if iy < half_h { 20.0 } else { -14.0 };
@@ -730,7 +730,7 @@ pub fn render_player_radar(
     #[cfg(target_arch = "wasm32")]
     {
         // 1. Dark radar background
-        ctx.set_fill_style(&JsValue::from_str("#060a17"));
+        ctx.set_fill_style_str("#060a17");
         ctx.fill_rect(0.0, 0.0, canvas_w * dpr, canvas_h * dpr);
 
         let half_w = canvas_w / 2.0;
@@ -770,7 +770,7 @@ pub fn render_player_radar(
         // Ambient radar glow within scan horizon
         ctx.begin_path();
         let _ = ctx.arc(hub_x, hub_y, horizon_r, 0.0, std::f64::consts::TAU);
-        ctx.set_fill_style(&JsValue::from_str("rgba(0, 229, 255, 0.02)"));
+        ctx.set_fill_style_str("rgba(0, 229, 255, 0.02)");
         ctx.fill();
 
         let drone_label = format!(
@@ -798,13 +798,13 @@ pub fn render_player_radar(
         for (r, label, stroke_color) in &rings {
             ctx.begin_path();
             let _ = ctx.arc(hub_x, hub_y, *r, 0.0, std::f64::consts::TAU);
-            ctx.set_stroke_style(&JsValue::from_str(stroke_color));
+            ctx.set_stroke_style_str(stroke_color);
             ctx.set_line_width(1.0 / zoom);
             ctx.stroke();
 
             // Ring distance label
             ctx.set_font("10px monospace");
-            ctx.set_fill_style(&JsValue::from_str("rgba(0, 229, 255, 0.45)"));
+            ctx.set_fill_style_str("rgba(0, 229, 255, 0.45)");
             ctx.set_text_align("left");
             let _ = ctx.fill_text(label, hub_x + 6.0, hub_y - *r + 12.0);
         }
@@ -839,7 +839,7 @@ pub fn render_player_radar(
         } else {
             "rgba(80, 200, 255, 0.22)".to_string()
         };
-        ctx.set_stroke_style(&JsValue::from_str(&stroke_color));
+        ctx.set_stroke_style_str(&stroke_color);
         ctx.set_line_width(if has_builder { 3.0 / zoom } else { 2.0 / zoom });
         ctx.stroke();
 
@@ -860,7 +860,7 @@ pub fn render_player_radar(
                     0.0,
                     std::f64::consts::TAU,
                 );
-                ctx.set_fill_style(&JsValue::from_str("rgba(92, 225, 230, 0.08)"));
+                ctx.set_fill_style_str("rgba(92, 225, 230, 0.08)");
                 ctx.fill();
 
                 let sprite_w = 110.0;
@@ -895,7 +895,7 @@ pub fn render_player_radar(
 
         ctx.set_font("bold 11px sans-serif");
         ctx.set_text_align("center");
-        ctx.set_fill_style(&JsValue::from_str("#e0f7fa"));
+        ctx.set_fill_style_str("#e0f7fa");
         let _ = ctx.fill_text("MEGA-STATION", mega_world_x, mega_world_y + 46.0);
 
         // 3. Draw Unidentified Objects (radar blips)
@@ -907,9 +907,9 @@ pub fn render_player_radar(
                 ((time * 3.5 + (contact.contact_id as f64 * 0.7)).sin() * 0.25 + 0.75) * 4.5;
             ctx.begin_path();
             let _ = ctx.arc(ux, uy, pulse, 0.0, std::f64::consts::TAU);
-            ctx.set_fill_style(&JsValue::from_str("rgba(239, 68, 68, 0.75)"));
+            ctx.set_fill_style_str("rgba(239, 68, 68, 0.75)");
             ctx.fill();
-            ctx.set_stroke_style(&JsValue::from_str("rgba(248, 113, 113, 0.9)"));
+            ctx.set_stroke_style_str("rgba(248, 113, 113, 0.9)");
             ctx.set_line_width(1.0 / zoom);
             ctx.stroke();
         }
@@ -940,10 +940,10 @@ pub fn render_player_radar(
                             0.0,
                             std::f64::consts::TAU,
                         );
-                        ctx.set_stroke_style(&JsValue::from_str(&format!(
+                        ctx.set_stroke_style_str(&format!(
                             "rgba(0, 229, 255, {:.2})",
                             0.6 + 0.4 * pulse
-                        )));
+                        ));
                         ctx.set_line_width(2.5 / zoom);
                         ctx.stroke();
                     }
@@ -1006,9 +1006,9 @@ pub fn render_player_radar(
                     0.0,
                     std::f64::consts::TAU,
                 );
-                ctx.set_fill_style(&JsValue::from_str(color));
+                ctx.set_fill_style_str(color);
                 ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str(border));
+                ctx.set_stroke_style_str(border);
                 ctx.set_line_width(1.0 / zoom);
                 ctx.stroke();
             }
@@ -1017,7 +1017,7 @@ pub fn render_player_radar(
                 draw_target_reticle(ctx, ax, ay, (ast.radius as f64) * 0.85, time, "#00e5ff");
                 ctx.set_font("bold 11px sans-serif");
                 ctx.set_text_align("center");
-                ctx.set_fill_style(&JsValue::from_str("#ffffff"));
+                ctx.set_fill_style_str("#ffffff");
                 let _ = ctx.fill_text(
                     &format!("{} Erz", ast.remaining_ore),
                     ax,
@@ -1054,13 +1054,13 @@ pub fn render_player_radar(
                 } else {
                     ctx.begin_path();
                     let _ = ctx.arc(bx, by, 18.0, 0.0, std::f64::consts::TAU);
-                    ctx.set_fill_style(&JsValue::from_str("#0f172a"));
+                    ctx.set_fill_style_str("#0f172a");
                     ctx.fill();
-                    ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 90%, 55%)", b_hue1)));
+                    ctx.set_stroke_style_str(&format!("hsl({}, 90%, 55%)", b_hue1));
                     ctx.set_line_width(2.5 / zoom);
                     ctx.stroke();
 
-                    ctx.set_stroke_style(&JsValue::from_str("#94a3b8"));
+                    ctx.set_stroke_style_str("#94a3b8");
                     ctx.set_line_width(1.5 / zoom);
                     ctx.begin_path();
                     ctx.move_to(bx - 24.0, by);
@@ -1072,7 +1072,7 @@ pub fn render_player_radar(
 
                 ctx.set_font("bold 11px sans-serif");
                 ctx.set_text_align("center");
-                ctx.set_fill_style(&JsValue::from_str("#e2e8f0"));
+                ctx.set_fill_style_str("#e2e8f0");
                 let _ = ctx.fill_text(&b_name, bx, by + 36.0);
 
                 if selected_entity == Some(SelectedEntity::ForeignBase(base.base_id)) {
@@ -1089,17 +1089,11 @@ pub fn render_player_radar(
             let sig_r = base.signal_radius as f64;
             ctx.begin_path();
             let _ = ctx.arc(bx, by, sig_r, 0.0, std::f64::consts::TAU);
-            ctx.set_stroke_style(&JsValue::from_str(&format!(
-                "hsla({}, 90%, 65%, 0.25)",
-                color_hue
-            )));
+            ctx.set_stroke_style_str(&format!("hsla({}, 90%, 65%, 0.25)", color_hue));
             ctx.set_line_width(2.0 / zoom);
             ctx.stroke();
 
-            ctx.set_fill_style(&JsValue::from_str(&format!(
-                "hsla({}, 90%, 60%, 0.03)",
-                color_hue
-            )));
+            ctx.set_fill_style_str(&format!("hsla({}, 90%, 60%, 0.03)", color_hue));
             ctx.fill();
 
             if let Some(canvas) = get_tinted_player_station_canvas(color_hue, secondary_color_hue) {
@@ -1114,13 +1108,13 @@ pub fn render_player_radar(
             } else {
                 ctx.begin_path();
                 let _ = ctx.arc(bx, by, 22.0, 0.0, std::f64::consts::TAU);
-                ctx.set_fill_style(&JsValue::from_str("#0f172a"));
+                ctx.set_fill_style_str("#0f172a");
                 ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str(&format!("hsl({}, 95%, 60%)", color_hue)));
+                ctx.set_stroke_style_str(&format!("hsl({}, 95%, 60%)", color_hue));
                 ctx.set_line_width(3.0 / zoom);
                 ctx.stroke();
 
-                ctx.set_stroke_style(&JsValue::from_str("#38bdf8"));
+                ctx.set_stroke_style_str("#38bdf8");
                 ctx.set_line_width(2.0 / zoom);
                 ctx.begin_path();
                 ctx.move_to(bx - 32.0, by);
@@ -1132,7 +1126,7 @@ pub fn render_player_radar(
 
             ctx.set_font("bold 12px sans-serif");
             ctx.set_text_align("center");
-            ctx.set_fill_style(&JsValue::from_str("#ffffff"));
+            ctx.set_fill_style_str("#ffffff");
             let _ = ctx.fill_text("HEIMATBASIS", bx, by + 46.0);
 
             if selected_entity == Some(SelectedEntity::Heimatbasis) {
@@ -1184,9 +1178,9 @@ pub fn render_player_radar(
                     ctx.line_to(-12.0, 10.0);
                     ctx.close_path();
 
-                    ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 85%, 50%)", d_hue1)));
+                    ctx.set_fill_style_str(&format!("hsl({}, 85%, 50%)", d_hue1));
                     ctx.fill();
-                    ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
+                    ctx.set_stroke_style_str("#ffffff");
                     ctx.set_line_width(1.5 / zoom);
                     ctx.stroke();
                 }
@@ -1195,7 +1189,7 @@ pub fn render_player_radar(
 
                 ctx.set_font("10px monospace");
                 ctx.set_text_align("center");
-                ctx.set_fill_style(&JsValue::from_str("#cbd5e1"));
+                ctx.set_fill_style_str("#cbd5e1");
                 let label = if p_name.is_empty() {
                     format!("Drohne #{}", d.ship_id)
                 } else {
@@ -1230,7 +1224,7 @@ pub fn render_player_radar(
                         ctx.begin_path();
                         ctx.move_to(sx, sy);
                         ctx.line_to(ast_x, ast_y);
-                        ctx.set_stroke_style(&JsValue::from_str("#00e5ff"));
+                        ctx.set_stroke_style_str("#00e5ff");
                         ctx.set_line_width(2.0 / zoom);
                         ctx.stroke();
                     }
@@ -1250,14 +1244,14 @@ pub fn render_player_radar(
                 ctx.begin_path();
                 ctx.move_to(sx, sy);
                 ctx.line_to(tx, ty);
-                ctx.set_stroke_style(&JsValue::from_str("rgba(0, 229, 255, 0.4)"));
+                ctx.set_stroke_style_str("rgba(0, 229, 255, 0.4)");
                 ctx.set_line_width(1.5 / zoom);
                 ctx.stroke();
                 ctx.set_line_dash(&JsValue::from(js_sys::Array::new())).ok();
 
                 ctx.begin_path();
                 let _ = ctx.arc(tx, ty, 5.0, 0.0, std::f64::consts::TAU);
-                ctx.set_stroke_style(&JsValue::from_str("#00e5ff"));
+                ctx.set_stroke_style_str("#00e5ff");
                 ctx.set_line_width(1.5 / zoom);
                 ctx.stroke();
             }
@@ -1290,9 +1284,9 @@ pub fn render_player_radar(
                 ctx.line_to(-12.0, 10.0);
                 ctx.close_path();
 
-                ctx.set_fill_style(&JsValue::from_str(&format!("hsl({}, 85%, 50%)", color_hue)));
+                ctx.set_fill_style_str(&format!("hsl({}, 85%, 50%)", color_hue));
                 ctx.fill();
-                ctx.set_stroke_style(&JsValue::from_str("#ffffff"));
+                ctx.set_stroke_style_str("#ffffff");
                 ctx.set_line_width(1.5 / zoom);
                 ctx.stroke();
             }
@@ -1301,7 +1295,7 @@ pub fn render_player_radar(
 
             ctx.set_font("10px monospace");
             ctx.set_text_align("center");
-            ctx.set_fill_style(&JsValue::from_str("#cbd5e1"));
+            ctx.set_fill_style_str("#cbd5e1");
             let label = if s.ship_tier == 0 {
                 "Bauschiff (Mutterschiff)".to_string()
             } else {
@@ -1323,7 +1317,7 @@ pub fn render_player_radar(
             let pulse = (time * 8.0).sin() * 3.0 + 12.0;
             ctx.begin_path();
             let _ = ctx.arc(tx, ty, pulse, 0.0, std::f64::consts::TAU);
-            ctx.set_stroke_style(&JsValue::from_str("#00e676"));
+            ctx.set_stroke_style_str("#00e676");
             ctx.set_line_width(2.0 / zoom);
             ctx.stroke();
 
