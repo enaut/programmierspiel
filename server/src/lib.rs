@@ -23,7 +23,7 @@ pub use tutorial::{
 };
 
 pub use curriculum::{
-    free_play_commands, loot_box_commands, FINAL_STEP as TUTORIAL_COMPLETED_STEP, LOOT_BOX_STEPS,
+    FINAL_STEP as TUTORIAL_COMPLETED_STEP, LOOT_BOX_STEPS, free_play_commands, loot_box_commands,
 };
 
 fn is_ship_docked(ship: &Ship, base_pos: Option<Vec2>) -> bool {
@@ -629,13 +629,18 @@ pub fn advance_tutorial_step(ctx: &ReducerContext, current_step: u8) -> Result<(
         );
     }
 
-    let connected = ctx.db.base_station().owner().find(&owner).is_some_and(|base| {
-        ctx.db
-            .ai_agent()
-            .owner()
-            .filter(&owner)
-            .any(|agent| is_home_base_agent(&agent, &base))
-    });
+    let connected = ctx
+        .db
+        .base_station()
+        .owner()
+        .find(&owner)
+        .is_some_and(|base| {
+            ctx.db
+                .ai_agent()
+                .owner()
+                .filter(&owner)
+                .any(|agent| is_home_base_agent(&agent, &base))
+        });
     tutorial::apply_event(
         ctx,
         owner,
@@ -1056,26 +1061,21 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
 // Base Station Research & Upgrades Reducers
 // ==========================================
 
-/// Maximum research level of every upgrade track.
+/// Maximum research level of scanner upgrade tracks.
 pub const MAX_RESEARCH_LEVEL: u8 = 5;
-/// Energy produced per second per supported tier-1 drone.
-pub const ENERGY_PER_DRONE_PER_SEC: f32 = 0.8;
+/// Energy Production starts at internal level 0 and has four research upgrades.
+pub const MAX_ENERGY_PRODUCTION_LEVEL: u8 = 4;
 /// Maximum energy a docked drone can draw from the base per second.
 pub const DOCK_CHARGE_RATE_PER_SEC: f32 = 10.0;
 
-/// Number of tier-1 drones the base energy production supports at the given energy research level.
-pub fn supported_drones(energy_level: u8) -> u32 {
-    3 + 3 * energy_level.min(MAX_RESEARCH_LEVEL) as u32
-}
-
 /// Energy produced by the base per second.
 pub fn base_energy_production(energy_level: u8) -> f32 {
-    supported_drones(energy_level) as f32 * ENERGY_PER_DRONE_PER_SEC
+    2.4 + 2.4 * energy_level.min(MAX_ENERGY_PRODUCTION_LEVEL) as f32
 }
 
 /// Maximum energy the base can store.
 pub fn base_energy_capacity(energy_level: u8) -> f32 {
-    500.0 + 200.0 * energy_level.min(MAX_RESEARCH_LEVEL) as f32
+    500.0 + 200.0 * energy_level.min(MAX_ENERGY_PRODUCTION_LEVEL) as f32
 }
 
 /// Calculates ore cost for conducting research on a riddle:
@@ -1085,6 +1085,59 @@ pub fn base_energy_capacity(energy_level: u8) -> f32 {
 /// Stufe 4: 301..400 Erz
 pub fn calculate_riddle_cost(level: u8, progress: u8) -> u32 {
     (level.saturating_sub(1) as u32) * 100 + (progress as u32) + 1
+}
+
+fn mark_research_attempt_abandoned(ctx: &ReducerContext, owner: Identity, puzzle_id: u64) {
+    if let Some(mut attempt) = ctx
+        .db
+        .research_attempt()
+        .owner()
+        .filter(&owner)
+        .find(|attempt| attempt.puzzle_id == puzzle_id)
+    {
+        attempt.status = 3;
+        attempt.completed_at = Some(ctx.timestamp);
+        ctx.db.research_attempt().id().update(attempt);
+    }
+}
+
+fn record_research_attempt_result(
+    ctx: &ReducerContext,
+    owner: Identity,
+    riddle: &ActiveRiddle,
+    solution: String,
+    succeeded: bool,
+    module_burnout: bool,
+) {
+    if let Some(mut attempt) = ctx
+        .db
+        .research_attempt()
+        .owner()
+        .filter(&owner)
+        .find(|attempt| attempt.puzzle_id == riddle.puzzle_id)
+    {
+        attempt.submitted_solution = solution;
+        attempt.status = if succeeded { 1 } else { 2 };
+        attempt.module_burnout = module_burnout;
+        attempt.completed_at = Some(ctx.timestamp);
+        ctx.db.research_attempt().id().update(attempt);
+    } else {
+        ctx.db.research_attempt().insert(ResearchAttempt {
+            id: 0,
+            owner,
+            puzzle_id: riddle.puzzle_id,
+            track: riddle.track,
+            target_level: riddle.target_level,
+            payload: riddle.payload.clone(),
+            expected_solution: riddle.expected_solution.clone(),
+            submitted_solution: solution,
+            ore_cost: 0,
+            status: if succeeded { 1 } else { 2 },
+            module_burnout,
+            created_at: riddle.created_at,
+            completed_at: Some(ctx.timestamp),
+        });
+    }
 }
 
 #[reducer]
@@ -1113,7 +1166,12 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         _ => unreachable!(),
     };
 
-    if current_level >= MAX_RESEARCH_LEVEL {
+    let max_level = if track == 4 {
+        MAX_ENERGY_PRODUCTION_LEVEL
+    } else {
+        MAX_RESEARCH_LEVEL
+    };
+    if current_level >= max_level {
         return Err(format!(
             "Upgrade track {} is already at maximum Level 5",
             track
@@ -1125,12 +1183,12 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         if existing.track == track {
             return Ok(());
         } else {
-            // Replace with newly requested track
+            // Preserve the charged cost and mark the replaced riddle in research history.
+            mark_research_attempt_abandoned(ctx, owner, existing.puzzle_id);
             ctx.db.active_riddle().owner().delete(&owner);
         }
     }
 
-    // The energy track starts at level 0, the others at level 1.
     let cost_level = if track == 4 {
         current_level + 1
     } else {
@@ -1148,11 +1206,27 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
     base.stored_ore -= cost;
     ctx.db.base_station().owner().update(base.clone());
 
-    let target_level = current_level + 1;
+    let target_level = current_level + if track == 4 { 2 } else { 1 };
     let seed = ctx.timestamp.to_micros_since_unix_epoch() as u64;
     let puzzle_id = seed;
     let (payload, expected_solution) =
         riddles::generate_riddle(track, target_level, base.position, seed);
+
+    ctx.db.research_attempt().insert(ResearchAttempt {
+        id: 0,
+        owner,
+        puzzle_id,
+        track,
+        target_level,
+        payload: payload.clone(),
+        expected_solution: expected_solution.clone(),
+        submitted_solution: String::new(),
+        ore_cost: cost,
+        status: 0,
+        module_burnout: false,
+        created_at: ctx.timestamp,
+        completed_at: None,
+    });
 
     ctx.db.active_riddle().insert(ActiveRiddle {
         owner,
@@ -1209,6 +1283,9 @@ pub fn submit_riddle_solution(
 
     let is_correct =
         riddles::verify_solution(track, &riddle.payload, &riddle.expected_solution, &solution);
+    let module_burnout = !is_correct
+        && (ctx.timestamp.to_micros_since_unix_epoch() as u64 ^ riddle.puzzle_id) % 2 == 0;
+    record_research_attempt_result(ctx, owner, &riddle, solution, is_correct, module_burnout);
 
     // Remove active riddle
     ctx.db.active_riddle().owner().delete(&owner);
@@ -1296,8 +1373,7 @@ pub fn submit_riddle_solution(
     } else {
         // Incorrect answer!
         // 50% probability of burnout (module burnout resets progress to 0)
-        let roll = (ctx.timestamp.to_micros_since_unix_epoch() as u64 ^ riddle.puzzle_id) % 2;
-        if roll == 0 {
+        if module_burnout {
             match track {
                 1 => base.drone_scanner_progress = 0,
                 2 => base.base_scanner_progress = 0,
@@ -2140,6 +2216,56 @@ pub fn my_active_riddle(ctx: &ViewContext) -> Option<PublicRiddle> {
         })
 }
 
+#[view(accessor = my_research_attempts, public)]
+pub fn my_research_attempts(ctx: &ViewContext) -> Vec<PublicResearchAttempt> {
+    let sender = ctx.sender();
+    let owner = if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Vec::new();
+        }
+        agent.owner
+    } else {
+        sender
+    };
+
+    let mut attempts: Vec<ResearchAttempt> =
+        ctx.db.research_attempt().owner().filter(&owner).collect();
+    attempts
+        .sort_by_key(|attempt| std::cmp::Reverse(attempt.created_at.to_micros_since_unix_epoch()));
+
+    let mut track_counts = [0u8; 5];
+    let mut visible = Vec::new();
+    for attempt in attempts {
+        let track_index = attempt.track as usize;
+        if attempt.status == 0
+            || !(1..=4).contains(&attempt.track)
+            || track_counts[track_index] >= 15
+        {
+            continue;
+        }
+        track_counts[track_index] += 1;
+        visible.push(PublicResearchAttempt {
+            id: attempt.id,
+            puzzle_id: attempt.puzzle_id,
+            track: attempt.track,
+            target_level: attempt.target_level,
+            payload: attempt.payload,
+            expected_solution: if attempt.status == 0 {
+                String::new()
+            } else {
+                attempt.expected_solution
+            },
+            submitted_solution: attempt.submitted_solution,
+            ore_cost: attempt.ore_cost,
+            status: attempt.status,
+            module_burnout: attempt.module_burnout,
+            created_at: attempt.created_at,
+            completed_at: attempt.completed_at,
+        });
+    }
+    visible
+}
+
 #[view(accessor = visible_drones, public)]
 pub fn visible_drones(ctx: &ViewContext) -> Vec<PerceivedDrone> {
     let sender = ctx.sender();
@@ -2574,12 +2700,11 @@ mod tests {
 
     #[test]
     fn energy_production_scales_with_research() {
-        assert_eq!(supported_drones(0), 3);
-        assert_eq!(supported_drones(5), 18);
         assert!((base_energy_production(0) - 2.4).abs() < 1e-4);
-        assert!((base_energy_production(5) - 14.4).abs() < 1e-4);
+        assert!((base_energy_production(4) - 12.0).abs() < 1e-4);
         assert_eq!(base_energy_capacity(0), 500.0);
-        assert_eq!(base_energy_capacity(5), 1500.0);
+        assert_eq!(base_energy_capacity(4), 1300.0);
+        assert_eq!(base_energy_capacity(5), 1300.0);
     }
 
     fn test_base(owner: Identity) -> BaseStation {

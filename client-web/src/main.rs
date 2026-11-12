@@ -21,7 +21,7 @@ use module_bindings::revoke_ai_agent_reducer::revoke_ai_agent;
 use module_bindings::update_player_colors_reducer::update_player_colors;
 use module_bindings::{
     BaseStation, PerceivedAsteroid, PerceivedBase, PerceivedDrone, Player, PlayerAchievement,
-    PublicRiddle, Ship, ShipCommand, Vec2,
+    PublicResearchAttempt, PublicRiddle, Ship, ShipCommand, Vec2,
 };
 use radar::{SelectedEntity, render_drone1_preview, render_player_radar};
 use spacetimedb_sdk::Identity;
@@ -423,6 +423,7 @@ fn CockpitApp() -> Element {
         "SELECT * FROM unidentified_objects",
         "SELECT * FROM game_event",
         "SELECT * FROM my_active_riddle",
+        "SELECT * FROM my_research_attempts",
         "SELECT * FROM my_ai_agents",
     ]);
 
@@ -2535,6 +2536,173 @@ fn TargetInspectorHud(
 // Heimatbasis & Sensor-Forschungszentrum Modal
 // ==========================================
 
+fn research_attempt_status(status: u8, module_burnout: bool) -> &'static str {
+    match status {
+        0 => "Offen",
+        1 => "Erfolgreich",
+        2 if module_burnout => "Fehlgeschlagen · Modul-Durchbrennen",
+        2 => "Fehlgeschlagen",
+        3 => "Abgebrochen",
+        _ => "Unbekannt",
+    }
+}
+
+fn research_explanation(track: u8) -> &'static str {
+    match track {
+        1 => {
+            "Sortiere alle Eingabewerte aufsteigend. Jeder Wert muss erhalten bleiben, einschließlich Duplikaten."
+        }
+        2 => {
+            "Berechne für jedes Ziel den euklidischen Abstand zum Basisstandort: Quadratwurzel aus der Summe der quadrierten X- und Y-Differenzen. Runde die Ergebnisse auf zwei Nachkommastellen."
+        }
+        3 => {
+            "Entferne isolierte Signalspitzen, deren Abweichung von benachbarten Messwerten den angegebenen Schwellenwert überschreitet. Die übrigen Messwerte bleiben in ihrer Reihenfolge."
+        }
+        4 => {
+            "Finde die größtmögliche Anzahl von Verbrauchern, die in das Energiebudget passen: berücksichtige zuerst die Verbraucher mit dem geringsten Energiebedarf."
+        }
+        _ => "Unbekanntes Forschungsrätsel.",
+    }
+}
+
+fn pretty_research_data(raw: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|value| serde_json::to_string_pretty(&value).ok())
+        .unwrap_or_else(|| raw.to_string())
+}
+
+fn copy_research_data(value: String) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(window) = web_sys::window() {
+        let _ = window.navigator().clipboard().write_text(&value);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = value;
+}
+
+#[component]
+fn CopyableResearchData(label: String, value: String) -> Element {
+    let pretty_value = pretty_research_data(&value);
+    let copy_value = pretty_value.clone();
+    rsx! {
+        div {
+            style: "margin-top: 12px;",
+            div {
+                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;",
+                strong { style: "font-size: 12px; color: #cbd5e1;", "{label}" }
+                button {
+                    style: "background: rgba(56, 189, 248, 0.12); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.3); padding: 4px 8px; border-radius: 5px; font-size: 10px; cursor: pointer;",
+                    onclick: move |_| copy_research_data(copy_value.clone()),
+                    "📋 Kopieren"
+                }
+            }
+            pre {
+                style: "margin: 0; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #020617; border: 1px solid #1e293b; border-radius: 6px; color: #bae6fd; font: 11px/1.5 monospace;",
+                "{pretty_value}"
+            }
+        }
+    }
+}
+
+#[component]
+fn ResearchTrackCard(
+    track: u8,
+    title: String,
+    level: u8,
+    progress: u8,
+    cost_text: String,
+    color: String,
+    mut attempts: Vec<PublicResearchAttempt>,
+    expanded: bool,
+    on_toggle: EventHandler<u8>,
+    on_select: EventHandler<u64>,
+) -> Element {
+    attempts
+        .sort_by_key(|attempt| std::cmp::Reverse(attempt.created_at.to_micros_since_unix_epoch()));
+    attempts.truncate(15);
+    let chevron = if expanded { "▾" } else { "▸" };
+    rsx! {
+        div {
+            style: "margin-bottom: 10px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
+            button {
+                style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0; border: 0; background: transparent; color: #cbd5e1; text-align: left; cursor: pointer; font-size: 12px; font-weight: 700;",
+                onclick: move |_| on_toggle.call(track),
+                span { "{title}" }
+                span { style: "color: {color};", "Stufe {level}/5 {chevron}" }
+            }
+            div {
+                style: "width: 100%; height: 7px; background: #0f172a; border-radius: 4px; overflow: hidden; margin-top: 9px;",
+                div {
+                    style: "height: 100%; width: {progress}%; background: {color}; border-radius: 4px; transition: width 0.3s;"
+                }
+            }
+            div {
+                style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 4px;",
+                span { "Fortschritt: {progress}%" }
+                span { "{cost_text}" }
+            }
+            if expanded {
+                div {
+                    style: "margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(148, 163, 184, 0.15);",
+                    if attempts.is_empty() {
+                        p { style: "margin: 0; color: #94a3b8; font-size: 11px;", "Noch keine Rätselversuche für diesen Forschungszweig." }
+                    } else {
+                        for attempt in attempts.iter() {
+                            {
+                                let attempt_id = attempt.id;
+                                let status_text = research_attempt_status(attempt.status, attempt.module_burnout);
+                                rsx! {
+                                    button {
+                                        key: "{attempt.id}",
+                                        style: "display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 5px; padding: 8px 9px; text-align: left; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(80, 120, 200, 0.18); border-radius: 6px; color: #e2e8f0; cursor: pointer;",
+                                        onclick: move |_| on_select.call(attempt_id),
+                                        span { style: "font-size: 11px;", "Stufe {attempt.target_level} · {status_text}" }
+                                        span { style: "font-size: 10px; color: #facc15; white-space: nowrap;", "{attempt.ore_cost} Erz · Details →" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ResearchAttemptDetails(attempt: PublicResearchAttempt, on_back: EventHandler<()>) -> Element {
+    let status_text = research_attempt_status(attempt.status, attempt.module_burnout);
+    let input = attempt.payload.clone();
+    let expected_solution = attempt.expected_solution.clone();
+    let submitted_solution = attempt.submitted_solution.clone();
+    let created_at = attempt.created_at.to_micros_since_unix_epoch();
+    rsx! {
+        div {
+            style: "padding: 14px; background: rgba(2, 6, 23, 0.55); border: 1px solid rgba(80, 120, 200, 0.2); border-radius: 8px;",
+            button {
+                style: "background: transparent; border: 0; color: #7dd3fc; padding: 0; margin-bottom: 12px; font-size: 12px; cursor: pointer;",
+                onclick: move |_| on_back.call(()),
+                "← Zurück zur Forschungsübersicht"
+            }
+            h4 { style: "margin: 0 0 6px; color: #f1f5f9; font-size: 14px;", "Rätselversuch · Track {attempt.track} · Ziel-Stufe {attempt.target_level}" }
+            div { style: "font-size: 11px; color: #cbd5e1;", "Ergebnis: {status_text} · Kosten: {attempt.ore_cost} Erz" }
+            div { style: "font-size: 10px; color: #64748b; margin-top: 3px;", "Erstellt (Unix-Zeit in Mikrosekunden): {created_at}" }
+            p { style: "margin: 12px 0 0; font-size: 11px; line-height: 1.5; color: #94a3b8;", "{research_explanation(attempt.track)}" }
+            CopyableResearchData { label: "Eingabe".to_string(), value: input }
+            if attempt.status == 3 {
+                p { style: "font-size: 11px; color: #facc15;", "Dieser Versuch wurde abgebrochen, bevor eine Lösung abgegeben wurde." }
+            } else {
+                CopyableResearchData { label: "Abgegebene Ausgabe".to_string(), value: submitted_solution }
+            }
+            CopyableResearchData { label: "Korrekte Lösung".to_string(), value: expected_solution }
+            if attempt.module_burnout {
+                p { style: "margin-bottom: 0; font-size: 11px; color: #fca5a5;", "Das Forschungsmodul ist durchgebrannt; der Fortschritt dieses Zweigs wurde zurückgesetzt." }
+            }
+        }
+    }
+}
+
 #[component]
 fn HeimatbasisModal(
     player: Player,
@@ -2557,6 +2725,9 @@ fn HeimatbasisModal(
     let mut input_label = use_signal(|| "Heimatbasis AI".to_string());
     let mut bind_error = use_signal_sync(|| Option::<String>::None);
     let mut copied = use_signal(|| false);
+    let research_attempts = (ctx.tables.my_research_attempts)();
+    let mut expanded_research_track = use_signal(|| Option::<u8>::None);
+    let mut selected_research_attempt = use_signal(|| Option::<u64>::None);
 
     let mut edit_primary_hue = use_signal(move || player.color_hue);
     let mut edit_secondary_hue = use_signal(move || player.secondary_color_hue);
@@ -2634,6 +2805,10 @@ fn HeimatbasisModal(
         }
     };
 
+    let energy_display_level = base.energy_production_level.min(4) + 1;
+    let energy_capacity = 500 + 200 * base.energy_production_level.min(4) as u32;
+    let energy_production = 2.4 + 2.4 * base.energy_production_level.min(4) as f32;
+
     let cost_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
         + base.drone_scanner_progress as u32
         + 1;
@@ -2659,6 +2834,13 @@ fn HeimatbasisModal(
     } else {
         format!("Kosten: {} Erz", cost_t3)
     };
+    let cost_t4 =
+        base.energy_production_level as u32 * 100 + base.energy_production_progress as u32 + 1;
+    let cost_t4_text = if base.energy_production_level >= 4 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t4)
+    };
 
     rsx! {
         div {
@@ -2675,7 +2857,7 @@ fn HeimatbasisModal(
                         style: "display: flex; align-items: center; gap: 12px;",
                         span { style: "font-size: 24px;", "🏛️" }
                         div {
-                            h2 { style: "margin: 0; font-size: 18px; font-weight: 700; color: #00e5ff;", "Heimatbasis & Sensor-Forschungszentrum" }
+                            h2 { style: "margin: 0; font-size: 18px; font-weight: 700; color: #00e5ff;", "Heimatbasis & Forschungszentrum" }
                             div { style: "font-size: 11px; color: #94a3b8; margin-top: 2px;", "Stufe {base.level} • Sektor-Position: ({base.position.x as i32}, {base.position.y as i32})" }
                         }
                     }
@@ -2858,7 +3040,7 @@ fn HeimatbasisModal(
                         style: "background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; padding: 18px;",
                         div {
                             style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;",
-                            h3 { style: "margin: 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🧪 Sensor-Forschungszentrum" }
+                            h3 { style: "margin: 0; font-size: 15px; font-weight: 700; color: #00e5ff;", "🧪 Forschungszentrum" }
                             span {
                                 style: "font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);",
                                 "⚠️ 50% Reset-Risiko"
@@ -2869,74 +3051,81 @@ fn HeimatbasisModal(
                             "100 Rätsel pro Stufe • Steigende Erzkosten • Falsche Antworten bergen 50% Durchbrenn-Risiko!"
                         }
 
-                        // Track 1
-                        div {
-                            style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
-                            div {
-                                style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
-                                span { style: "color: #cbd5e1; font-weight: 600;", "🛸 Drohnen-Scan (Sortieren)" }
-                                span { style: "color: #00e5ff; font-weight: 700;", "Stufe {base.drone_scanner_level}/5 ({150 + (base.drone_scanner_level.saturating_sub(1) as u32 * 50)} px)" }
-                            }
-                            div {
-                                style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
-                                div {
-                                    style: "height: 100%; width: {base.drone_scanner_progress}%; background: linear-gradient(90deg, #0284c7, #00e5ff); border-radius: 4px; transition: width 0.3s;"
+                        if let Some(selected_id) = selected_research_attempt() {
+                            if let Some(attempt) = research_attempts.iter().find(|attempt| attempt.id == selected_id).cloned() {
+                                ResearchAttemptDetails {
+                                    attempt,
+                                    on_back: move |_| selected_research_attempt.set(None),
                                 }
+                            } else {
+                                p { style: "color: #94a3b8; font-size: 11px;", "Dieser Forschungsversuch ist nicht mehr verfügbar." }
+                            }
+                        } else {
+                            ResearchTrackCard {
+                                track: 1,
+                                title: "🛸 Drohnen-Scan (Sortieren)".to_string(),
+                                level: base.drone_scanner_level,
+                                progress: base.drone_scanner_progress,
+                                cost_text: cost_t1_text.clone(),
+                                color: "#00e5ff".to_string(),
+                                attempts: research_attempts.iter().filter(|attempt| attempt.track == 1).cloned().collect(),
+                                expanded: expanded_research_track() == Some(1),
+                                on_toggle: move |track| {
+                                    expanded_research_track.set(if expanded_research_track() == Some(track) { None } else { Some(track) });
+                                },
+                                on_select: move |id| selected_research_attempt.set(Some(id)),
+                            }
+                            ResearchTrackCard {
+                                track: 2,
+                                title: "☄️ Basen- & Asteroiden (Distanz)".to_string(),
+                                level: base.base_scanner_level,
+                                progress: base.base_scanner_progress,
+                                cost_text: cost_t2_text.clone(),
+                                color: "#38bdf8".to_string(),
+                                attempts: research_attempts.iter().filter(|attempt| attempt.track == 2).cloned().collect(),
+                                expanded: expanded_research_track() == Some(2),
+                                on_toggle: move |track| {
+                                    expanded_research_track.set(if expanded_research_track() == Some(track) { None } else { Some(track) });
+                                },
+                                on_select: move |id| selected_research_attempt.set(Some(id)),
+                            }
+                            ResearchTrackCard {
+                                track: 3,
+                                title: "📡 Radar-Horizont (Denoise)".to_string(),
+                                level: base.radar_horizon_level,
+                                progress: base.radar_horizon_progress,
+                                cost_text: cost_t3_text.clone(),
+                                color: "#c084fc".to_string(),
+                                attempts: research_attempts.iter().filter(|attempt| attempt.track == 3).cloned().collect(),
+                                expanded: expanded_research_track() == Some(3),
+                                on_toggle: move |track| {
+                                    expanded_research_track.set(if expanded_research_track() == Some(track) { None } else { Some(track) });
+                                },
+                                on_select: move |id| selected_research_attempt.set(Some(id)),
+                            }
+                            ResearchTrackCard {
+                                track: 4,
+                                title: "⚡ Energieproduktion (Energiebudget)".to_string(),
+                                level: energy_display_level,
+                                progress: base.energy_production_progress,
+                                cost_text: cost_t4_text.clone(),
+                                color: "#facc15".to_string(),
+                                attempts: research_attempts.iter().filter(|attempt| attempt.track == 4).cloned().collect(),
+                                expanded: expanded_research_track() == Some(4),
+                                on_toggle: move |track| {
+                                    expanded_research_track.set(if expanded_research_track() == Some(track) { None } else { Some(track) });
+                                },
+                                on_select: move |id| selected_research_attempt.set(Some(id)),
                             }
                             div {
-                                style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                                span { "Fortschritt: {base.drone_scanner_progress}%" }
-                                span { "{cost_t1_text}" }
+                                style: "font-size: 10px; color: #94a3b8; padding: 2px 2px 8px;",
+                                "Energiespeicher: {base.stored_energy:.0}/{energy_capacity} · Erzeugung: {energy_production:.1}/s"
                             }
-                        }
-
-                        // Track 2
-                        div {
-                            style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
-                            div {
-                                style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
-                                span { style: "color: #cbd5e1; font-weight: 600;", "☄️ Basen- & Asteroiden (Distanz)" }
-                                span { style: "color: #38bdf8; font-weight: 700;", "Stufe {base.base_scanner_level}/5 ({300 + (base.base_scanner_level.saturating_sub(1) as u32 * 100)} px)" }
-                            }
-                            div {
-                                style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
+                            if let Some(ref r) = current_riddle {
                                 div {
-                                    style: "height: 100%; width: {base.base_scanner_progress}%; background: linear-gradient(90deg, #0369a1, #38bdf8); border-radius: 4px; transition: width 0.3s;"
+                                    style: "padding: 10px 14px; background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; font-size: 12px; color: #fef08a;",
+                                    "⏳ Aktives Rätsel: Track {r.track} (Ziel-Stufe {r.target_level}) • Wird in Zed gelöst."
                                 }
-                            }
-                            div {
-                                style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                                span { "Fortschritt: {base.base_scanner_progress}%" }
-                                span { "{cost_t2_text}" }
-                            }
-                        }
-
-                        // Track 3
-                        div {
-                            style: "margin-bottom: 12px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(80, 120, 200, 0.15);",
-                            div {
-                                style: "display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;",
-                                span { style: "color: #cbd5e1; font-weight: 600;", "📡 Radar-Horizont (Denoise)" }
-                                span { style: "color: #a855f7; font-weight: 700;", "Stufe {base.radar_horizon_level}/5 ({600 + (base.radar_horizon_level.saturating_sub(1) as u32 * 150)} px)" }
-                            }
-                            div {
-                                style: "width: 100%; height: 8px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative;",
-                                div {
-                                    style: "height: 100%; width: {base.radar_horizon_progress}%; background: linear-gradient(90deg, #7e22ce, #c084fc); border-radius: 4px; transition: width 0.3s;"
-                                }
-                            }
-                            div {
-                                style: "display: flex; justify-content: space-between; font-size: 10px; color: #64748b; margin-top: 3px;",
-                                span { "Fortschritt: {base.radar_horizon_progress}%" }
-                                span { "{cost_t3_text}" }
-                            }
-                        }
-
-                        // Active Riddle Status
-                        if let Some(ref r) = current_riddle {
-                            div {
-                                style: "padding: 10px 14px; background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: 6px; font-size: 12px; color: #fef08a;",
-                                "⏳ Aktives Rätsel: Track {r.track} (Ziel-Stufe {r.target_level}) • Wird in Zed gelöst."
                             }
                         }
                     }

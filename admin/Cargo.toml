@@ -5,16 +5,16 @@ edition = "2024"
 
 [dependencies]
 curriculum = { path = "../curriculum" }
-dioxus = { version = "0.7.1", features = ["router"] }
+dioxus = { version = "0.7", features = ["router"] }
 futures-channel = "0.3"
 log = "0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-spacetimedb-sdk = "2.14.0"
+spacetimedb-sdk = "2.15.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-spacetimedb-sdk = { version = "2.14.0", features = ["browser"] }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+spacetimedb-sdk = { version = "2.15.0", features = ["browser"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
@@ -43,7 +43,3 @@ desktop = ["dioxus/desktop"]
 
 [build-dependencies]
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-
-
-
-

@@ -243,9 +243,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "0/22 Registrierung",
         story: "Im Asteroidengürtel wimmelt es von automatischen Transportern und fremden Stationen. Um deine Schiffe auf den Radarsystemen der Mega-Station eindeutig zu identifizieren, benötigt deine Flotte deinen Pilotenausweis und eigene Signal-Farben.",
         subtasks: &[
-            SubTask { num: "1", text: "Wähle mit den Farbreglern deine Primär- und Sekundärfarbe für dein Raumschiff aus.", code_hint: None },
-            SubTask { num: "2", text: "Prüfe die Vorschau deines Drohnen-Raumschiffs im Hangar.", code_hint: None },
-            SubTask { num: "3", text: "Klicke auf 'Pilotenausweis erstellen & starten'.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Wähle mit den Farbreglern deine Primär- und Sekundärfarbe für dein Raumschiff aus.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "2",
+                text: "Prüfe die Vorschau deines Drohnen-Raumschiffs im Hangar.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "3",
+                text: "Klicke auf 'Pilotenausweis erstellen & starten'.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: EMPTY_KEYS,
@@ -260,9 +272,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "1/22 Flug",
         story: "Dein Bauschiff (Tier 0) startet nah herangezoomt an der Mega-Station bei (0, 0). Bedienung der Karte: Mit dem Mausrad (Scrollen) zoomst du rein und raus, und durch Klicken und Halten mit der linken Maustaste verschiebst du die Karte. Wichtig: Du kannst deine Basis nur außerhalb des roten bzw. grünen Sicherheitskreises um die Mega-Station errichten!",
         subtasks: &[
-            SubTask { num: "1", text: "Scrolle mit dem Mausrad heraus, um die Umgebung zu überblicken (Linksklick gedrückt halten bewegt die Karte).", code_hint: None },
-            SubTask { num: "2", text: "Klicke kurz mit der linken Maustaste auf einen Zielpunkt außerhalb des roten Kreises, um dein Bauschiff dorthin zu steuern, bis der Kreis grün wird (Abstand ≥ 250).", code_hint: None },
-            SubTask { num: "3", text: "Achte rechts im Panel bei Position & Geschwindigkeit auf den Asteroiden-Scanradius: Suche einen Platz, an dem mindestens 400 Erz in Reichweite sind!", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Scrolle mit dem Mausrad heraus, um die Umgebung zu überblicken (Linksklick gedrückt halten bewegt die Karte).",
+                code_hint: None,
+            },
+            SubTask {
+                num: "2",
+                text: "Klicke kurz mit der linken Maustaste auf einen Zielpunkt außerhalb des roten Kreises, um dein Bauschiff dorthin zu steuern, bis der Kreis grün wird (Abstand ≥ 250).",
+                code_hint: None,
+            },
+            SubTask {
+                num: "3",
+                text: "Achte rechts im Panel bei Position & Geschwindigkeit auf den Asteroiden-Scanradius: Suche einen Platz, an dem mindestens 400 Erz in Reichweite sind!",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: EMPTY_KEYS,
@@ -277,8 +301,16 @@ pub static STEPS: [Step; 23] = [
         admin_label: "2/22 Basisbau",
         story: "Hervorragend gewählt, Commander! Du befindest dich außerhalb des grünen Sicherheitskreises der Mega-Station und hast genügend Erz im Scanradius. Durch die Aktivierung der Montage-Sequenz entfaltet sich dein Bauschiff zu deiner Heimatbasis.",
         subtasks: &[
-            SubTask { num: "1", text: "Vergewissere dich, dass du außerhalb des roten/grünen Kreises stehst (Abstand ≥ 250) und rechts im Panel mindestens 400 Erz im Scanradius angezeigt werden.", code_hint: None },
-            SubTask { num: "2", text: "Klicke unten rechts im Seitenpanel auf den leuchtenden Button '🏛️ Heimatbasis hier errichten'.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Vergewissere dich, dass du außerhalb des roten/grünen Kreises stehst (Abstand ≥ 250) und rechts im Panel mindestens 400 Erz im Scanradius angezeigt werden.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "2",
+                text: "Klicke unten rechts im Seitenpanel auf den leuchtenden Button '🏛️ Heimatbasis hier errichten'.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: EMPTY_KEYS,
@@ -293,9 +325,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "3/22 Bot Start",
         story: "Deine Heimatbasis hat einen Bordcomputer. Du programmierst ihn in Rust und startest deinen Bot im Zed-Editor.",
         subtasks: &[
-            SubTask { num: "1", text: "Öffne uhlaunch auf dem Desktop und starte 'programmierspiel'. Der Zed-Editor öffnet sich.", code_hint: None },
-            SubTask { num: "2", text: "Öffne links im Ordner src die Datei main.rs. Klicke neben fn main() auf den Run-Button ▶, um den Bot zu starten.", code_hint: Some("▶ fn main()") },
-            SubTask { num: "3", text: "Suche im Terminal unten nach 'Verbindung erfolgreich!' und der darunter ausgegebenen Identität. Bestätige anschließend hier, dass der Bot gestartet ist.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Öffne uhlaunch auf dem Desktop und starte 'programmierspiel'. Der Zed-Editor öffnet sich.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "2",
+                text: "Öffne links im Ordner src die Datei main.rs. Klicke neben fn main() auf den Run-Button ▶, um den Bot zu starten.",
+                code_hint: Some("▶ fn main()"),
+            },
+            SubTask {
+                num: "3",
+                text: "Suche im Terminal unten nach 'Verbindung erfolgreich!' und der darunter ausgegebenen Identität. Bestätige anschließend hier, dass der Bot gestartet ist.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: EMPTY_KEYS,
@@ -310,9 +354,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "4/22 Bot-Kopplung",
         story: "Die Identität ist die Adresse deines Bots; mit ihr erlaubst du ihm die Steuerung deiner Basis. Ein Token ist dagegen ein geheimer Zugangsschlüssel: Gib ihn niemals als Identität ein oder an andere weiter. Beim ersten Start speichert der Bot seinen Token selbst in config.toml.",
         subtasks: &[
-            SubTask { num: "1", text: "Kopiere im Zed-Terminal die 64-stellige Zeichenfolge hinter 'Identität:' – nicht den Token.", code_hint: None },
-            SubTask { num: "2", text: "Öffne die Heimatbasis und füge die Identität unter 'Heimatbasis-AI Steuerung' ein. Klicke auf 'Bot binden'.", code_hint: None },
-            SubTask { num: "3", text: "Lass den Bot laufen. Die Mission wartet automatisch auf die vom Server bestätigte Kopplung.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Kopiere im Zed-Terminal die 64-stellige Zeichenfolge hinter 'Identität:' – nicht den Token.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "2",
+                text: "Öffne die Heimatbasis und füge die Identität unter 'Heimatbasis-AI Steuerung' ein. Klicke auf 'Bot binden'.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "3",
+                text: "Lass den Bot laufen. Die Mission wartet automatisch auf die vom Server bestätigte Kopplung.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: EMPTY_KEYS,
@@ -340,9 +396,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "6/22 Drohne",
         story: "In main.rs wird tick etwa zehnmal pro Sekunde aufgerufen. world enthält den aktuellen Weltzustand, actions sammelt deine Befehle. Schreibe deinen Code in tick: Nur wenn eine Drohne vorhanden ist, kannst du ihre Position auslesen.",
         subtasks: &[
-            SubTask { num: "1", text: "Wähle die erste Drohne mit world.first_drone() und if let Some aus. Bei None wird der Block übersprungen.", code_hint: Some("if let Some(drone) = world.first_drone() { ... }") },
-            SubTask { num: "2", text: "Setze im Block selbst ein println! zusammen: Gib drone.position.x und drone.position.y mit je {:.0} ohne Nachkommastellen aus. {:.0} rundet die angezeigte Zahl.", code_hint: Some("println!(\"... {:.0} ... {:.0} ...\", ..., ...);") },
-            SubTask { num: "3", text: "Speichere, starte den Bot neu und übertrage die beiden ausgegebenen ganzen Zahlen in die Felder unten.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Wähle die erste Drohne mit world.first_drone() und if let Some aus. Bei None wird der Block übersprungen.",
+                code_hint: Some("if let Some(drone) = world.first_drone() { ... }"),
+            },
+            SubTask {
+                num: "2",
+                text: "Setze im Block selbst ein println! zusammen: Gib drone.position.x und drone.position.y mit je {:.0} ohne Nachkommastellen aus. {:.0} rundet die angezeigte Zahl.",
+                code_hint: Some("println!(\"... {:.0} ... {:.0} ...\", ..., ...);"),
+            },
+            SubTask {
+                num: "3",
+                text: "Speichere, starte den Bot neu und übertrage die beiden ausgegebenen ganzen Zahlen in die Felder unten.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_5,
@@ -370,9 +438,23 @@ pub static STEPS: [Step; 23] = [
         admin_label: "8/22 Asteroid",
         story: "Deine Sensoren identifizieren Asteroiden in Reichweite der Basis oder deiner Drohnen. Jede so identifizierte Asteroiden-ID ist gültig; die Suche wählt davon einen passenden Asteroiden mit Erz.",
         subtasks: &[
-            SubTask { num: "1", text: "Suche innerhalb des Drohnen-Blocks mit world.closest_asteroid_with_ore(drone.position). Packe das mögliche Ergebnis mit if let Some aus; bei None wurde kein passender Asteroid gefunden.", code_hint: Some("if let Some(asteroid) = world.closest_asteroid_with_ore(...) { ... }") },
-            SubTask { num: "2", text: "Gib im Asteroiden-Block asteroid.asteroid_id mit println! im Terminal aus. Setze die Ausgabe selbst zusammen.", code_hint: Some("println!(\"ID: {}\", ...);") },
-            SubTask { num: "3", text: "Speichere, starte den Bot neu und gib die ausgegebene ID unten ein.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Suche innerhalb des Drohnen-Blocks mit world.closest_asteroid_with_ore(drone.position). Packe das mögliche Ergebnis mit if let Some aus; bei None wurde kein passender Asteroid gefunden.",
+                code_hint: Some(
+                    "if let Some(asteroid) = world.closest_asteroid_with_ore(...) { ... }",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Gib im Asteroiden-Block asteroid.asteroid_id mit println! im Terminal aus. Setze die Ausgabe selbst zusammen.",
+                code_hint: Some("println!(\"ID: {}\", ...);"),
+            },
+            SubTask {
+                num: "3",
+                text: "Speichere, starte den Bot neu und gib die ausgegebene ID unten ein.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_7,
@@ -400,9 +482,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "10/22 Erstes Erz",
         story: "Deine Drohne und ein Asteroid mit Erz sind gefunden. Gib den Abbau-Befehl in tick: Die Drohne fliegt erst zum Ziel und schürft dort. Die Mission endet, sobald der Server erfolgreichen Abbau registriert.",
         subtasks: &[
-            SubTask { num: "1", text: "Verwende die gefundenen Werte für Drohne und Asteroid in den verschachtelten if-let-Blöcken.", code_hint: None },
-            SubTask { num: "2", text: "Erteile dort den Befehl mit Drohnen-ID und Asteroiden-ID.", code_hint: Some("actions.mine(drone.ship_id, asteroid.asteroid_id);") },
-            SubTask { num: "3", text: "Speichere, starte den Bot neu und beobachte den Abbau im Spiel.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Verwende die gefundenen Werte für Drohne und Asteroid in den verschachtelten if-let-Blöcken.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "2",
+                text: "Erteile dort den Befehl mit Drohnen-ID und Asteroiden-ID.",
+                code_hint: Some("actions.mine(drone.ship_id, asteroid.asteroid_id);"),
+            },
+            SubTask {
+                num: "3",
+                text: "Speichere, starte den Bot neu und beobachte den Abbau im Spiel.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_9,
@@ -430,9 +524,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "12/22 Lieferung",
         story: "Deine Drohne kann nur 50 Einheiten Erz tragen. Ist der Frachtraum voll, stoppt der Bohrer automatisch. Damit das Erz verarbeitet werden kann, muss die Drohne an der Heimatbasis andocken. Ziel: Sammle mindestens 50 Erz an deiner Basis!",
         subtasks: &[
-            SubTask { num: "1", text: "Prüfe, ob der Laderaum der Drohne voll ist:", code_hint: Some("if drone.cargo_is_full() { ... } else { ... }") },
-            SubTask { num: "2", text: "Befiehl bei voller Fracht das Andocken:", code_hint: Some("actions.dock(drone.ship_id);") },
-            SubTask { num: "3", text: "Beobachte das Radar, bis die Basis mindestens 50 Erz gelagert hat.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Prüfe, ob der Laderaum der Drohne voll ist:",
+                code_hint: Some("if drone.cargo_is_full() { ... } else { ... }"),
+            },
+            SubTask {
+                num: "2",
+                text: "Befiehl bei voller Fracht das Andocken:",
+                code_hint: Some("actions.dock(drone.ship_id);"),
+            },
+            SubTask {
+                num: "3",
+                text: "Beobachte das Radar, bis die Basis mindestens 50 Erz gelagert hat.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_11,
@@ -460,8 +566,16 @@ pub static STEPS: [Step; 23] = [
         admin_label: "14/22 Drohne 2",
         story: "Mit 50 Einheiten Erz im Lager verfügt deine Basis über genügend Rohstoffe, um ein weiteres Schiff der Stufe 1 in Auftrag zu geben. Mehr Drohnen bedeuten schnellere Rohstoffförderung!",
         subtasks: &[
-            SubTask { num: "1", text: "Prüfe, ob du weniger als 2 Drohnen und mindestens 50 Erz hast:", code_hint: Some("if world.fleet.len() < 2 && world.base.stored_ore >= 50 { ... }") },
-            SubTask { num: "2", text: "Gib den Bau einer Stufe-1-Drohne in Auftrag:", code_hint: Some("actions.build_drone(1);") },
+            SubTask {
+                num: "1",
+                text: "Prüfe, ob du weniger als 2 Drohnen und mindestens 50 Erz hast:",
+                code_hint: Some("if world.fleet.len() < 2 && world.base.stored_ore >= 50 { ... }"),
+            },
+            SubTask {
+                num: "2",
+                text: "Gib den Bau einer Stufe-1-Drohne in Auftrag:",
+                code_hint: Some("actions.build_drone(1);"),
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_13,
@@ -489,9 +603,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "16/22 Flottenloop",
         story: "Bisher hat dein Code nur die erste Drohne mit world.first_drone() gesteuert. In Rust nutzen wir eine for-Schleife, um jedem Schiff in world.fleet automatisch denselben Ablauf zuzuweisen.",
         subtasks: &[
-            SubTask { num: "1", text: "Ersetze world.first_drone() durch eine for-Schleife über alle Schiffe:", code_hint: Some("for drone in world.fleet { ... }") },
-            SubTask { num: "2", text: "Befiehl jedem Schiff: Wenn voll, docken; sonst erzhaltigen Asteroiden abbauen.", code_hint: None },
-            SubTask { num: "3", text: "Beobachte, wie sich beide Drohnen unabhängig voneinander bewegen.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Ersetze world.first_drone() durch eine for-Schleife über alle Schiffe:",
+                code_hint: Some("for drone in world.fleet { ... }"),
+            },
+            SubTask {
+                num: "2",
+                text: "Befiehl jedem Schiff: Wenn voll, docken; sonst erzhaltigen Asteroiden abbauen.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "3",
+                text: "Beobachte, wie sich beide Drohnen unabhängig voneinander bewegen.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_15,
@@ -519,9 +645,23 @@ pub static STEPS: [Step; 23] = [
         admin_label: "18/22 Energiemanagement",
         story: "Wenn eine Drohne das Erz an der Basis abliefert, ist ihr Frachtraum sofort wieder leer – ohne Zusatzprüfung fliegt sie ungeladen wieder los, bis ihr mitten im All der Strom ausgeht und nur noch der langsame Not-Generator tröpfchenweise hilft. Halte angedockte Drohnen an der Basis, bis ihre Batterie voll ist (1.0), und schicke Drohnen mit niedrigem Batteriestand (< 0.25) rechtzeitig zum Andocken!",
         subtasks: &[
-            SubTask { num: "1", text: "Prüfe in deiner for-Schleife zuerst, ob die Drohne angedockt ist und ihre Batterie noch lädt (der Block bleibt leer, damit sie an der Basis weiterlädt):", code_hint: Some("if drone.is_docked() && drone.energy_percent() < 1.0 { }") },
-            SubTask { num: "2", text: "Prüfe mit else if, ob der Frachtraum voll oder die Batterie unter 25 % gefallen ist, und befiehl das Andocken:", code_hint: Some("else if drone.cargo_is_full() || drone.energy_percent() < 0.25 { actions.dock(drone.ship_id); }") },
-            SubTask { num: "3", text: "Lass die Drohne im else-Zweig wie bisher den nächsten Asteroiden mit Erz abbauen und warte, bis eine Drohne an der Basis vollständig aufgeladen wurde.", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Prüfe in deiner for-Schleife zuerst, ob die Drohne angedockt ist und ihre Batterie noch lädt (der Block bleibt leer, damit sie an der Basis weiterlädt):",
+                code_hint: Some("if drone.is_docked() && drone.energy_percent() < 1.0 { }"),
+            },
+            SubTask {
+                num: "2",
+                text: "Prüfe mit else if, ob der Frachtraum voll oder die Batterie unter 25 % gefallen ist, und befiehl das Andocken:",
+                code_hint: Some(
+                    "else if drone.cargo_is_full() || drone.energy_percent() < 0.25 { actions.dock(drone.ship_id); }",
+                ),
+            },
+            SubTask {
+                num: "3",
+                text: "Lass die Drohne im else-Zweig wie bisher den nächsten Asteroiden mit Erz abbauen und warte, bis eine Drohne an der Basis vollständig aufgeladen wurde.",
+                code_hint: None,
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_17,
@@ -547,11 +687,27 @@ pub static STEPS: [Step; 23] = [
         title: "Forschung: Vier Technologiebäume",
         short_title: "Forschung",
         admin_label: "20/22 Forschung",
-        story: "Deine Heimatbasis kann in vier Forschungsbäumen ausgebaut werden, und du darfst frei wählen, welchen du zuerst und in welcher Reihenfolge du sie erforschst: 1) Drohnen-Scanner (größere Scanreichweite der Drohnen, Rätsel: Zahlen sortieren), 2) Basen- & Asteroidenscan (größerer Scanbereich der Basis, Rätsel: Distanzen berechnen), 3) Radar-Horizont (Kontakte weiter erkennen, Rätsel: Störsignale filtern), 4) Energieproduktion (die Basis erzeugt mehr Energie und kann mehr Drohnen versorgen: anfangs 3 Stufe-1-Drohnen, voll erforscht 18; Stufe-2-Drohnen brauchen doppelt so viel Energie; Rätsel: Energiebudget). Drohnen laden an der Basis auf und verbrauchen dabei deren Energie. Löse für diese Aufgabe ein Rätsel eines beliebigen Baums.",
+        story: "Deine Heimatbasis kann in vier Forschungsbäumen ausgebaut werden, und du darfst frei wählen, welchen du zuerst und in welcher Reihenfolge du sie erforschst: 1) Drohnen-Scanner (größere Scanreichweite der Drohnen, Rätsel: Zahlen sortieren), 2) Basen- & Asteroidenscan (größerer Scanbereich der Basis, Rätsel: Distanzen berechnen), 3) Radar-Horizont (Kontakte weiter erkennen, Rätsel: Störsignale filtern), 4) Energieproduktion (die Basis erzeugt und speichert mehr Energie; Rätsel: Energiebudget). Drohnen laden an der Basis auf und verbrauchen dabei deren Energie. Löse für diese Aufgabe ein Rätsel eines beliebigen Baums.",
         subtasks: &[
-            SubTask { num: "1", text: "Wähle einen beliebigen Forschungsbaum und fordere ein Rätsel an, falls noch keines aktiv ist:", code_hint: Some("if world.active_riddle.is_none() { actions.request_research(UpgradeTrack::DroneScanner); } // oder BaseAsteroidScanner, RadarHorizon, EnergyProduction") },
-            SubTask { num: "2", text: "Prüfe auf ein aktives Rätsel und berechne die Lösung passend zum gewählten Baum (z. B. Sort: sortieren, Energy: kleinste Verbraucher zuerst addieren, bis das Budget erreicht ist):", code_hint: Some("if let Some(RiddleTask::Sort { numbers }) = world.active_riddle { let mut sorted = numbers.clone(); sorted.sort(); ... }") },
-            SubTask { num: "3", text: "Reiche die Lösung innerhalb des if-Blocks mit actions.solve_riddle(...) ein:", code_hint: Some("actions.solve_riddle(RiddleSolution::Sort(sorted));") },
+            SubTask {
+                num: "1",
+                text: "Wähle einen beliebigen Forschungsbaum und fordere ein Rätsel an, falls noch keines aktiv ist:",
+                code_hint: Some(
+                    "if world.active_riddle.is_none() { actions.request_research(UpgradeTrack::DroneScanner); } // oder BaseAsteroidScanner, RadarHorizon, EnergyProduction",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Prüfe auf ein aktives Rätsel und berechne die Lösung passend zum gewählten Baum (z. B. Sort: sortieren, Energy: kleinste Verbraucher zuerst addieren, bis das Budget erreicht ist):",
+                code_hint: Some(
+                    "if let Some(RiddleTask::Sort { numbers }) = world.active_riddle { let mut sorted = numbers.clone(); sorted.sort(); ... }",
+                ),
+            },
+            SubTask {
+                num: "3",
+                text: "Reiche die Lösung innerhalb des if-Blocks mit actions.solve_riddle(...) ein:",
+                code_hint: Some("actions.solve_riddle(RiddleSolution::Sort(sorted));"),
+            },
         ],
         unlocked_keys: EMPTY_KEYS,
         reference_keys: KEYS_STEP_19,
@@ -579,9 +735,21 @@ pub static STEPS: [Step; 23] = [
         admin_label: "22/22 Sandbox 🚀",
         story: "Fantastische Arbeit, Commander! Du beherrschst alle Grundlagen der interstellaren Programmierung: Navigation, Abbau, Multitasking-Schleifen und algorithmische Forschung.",
         subtasks: &[
-            SubTask { num: "1", text: "Baue schwere Stufe-2-Drohnen mit 3-facher Frachtkapazität.", code_hint: Some("actions.build_drone(2);") },
-            SubTask { num: "2", text: "Verteile deine Drohnen gezielt auf unterschiedliche Asteroiden.", code_hint: None },
-            SubTask { num: "3", text: "Erforsche den Radar-Horizont und führe die Rangliste auf dem Klassenbeamer an!", code_hint: None },
+            SubTask {
+                num: "1",
+                text: "Baue schwere Stufe-2-Drohnen mit 3-facher Frachtkapazität.",
+                code_hint: Some("actions.build_drone(2);"),
+            },
+            SubTask {
+                num: "2",
+                text: "Verteile deine Drohnen gezielt auf unterschiedliche Asteroiden.",
+                code_hint: None,
+            },
+            SubTask {
+                num: "3",
+                text: "Erforsche den Radar-Horizont und führe die Rangliste auf dem Klassenbeamer an!",
+                code_hint: None,
+            },
         ],
         unlocked_keys: KEYS_FREE_PLAY,
         reference_keys: KEYS_FREE_PLAY,
@@ -1265,7 +1433,8 @@ mod tests {
             let coding_step = &STEPS[s];
             let preceding_box = &STEPS[s - 1];
             assert_eq!(
-                coding_step.reference_keys, preceding_box.unlocked_keys,
+                coding_step.reference_keys,
+                preceding_box.unlocked_keys,
                 "Coding step {} did not reference preceding box {} keys",
                 s,
                 s - 1

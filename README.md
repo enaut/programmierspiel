@@ -219,7 +219,7 @@ fn main() {
 | **1: `DroneScanner`** | Drone Sensor Pod | Increases drone vision radius (150m to 350m) | **List Sorting**: Sort integer telemetries in ascending order. |
 | **2: `BaseAsteroidScanner`** | Base Radar Array | Increases asteroid/base scan radius (300m to 700m) | **Euclidean Geometry**: Calculate 2D Pythagorean distances from base to target vectors. |
 | **3: `RadarHorizon`** | Deep Space Receiver | Extends horizon for unidentified contacts (600m to 1200m) | **Signal Denoising**: Filter isolated noise spikes exceeding a dynamic threshold. |
-| **4: `EnergyProduction`** | Reactor | Base energy production supports 3 (level 0) to 18 (level 5) tier-1 drones (tier 2 needs double); storage 500 + 200 per level | **Energy Budget**: Count how many consumers fit into the budget, smallest first. |
+| **4: `EnergyProduction`** | Reactor | Increases energy generation and storage capacity (500 at baseline, up to 1300) | **Energy Budget**: Count how many consumers fit into the budget, smallest first. |
 
 ---
 

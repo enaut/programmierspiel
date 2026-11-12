@@ -66,7 +66,7 @@ pub struct BaseStation {
     pub base_scanner_progress: u8,
     pub radar_horizon_level: u8,
     pub radar_horizon_progress: u8,
-    /// Energy production research level (0..=5). Each level supports 3 more tier-1 drones.
+    /// Energy production research level (0..=4), excluding the baseline level.
     pub energy_production_level: u8,
     pub energy_production_progress: u8,
     pub last_ship_built_at: Option<Timestamp>,
@@ -217,6 +217,45 @@ pub struct PublicRiddle {
     pub track: u8,
     pub target_level: u8,
     pub payload: String,
+}
+
+#[table(accessor = research_attempt)]
+#[derive(Debug, Clone)]
+pub struct ResearchAttempt {
+    #[primary_key]
+    #[auto_inc]
+    pub id: u64,
+    #[index(btree)]
+    pub owner: Identity,
+    #[index(btree)]
+    pub puzzle_id: u64,
+    pub track: u8,
+    pub target_level: u8,
+    pub payload: String,
+    pub expected_solution: String,
+    pub submitted_solution: String,
+    pub ore_cost: u32,
+    /// 0: pending, 1: succeeded, 2: failed, 3: abandoned.
+    pub status: u8,
+    pub module_burnout: bool,
+    pub created_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
+}
+
+#[derive(SpacetimeType, Debug, Clone)]
+pub struct PublicResearchAttempt {
+    pub id: u64,
+    pub puzzle_id: u64,
+    pub track: u8,
+    pub target_level: u8,
+    pub payload: String,
+    pub expected_solution: String,
+    pub submitted_solution: String,
+    pub ore_cost: u32,
+    pub status: u8,
+    pub module_burnout: bool,
+    pub created_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
 }
 
 #[table(accessor = perceived_asteroid)]

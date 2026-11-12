@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use dioxus::signals::SyncSignal;
 use spacetimedb_sdk::{Identity, Table, Timestamp};
 
-pub use curriculum::{step as get_step, SubTask};
+pub use curriculum::{SubTask, step as get_step};
 
 pub fn get_step_info(step: u8) -> &'static curriculum::Step {
     curriculum::step(step).unwrap_or(&curriculum::STEPS[0])
