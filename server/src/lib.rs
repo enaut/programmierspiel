@@ -1087,6 +1087,20 @@ pub fn calculate_riddle_cost(level: u8, progress: u8) -> u32 {
     (level.saturating_sub(1) as u32) * 100 + (progress as u32) + 1
 }
 
+fn current_research_cost(base: &BaseStation, track: u8) -> u32 {
+    let (level, progress) = match track {
+        1 => (base.drone_scanner_level, base.drone_scanner_progress),
+        2 => (base.base_scanner_level, base.base_scanner_progress),
+        3 => (base.radar_horizon_level, base.radar_horizon_progress),
+        4 => (
+            base.energy_production_level + 1,
+            base.energy_production_progress,
+        ),
+        _ => unreachable!(),
+    };
+    calculate_riddle_cost(level, progress)
+}
+
 fn mark_research_attempt_abandoned(ctx: &ReducerContext, owner: Identity, puzzle_id: u64) {
     if let Some(mut attempt) = ctx
         .db
@@ -1108,6 +1122,7 @@ fn record_research_attempt_result(
     solution: String,
     succeeded: bool,
     module_burnout: bool,
+    historical_cost: u32,
 ) {
     if let Some(mut attempt) = ctx
         .db
@@ -1131,7 +1146,7 @@ fn record_research_attempt_result(
             payload: riddle.payload.clone(),
             expected_solution: riddle.expected_solution.clone(),
             submitted_solution: solution,
-            ore_cost: 0,
+            ore_cost: historical_cost,
             status: if succeeded { 1 } else { 2 },
             module_burnout,
             created_at: riddle.created_at,
@@ -1155,7 +1170,7 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         .find(&owner)
         .ok_or("Deploy a Base Station first before conducting research")?;
 
-    let (current_level, current_progress) = match track {
+    let (current_level, _) = match track {
         1 => (base.drone_scanner_level, base.drone_scanner_progress),
         2 => (base.base_scanner_level, base.base_scanner_progress),
         3 => (base.radar_horizon_level, base.radar_horizon_progress),
@@ -1189,12 +1204,7 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         }
     }
 
-    let cost_level = if track == 4 {
-        current_level + 1
-    } else {
-        current_level
-    };
-    let cost = calculate_riddle_cost(cost_level, current_progress);
+    let cost = current_research_cost(&base, track);
     if base.stored_ore < cost {
         return Err(format!(
             "Base Station must store at least {} ore to conduct research on track {} (currently has {})",
@@ -1285,7 +1295,16 @@ pub fn submit_riddle_solution(
         riddles::verify_solution(track, &riddle.payload, &riddle.expected_solution, &solution);
     let module_burnout = !is_correct
         && (ctx.timestamp.to_micros_since_unix_epoch() as u64 ^ riddle.puzzle_id) % 2 == 0;
-    record_research_attempt_result(ctx, owner, &riddle, solution, is_correct, module_burnout);
+    let historical_cost = current_research_cost(&base, track);
+    record_research_attempt_result(
+        ctx,
+        owner,
+        &riddle,
+        solution,
+        is_correct,
+        module_burnout,
+        historical_cost,
+    );
 
     // Remove active riddle
     ctx.db.active_riddle().owner().delete(&owner);
@@ -2216,22 +2235,12 @@ pub fn my_active_riddle(ctx: &ViewContext) -> Option<PublicRiddle> {
         })
 }
 
-#[view(accessor = my_research_attempts, public)]
-pub fn my_research_attempts(ctx: &ViewContext) -> Vec<PublicResearchAttempt> {
-    let sender = ctx.sender();
-    let owner = if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
-        if agent.is_revoked {
-            return Vec::new();
-        }
-        agent.owner
-    } else {
-        sender
-    };
-
-    let mut attempts: Vec<ResearchAttempt> =
-        ctx.db.research_attempt().owner().filter(&owner).collect();
-    attempts
-        .sort_by_key(|attempt| std::cmp::Reverse(attempt.created_at.to_micros_since_unix_epoch()));
+fn latest_public_research_attempts(
+    mut attempts: Vec<ResearchAttempt>,
+) -> Vec<PublicResearchAttempt> {
+    attempts.sort_by_key(|attempt| {
+        std::cmp::Reverse((attempt.created_at.to_micros_since_unix_epoch(), attempt.id))
+    });
 
     let mut track_counts = [0u8; 5];
     let mut visible = Vec::new();
@@ -2250,11 +2259,7 @@ pub fn my_research_attempts(ctx: &ViewContext) -> Vec<PublicResearchAttempt> {
             track: attempt.track,
             target_level: attempt.target_level,
             payload: attempt.payload,
-            expected_solution: if attempt.status == 0 {
-                String::new()
-            } else {
-                attempt.expected_solution
-            },
+            expected_solution: attempt.expected_solution,
             submitted_solution: attempt.submitted_solution,
             ore_cost: attempt.ore_cost,
             status: attempt.status,
@@ -2264,6 +2269,22 @@ pub fn my_research_attempts(ctx: &ViewContext) -> Vec<PublicResearchAttempt> {
         });
     }
     visible
+}
+
+#[view(accessor = my_research_attempts, public)]
+pub fn my_research_attempts(ctx: &ViewContext) -> Vec<PublicResearchAttempt> {
+    let sender = ctx.sender();
+    let owner = if let Some(agent) = ctx.db.ai_agent().agent_identity().find(&sender) {
+        if agent.is_revoked {
+            return Vec::new();
+        }
+        agent.owner
+    } else {
+        sender
+    };
+
+    let attempts: Vec<ResearchAttempt> = ctx.db.research_attempt().owner().filter(&owner).collect();
+    latest_public_research_attempts(attempts)
 }
 
 #[view(accessor = visible_drones, public)]
@@ -2705,6 +2726,51 @@ mod tests {
         assert_eq!(base_energy_capacity(0), 500.0);
         assert_eq!(base_energy_capacity(4), 1300.0);
         assert_eq!(base_energy_capacity(5), 1300.0);
+    }
+
+    #[test]
+    fn research_history_returns_the_latest_15_completed_attempts_per_track() {
+        let owner = Identity::from_byte_array([1; 32]);
+        let make_attempt = |id: u64, track: u8, status: u8| ResearchAttempt {
+            id,
+            owner,
+            puzzle_id: id,
+            track,
+            target_level: 2,
+            payload: format!("input-{id}"),
+            expected_solution: format!("expected-{id}"),
+            submitted_solution: if status == 3 {
+                String::new()
+            } else {
+                format!("output-{id}")
+            },
+            ore_cost: id as u32,
+            status,
+            module_burnout: false,
+            created_at: spacetimedb::Timestamp::from_micros_since_unix_epoch(id as i64),
+            completed_at: (status != 0)
+                .then(|| spacetimedb::Timestamp::from_micros_since_unix_epoch(id as i64)),
+        };
+        let mut attempts: Vec<ResearchAttempt> = (0..16).map(|id| make_attempt(id, 1, 2)).collect();
+        attempts.push(make_attempt(200, 1, 0));
+        attempts.push(make_attempt(201, 2, 3));
+
+        let visible = latest_public_research_attempts(attempts);
+        let track_one: Vec<&PublicResearchAttempt> = visible
+            .iter()
+            .filter(|attempt| attempt.track == 1)
+            .collect();
+        assert_eq!(track_one.len(), 15);
+        assert_eq!(track_one[0].puzzle_id, 15);
+        assert!(!visible.iter().any(|attempt| attempt.puzzle_id == 200));
+
+        let abandoned = visible
+            .iter()
+            .find(|attempt| attempt.puzzle_id == 201)
+            .unwrap();
+        assert_eq!(abandoned.status, 3);
+        assert_eq!(abandoned.expected_solution, "expected-201");
+        assert!(abandoned.submitted_solution.is_empty());
     }
 
     fn test_base(owner: Identity) -> BaseStation {

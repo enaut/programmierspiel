@@ -10,7 +10,7 @@ pub enum UpgradeTrack {
     BaseAsteroidScanner = 2,
     /// 3: Erhöht den Radar-Horizont für Kontakte (600m bis 1200m). Rätsel: Spikes filtern (Denoising).
     RadarHorizon = 3,
-    /// 4: Erhöht die Energieproduktion der Heimatbasis (3 bis 18 Stufe-1-Drohnen). Rätsel: Energiebudget.
+    /// 4: Erhöht die Energieproduktion und Speicherkapazität der Heimatbasis. Rätsel: Energiebudget.
     EnergyProduction = 4,
 }
 

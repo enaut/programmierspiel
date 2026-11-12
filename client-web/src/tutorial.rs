@@ -721,6 +721,7 @@ mod drawer_tests {
             my_active_riddle: use_signal_sync(Vec::new),
             my_ai_agents: use_signal_sync(Vec::new),
             my_base: use_signal_sync(Vec::new),
+            my_research_attempts: use_signal_sync(Vec::new),
             my_ships: use_signal_sync(Vec::new),
             my_tutorial_state: use_signal_sync(Vec::new),
             player: use_signal_sync(Vec::new),

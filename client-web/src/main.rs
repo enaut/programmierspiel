@@ -1561,6 +1561,14 @@ fn BaseDashboardScreen(
     let p_hue = player.color_hue;
     let p_sec_hue = player.secondary_color_hue;
     let base_pos = base.position.clone();
+    let energy_display_level = base.energy_production_level.min(4) + 1;
+    let cost_t4 =
+        base.energy_production_level as u32 * 100 + base.energy_production_progress as u32 + 1;
+    let cost_t4_text = if base.energy_production_level >= 4 {
+        "Maximalstufe erreicht".to_string()
+    } else {
+        format!("Kosten: {} Erz", cost_t4)
+    };
     let cost_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
         + base.drone_scanner_progress as u32
         + 1;
@@ -1613,6 +1621,22 @@ fn BaseDashboardScreen(
                 cost_t2_text.clone(),
                 "linear-gradient(90deg, #0369a1, #38bdf8)",
             ),
+            3 => (
+                "Radar-Horizont",
+                "📡",
+                base.radar_horizon_level,
+                base.radar_horizon_progress,
+                cost_t3_text.clone(),
+                "linear-gradient(90deg, #7e22ce, #c084fc)",
+            ),
+            4 => (
+                "Energieproduktion",
+                "⚡",
+                energy_display_level,
+                base.energy_production_progress,
+                cost_t4_text.clone(),
+                "linear-gradient(90deg, #ca8a04, #fde047)",
+            ),
             _ => (
                 "Radar-Horizont",
                 "📡",
@@ -1638,7 +1662,21 @@ fn BaseDashboardScreen(
         } else {
             0
         };
-        if p3 > p2 && p3 > p1 {
+        let p4 = if base.energy_production_level < 4 {
+            base.energy_production_progress
+        } else {
+            0
+        };
+        if p4 > p3 && p4 > p2 && p4 > p1 {
+            (
+                "Energieproduktion",
+                "⚡",
+                energy_display_level,
+                base.energy_production_progress,
+                cost_t4_text.clone(),
+                "linear-gradient(90deg, #ca8a04, #fde047)",
+            )
+        } else if p3 > p2 && p3 > p1 {
             (
                 "Radar-Horizont",
                 "📡",
@@ -2610,6 +2648,7 @@ fn ResearchTrackCard(
     track: u8,
     title: String,
     level: u8,
+    effect_text: String,
     progress: u8,
     cost_text: String,
     color: String,
@@ -2618,8 +2657,9 @@ fn ResearchTrackCard(
     on_toggle: EventHandler<u8>,
     on_select: EventHandler<u64>,
 ) -> Element {
-    attempts
-        .sort_by_key(|attempt| std::cmp::Reverse(attempt.created_at.to_micros_since_unix_epoch()));
+    attempts.sort_by_key(|attempt| {
+        std::cmp::Reverse((attempt.created_at.to_micros_since_unix_epoch(), attempt.id))
+    });
     attempts.truncate(15);
     let chevron = if expanded { "▾" } else { "▸" };
     rsx! {
@@ -2629,7 +2669,7 @@ fn ResearchTrackCard(
                 style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0; border: 0; background: transparent; color: #cbd5e1; text-align: left; cursor: pointer; font-size: 12px; font-weight: 700;",
                 onclick: move |_| on_toggle.call(track),
                 span { "{title}" }
-                span { style: "color: {color};", "Stufe {level}/5 {chevron}" }
+                span { style: "color: {color};", "Stufe {level}/5 · {effect_text} {chevron}" }
             }
             div {
                 style: "width: 100%; height: 7px; background: #0f172a; border-radius: 4px; overflow: hidden; margin-top: 9px;",
@@ -3065,6 +3105,7 @@ fn HeimatbasisModal(
                                 track: 1,
                                 title: "🛸 Drohnen-Scan (Sortieren)".to_string(),
                                 level: base.drone_scanner_level,
+                                effect_text: format!("{} px", 150 + (base.drone_scanner_level.saturating_sub(1) as u32 * 50)),
                                 progress: base.drone_scanner_progress,
                                 cost_text: cost_t1_text.clone(),
                                 color: "#00e5ff".to_string(),
@@ -3079,6 +3120,7 @@ fn HeimatbasisModal(
                                 track: 2,
                                 title: "☄️ Basen- & Asteroiden (Distanz)".to_string(),
                                 level: base.base_scanner_level,
+                                effect_text: format!("{} px", 300 + (base.base_scanner_level.saturating_sub(1) as u32 * 100)),
                                 progress: base.base_scanner_progress,
                                 cost_text: cost_t2_text.clone(),
                                 color: "#38bdf8".to_string(),
@@ -3093,6 +3135,7 @@ fn HeimatbasisModal(
                                 track: 3,
                                 title: "📡 Radar-Horizont (Denoise)".to_string(),
                                 level: base.radar_horizon_level,
+                                effect_text: format!("{} px", 600 + (base.radar_horizon_level.saturating_sub(1) as u32 * 150)),
                                 progress: base.radar_horizon_progress,
                                 cost_text: cost_t3_text.clone(),
                                 color: "#c084fc".to_string(),
@@ -3107,6 +3150,7 @@ fn HeimatbasisModal(
                                 track: 4,
                                 title: "⚡ Energieproduktion (Energiebudget)".to_string(),
                                 level: energy_display_level,
+                                effect_text: format!("Speicher {}", energy_capacity),
                                 progress: base.energy_production_progress,
                                 cost_text: cost_t4_text.clone(),
                                 color: "#facc15".to_string(),
