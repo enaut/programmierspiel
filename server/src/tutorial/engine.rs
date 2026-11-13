@@ -18,7 +18,7 @@ pub enum TutorialEvent {
     BridgeConfirmed,
     /// AI agent bound to home base station (Step 4 -> 5)
     BaseAgentConnected,
-    /// Command card claimed from lootbox (Odd steps 5..=21)
+    /// Command card claimed from a lootbox.
     LootBoxClaimed { remaining_in_box: usize },
     /// Student submitted drone coordinates (Step 6 -> 7)
     SubmitCoordinates { x: i32, y: i32 },
@@ -176,7 +176,7 @@ pub fn evaluate_transition(
         // Step 20 -> 21: Riddle solved
         (20, TutorialEvent::RiddleSolved) => TransitionOutcome::advance(20, 21),
 
-        // Odd steps 5, 7, 9, 11, 13, 15, 17, 19, 21: Lootbox claims
+        // Lootbox claims advance after the final unclaimed card is collected.
         (step, TutorialEvent::LootBoxClaimed { remaining_in_box })
             if curriculum::is_loot_box_step(step) && *remaining_in_box <= 1 =>
         {
@@ -439,28 +439,43 @@ mod tests {
     }
 
     #[test]
-    fn final_loot_box_21_unlocks_free_play() {
+    fn final_loot_box_26_unlocks_free_play() {
         let snap = TutorialSnapshot::default();
         assert_eq!(
             evaluate_transition(
-                21,
+                22,
                 &TutorialEvent::LootBoxClaimed {
                     remaining_in_box: 1
                 },
                 &snap
             ),
             TransitionOutcome::Advance {
-                from_step: 21,
-                to_step: 22,
+                from_step: 22,
+                to_step: 23,
+                is_completed: false,
+                free_play_unlocked: false,
+            }
+        );
+        assert_eq!(
+            evaluate_transition(
+                26,
+                &TutorialEvent::LootBoxClaimed {
+                    remaining_in_box: 1
+                },
+                &snap
+            ),
+            TransitionOutcome::Advance {
+                from_step: 26,
+                to_step: 27,
                 is_completed: true,
                 free_play_unlocked: true,
             }
         );
 
-        // Step 22 is terminal
+        // Step 27 is terminal
         assert_eq!(
             evaluate_transition(
-                22,
+                27,
                 &TutorialEvent::LootBoxClaimed {
                     remaining_in_box: 0
                 },

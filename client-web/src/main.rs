@@ -8,6 +8,7 @@ pub mod tutorial;
 use ::dioxus::prelude::*;
 use ::dioxus::signals::SyncSignal;
 use commands::{CommandHallModal, LootBoxRevealModal, is_loot_box_step};
+use curriculum::FINAL_STEP;
 use module_bindings::advance_tutorial_step_reducer::advance_tutorial_step;
 use module_bindings::build_ship_reducer::build_ship;
 use module_bindings::command_ship_reducer::command_ship;
@@ -562,8 +563,8 @@ fn CockpitApp() -> Element {
                     .collect()
             })
             .unwrap_or_default();
-        if my_step >= 22 {
-            for cmd in commands::commands_for_box(22) {
+        if my_step >= FINAL_STEP {
+            for cmd in commands::commands_for_box(FINAL_STEP) {
                 if !list.iter().any(|k| k == cmd.key) {
                     list.push(cmd.key.to_string());
                 }

@@ -6,6 +6,7 @@ use crate::module_bindings::player_table::PlayerTableAccess;
 use crate::module_bindings::submit_asteroid_id_reducer::submit_asteroid_id;
 use crate::module_bindings::submit_drone_coordinates_reducer::submit_drone_coordinates;
 use crate::module_bindings::{GameEvent, ReducerEventContext, Ship};
+use curriculum::FINAL_STEP;
 use dioxus::prelude::*;
 use dioxus::signals::SyncSignal;
 use spacetimedb_sdk::{Identity, Table, Timestamp};
@@ -205,7 +206,7 @@ fn viewed_step_after_progress_change(previous: u8, current: u8, viewed: u8) -> u
 
 #[cfg(test)]
 mod navigation_tests {
-    use super::viewed_step_after_progress_change;
+    use super::{FINAL_STEP, viewed_step_after_progress_change};
 
     #[test]
     fn progress_shows_the_new_step_even_when_viewing_an_older_one() {
@@ -231,9 +232,12 @@ mod navigation_tests {
 
     #[test]
     fn new_final_step_respects_progress_and_reset() {
-        assert_eq!(viewed_step_after_progress_change(21, 22, 6), 22);
-        assert_eq!(viewed_step_after_progress_change(22, 16, 21), 16);
-        assert_eq!(viewed_step_after_progress_change(22, 8, 6), 6);
+        assert_eq!(
+            viewed_step_after_progress_change(26, FINAL_STEP, 6),
+            FINAL_STEP
+        );
+        assert_eq!(viewed_step_after_progress_change(FINAL_STEP, 16, 26), 16);
+        assert_eq!(viewed_step_after_progress_change(FINAL_STEP, 8, 6), 6);
         assert_eq!(viewed_step_after_progress_change(8, 9, 6), 9);
     }
 }
@@ -350,7 +354,7 @@ pub fn QuestDrawer(
             button {
                 style: "position: fixed; left: 16px; top: 76px; z-index: 50; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(0, 229, 255, 0.5); color: #00e5ff; padding: 8px 14px; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 229, 255, 0.2); backdrop-filter: blur(8px); display: flex; align-items: center; gap: 8px;",
                 onclick: move |_| is_collapsed.set(false),
-                span { "🛸 Mission: Stufe {step}/22" }
+                span { "🛸 Mission: Stufe {step}/{FINAL_STEP}" }
                 span { style: "font-size: 10px; color: #94a3b8;", "▶ Ausklappen" }
             }
         };
@@ -377,7 +381,7 @@ pub fn QuestDrawer(
                         }
                         span {
                             style: "background: rgba(0, 229, 255, 0.15); color: #00e5ff; border: 1px solid rgba(0, 229, 255, 0.3); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; white-space: nowrap;",
-                            "STUFE {viewed} / 22"
+                            "STUFE {viewed} / {FINAL_STEP}"
                         }
                     }
                     div {
@@ -406,8 +410,8 @@ pub fn QuestDrawer(
                 }
                 div {
                     style: "font-size: 11px; color: #94a3b8;",
-                    "Aktueller Fortschritt: Stufe {step} / 22"
-                    if step >= 22 {
+                    "Aktueller Fortschritt: Stufe {step} / {FINAL_STEP}"
+                    if step >= FINAL_STEP {
                         span { style: "margin-left: 8px; color: #ffd700; font-weight: 700;", "🏆 MEISTER" }
                     }
                 }
@@ -415,7 +419,7 @@ pub fn QuestDrawer(
                 div {
                     style: "width: 100%; height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden;",
                     div {
-                        style: "height: 100%; width: {(step.min(22) as f32 / 22.0) * 100.0}%; background: linear-gradient(90deg, #00b4d8, #00e5ff); border-radius: 3px; transition: width 0.5s ease-out;"
+                        style: "height: 100%; width: {(step.min(FINAL_STEP) as f32 / FINAL_STEP as f32) * 100.0}%; background: linear-gradient(90deg, #00b4d8, #00e5ff); border-radius: 3px; transition: width 0.5s ease-out;"
                     }
                 }
             }
@@ -667,7 +671,7 @@ pub fn QuestDrawer(
                         onclick: move |_| on_advance.call(3),
                         "Ich habe Zed geöffnet und den Bot gestartet ➔ Weiter zu Stufe 4"
                     }
-                } else if step >= 22 {
+                } else if step >= FINAL_STEP {
                     div {
                         style: "color: #ffd700; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px;",
                         span { "🏆" }
@@ -989,7 +993,7 @@ mod drawer_tests {
 
     #[test]
     fn server_reset_clamps_the_view_and_removes_completion() {
-        let (mut dom, progress) = setup(22);
+        let (mut dom, progress) = setup(FINAL_STEP);
         assert!(format!("{:?}", drawer(&dom)).contains("🏆 MEISTER"));
         click(&mut dom, "Vorherige Stufe");
         click(&mut dom, "Vorherige Stufe");
@@ -997,8 +1001,8 @@ mod drawer_tests {
         dom.render_immediate_to_vec();
         dom.render_immediate_to_vec();
         let reset = format!("{:?}", drawer(&dom));
-        assert!(reset.contains("STUFE 16 / 22"));
-        assert!(reset.contains("Aktueller Fortschritt: Stufe 16 / 22"));
+        assert!(reset.contains("STUFE 16 / 27"));
+        assert!(reset.contains("Aktueller Fortschritt: Stufe 16 / 27"));
         assert!(!reset.contains("🏆 MEISTER"));
         assert!(reset.contains("Multitasking für Fortgeschrittene"));
     }
@@ -1010,9 +1014,9 @@ mod drawer_tests {
         click(&mut dom, "Vorherige Stufe");
         let previous = format!("{:?}", drawer(&dom));
         assert!(previous.contains("Wo ist deine Drohne?"));
-        assert!(previous.contains("STUFE 6 / 22"));
-        assert!(previous.contains("Aktueller Fortschritt: Stufe 8 / 22"));
-        assert!(previous.contains("width: 36.36"));
+        assert!(previous.contains("STUFE 6 / 27"));
+        assert!(previous.contains("Aktueller Fortschritt: Stufe 8 / 27"));
+        assert!(previous.contains("29.62963%"));
         assert!(previous.contains("🛸 world.first_drone()"));
         assert!(!previous.contains("☄️ world.closest_asteroid_with_ore(pos)"));
         assert!(find_listener(drawer(&dom), None, "oninput").is_none());
@@ -1054,12 +1058,12 @@ mod tests {
             (16, "Multitasking für Fortgeschrittene (Flottenschleife)"),
             (18, "Rechtzeitig an die Steckdose (Energiemanagement)"),
             (20, "Forschung: Vier Technologiebäume"),
-            (22, "Tutorial abgeschlossen – Freies Spiel!"),
+            (27, "Tutorial abgeschlossen – Freies Spiel!"),
         ];
         for (step, title) in titles {
             assert_eq!(get_step_info(step).title, title);
         }
-        for step in [5, 7, 9, 11, 13, 15, 17, 19, 21] {
+        for step in [5, 7, 9, 11, 13, 15, 17, 19, 21, 22, 23, 24, 25, 26] {
             assert!(get_step_info(step).title.contains("Lootbox"));
         }
     }

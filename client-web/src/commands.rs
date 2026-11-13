@@ -39,6 +39,7 @@ mod tests {
                     "PRINTLN",
                     "DRONE_POSITION",
                     "FORMAT_NO_DECIMALS",
+                    "PRINTLN_MACRO",
                 ],
             ),
             (7, &["WORLD_CLOSEST_ASTEROID", "ASTEROID_ID"]),
@@ -52,6 +53,7 @@ mod tests {
                     "COMPARISONS",
                     "LOGICAL_AND",
                     "ACTIONS_BUILD_DRONE_1",
+                    "COMPARE_AND",
                 ],
             ),
             (15, &["FOR_IN_FLEET"]),
@@ -72,25 +74,109 @@ mod tests {
                 ],
             ),
             (21, &["ACTIONS_BUILD_DRONE_2"]),
+            (
+                22,
+                &[
+                    "SHIP_TIER",
+                    "SHIP_VELOCITY",
+                    "SHIP_TARGET_POSITION",
+                    "SHIP_HEADING",
+                    "SHIP_SPEED",
+                    "SHIP_MAX_SPEED",
+                    "SHIP_ENERGY",
+                    "SHIP_MAX_ENERGY",
+                    "SHIP_CARGO_ORE",
+                    "SHIP_MAX_CARGO",
+                    "SHIP_TARGET_ASTEROID_ID",
+                    "SHIP_IS_MINING",
+                    "SHIP_IS_STRANDED",
+                    "SHIP_SIGNAL_COUNTDOWN",
+                    "SHIP_DISTANCE_TO",
+                    "SHIP_CARGO_FREE_SPACE",
+                    "SHIP_ENERGY_PERCENT",
+                    "WORLD_SHIP",
+                ],
+            ),
+            (
+                23,
+                &[
+                    "WORLD_ASTEROIDS",
+                    "WORLD_CLOSEST_ASTEROID_ANY",
+                    "ASTEROID_POSITION",
+                    "ASTEROID_VELOCITY",
+                    "ASTEROID_RESOURCE_TYPE",
+                    "ASTEROID_REMAINING_ORE",
+                    "ASTEROID_RADIUS",
+                    "ASTEROID_DISTANCE_TO",
+                    "ASTEROID_IS_DEPLETED",
+                    "ASTEROID_RESOURCE_NAME",
+                    "VEC2_NEW",
+                    "VEC2_ZERO",
+                    "VEC2_XY",
+                    "VEC2_DISTANCE",
+                ],
+            ),
+            (
+                24,
+                &[
+                    "WORLD_BASE",
+                    "WORLD_TICK",
+                    "BASE_POSITION",
+                    "BASE_SIGNAL_RADIUS",
+                    "BASE_STORED_ENERGY",
+                    "BASE_LEVEL",
+                    "BASE_DRONE_SCANNER_LEVEL",
+                    "BASE_BASE_SCANNER_LEVEL",
+                    "BASE_RADAR_HORIZON_LEVEL",
+                    "BASE_DISTANCE_TO",
+                    "BASE_IS_IN_RANGE",
+                    "BASE_DRONE_SCANNER_RANGE",
+                    "BASE_BASE_SCANNER_RANGE",
+                    "BASE_RADAR_HORIZON_RANGE",
+                ],
+            ),
+            (
+                25,
+                &[
+                    "WORLD_OTHER_DRONES",
+                    "WORLD_OTHER_BASES",
+                    "OTHER_DRONE_SHIP_ID",
+                    "OTHER_DRONE_TIER",
+                    "OTHER_DRONE_POSITION",
+                    "OTHER_DRONE_HEADING",
+                    "OTHER_DRONE_SPEED",
+                    "OTHER_DRONE_IS_MINING",
+                    "OTHER_BASE_ID",
+                    "OTHER_BASE_POSITION",
+                    "OTHER_BASE_SIGNAL_RADIUS",
+                    "OTHER_BASE_LEVEL",
+                    "OTHER_BASE_SCANNER_LEVELS",
+                    "CONTACT_ID",
+                    "CONTACT_POSITION",
+                ],
+            ),
+            (
+                26,
+                &[
+                    "ACTIONS_FLY_TO",
+                    "ACTIONS_STOP",
+                    "UPGRADE_TRACK_BASE_ASTEROID",
+                    "UPGRADE_TRACK_RADAR_HORIZON",
+                    "UPGRADE_TRACK_NAME",
+                    "RIDDLE_TASK_DISTANCE",
+                    "RIDDLE_TASK_DENOISE",
+                    "RIDDLE_SOLUTION_DISTANCE",
+                    "RIDDLE_SOLUTION_DENOISE",
+                ],
+            ),
         ];
         let expected_free_play: &[&str] = &[
-            "ACTIONS_FLY_TO",
-            "ACTIONS_STOP",
-            "VEC2_NEW",
-            "VEC2_DISTANCE",
-            "WORLD_SHIP",
-            "WORLD_CLOSEST_ASTEROID_ANY",
-            "WORLD_ASTEROIDS",
-            "WORLD_OTHER_DRONES",
-            "WORLD_OTHER_BASES",
-            "WORLD_TICK",
             "DRONE_TIER",
             "DRONE_CARGO",
             "DRONE_MOTION",
             "DRONE_TARGETS_AND_STATUS",
             "DRONE_SIGNAL_AND_STRANDED",
             "DRONE_DISTANCE_TO",
-            "BASE_STORED_ENERGY",
             "BASE_POSITION_AND_SIGNAL",
             "BASE_RESEARCH_LEVELS",
             "ASTEROID_POSITION_AND_DISTANCE",
@@ -103,16 +189,20 @@ mod tests {
         );
         for (step, keys) in expected {
             let box_keys: Vec<_> = commands_for_box(*step).iter().map(|c| c.key).collect();
-            let coding_keys: Vec<_> = commands_for_coding_step(*step + 1)
-                .iter()
-                .map(|c| c.key)
-                .collect();
             assert_eq!(box_keys, *keys);
-            assert_eq!(coding_keys, *keys);
+            if *step <= 19 {
+                let coding_keys: Vec<_> = commands_for_coding_step(*step + 1)
+                    .iter()
+                    .map(|c| c.key)
+                    .collect();
+                assert_eq!(coding_keys, *keys);
+            }
             assert!(is_loot_box_step(*step));
-            assert!(!is_loot_box_step(*step + 1));
         }
-        let free_play_keys: Vec<_> = commands_for_box(22).iter().map(|c| c.key).collect();
+        let free_play_keys: Vec<_> = commands_for_box(curriculum::FINAL_STEP)
+            .iter()
+            .map(|c| c.key)
+            .collect();
         assert_eq!(free_play_keys, expected_free_play);
         assert!(commands_for_coding_step(0).is_empty());
     }
@@ -129,7 +219,8 @@ mod tests {
                 "DRONE_POSITION".into(),
                 "PRINTLN".into(),
                 "WORLD_FIRST_DRONE".into(),
-                "IF_LET_SOME".into()
+                "IF_LET_SOME".into(),
+                "PRINTLN_MACRO".into()
             ]
         ));
         assert!(!box_fully_claimed(&commands_for_box(6), &[]));

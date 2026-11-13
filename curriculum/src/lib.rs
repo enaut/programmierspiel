@@ -6,25 +6,28 @@
 #![no_std]
 
 /// Maximum tutorial step index (Free Play).
-pub const FINAL_STEP: u8 = 22;
+pub const FINAL_STEP: u8 = 27;
 
 /// Tutorial steps at which a command loot box is waiting in the Heimatbasis.
-pub const LOOT_BOX_STEPS: [u8; 9] = [5, 7, 9, 11, 13, 15, 17, 19, 21];
+pub const LOOT_BOX_STEPS: [u8; 14] = [5, 7, 9, 11, 13, 15, 17, 19, 21, 22, 23, 24, 25, 26];
 
 /// Returns `true` if a loot box is waiting at this tutorial step.
 pub const fn is_loot_box_step(step: u8) -> bool {
-    matches!(step, 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21)
+    matches!(
+        step,
+        5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 22 | 23 | 24 | 25 | 26
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepKind {
     /// Initial onboarding/setup (steps 0..=4).
     Onboarding,
-    /// Command lootbox in home base (odd steps 5..=21).
+    /// Command lootbox in home base (steps 5, 7, ..., 21, and 22..=26).
     LootBox { number: u8 },
-    /// Coding quest exercising unlocked commands (even steps 6..=20).
+    /// Coding quest exercising unlocked commands (steps 6..=20).
     Coding,
-    /// Tutorial complete; Free-Play sandbox and remaining SDK catalog unlocked (step 22).
+    /// Tutorial complete; Free-Play sandbox and remaining SDK catalog unlocked (step 27).
     FreePlay,
 }
 
@@ -32,7 +35,7 @@ pub enum StepKind {
 pub enum VerificationMode {
     /// Step advanced manually by learner (e.g. Step 0, Step 3).
     ManualAdvance,
-    /// Step advanced on claiming all loot box cards (odd steps 5..=21).
+    /// Step advanced on claiming all loot box cards.
     LootBoxClaim,
     /// Verified via interactive coordinate input (Step 6).
     CoordinateQuiz,
@@ -124,12 +127,12 @@ pub fn command(key: &str) -> Option<&'static Command> {
     COMMANDS.iter().find(|c| c.key == key)
 }
 
-/// Complete catalog of all 54 command reference cards.
+/// Complete catalog of all command reference cards.
 pub const fn all_commands() -> &'static [Command] {
     &COMMANDS
 }
 
-/// Complete catalog of all 23 tutorial steps (0..=22).
+/// Complete catalog of all 28 tutorial steps (0..=27).
 pub const fn all_steps() -> &'static [Step] {
     &STEPS
 }
@@ -142,7 +145,7 @@ pub fn loot_box_commands(step_index: u8) -> &'static [&'static str] {
     }
 }
 
-/// Additional SDK commands unlocked automatically once reaching Free Play (step 22).
+/// Additional SDK commands unlocked automatically once reaching Free Play.
 pub fn free_play_commands() -> &'static [&'static str] {
     STEPS[FINAL_STEP as usize].unlocked_keys
 }
@@ -174,6 +177,7 @@ const KEYS_STEP_5: &[&str] = &[
     "PRINTLN",
     "DRONE_POSITION",
     "FORMAT_NO_DECIMALS",
+    "PRINTLN_MACRO",
 ];
 const KEYS_STEP_7: &[&str] = &["WORLD_CLOSEST_ASTEROID", "ASTEROID_ID"];
 const KEYS_STEP_9: &[&str] = &["DRONE_SHIP_ID", "ACTIONS_MINE"];
@@ -184,6 +188,7 @@ const KEYS_STEP_13: &[&str] = &[
     "COMPARISONS",
     "LOGICAL_AND",
     "ACTIONS_BUILD_DRONE_1",
+    "COMPARE_AND",
 ];
 const KEYS_STEP_15: &[&str] = &["FOR_IN_FLEET"];
 const KEYS_STEP_17: &[&str] = &["DRONE_IS_DOCKED", "DRONE_ENERGY", "ELSE_IF"];
@@ -200,25 +205,94 @@ const KEYS_STEP_19: &[&str] = &[
     "ACTIONS_SOLVE_RIDDLE",
 ];
 const KEYS_STEP_21: &[&str] = &["ACTIONS_BUILD_DRONE_2"];
-
-const KEYS_FREE_PLAY: &[&str] = &[
-    "ACTIONS_FLY_TO",
-    "ACTIONS_STOP",
-    "VEC2_NEW",
-    "VEC2_DISTANCE",
+const KEYS_STEP_22: &[&str] = &[
+    "SHIP_TIER",
+    "SHIP_VELOCITY",
+    "SHIP_TARGET_POSITION",
+    "SHIP_HEADING",
+    "SHIP_SPEED",
+    "SHIP_MAX_SPEED",
+    "SHIP_ENERGY",
+    "SHIP_MAX_ENERGY",
+    "SHIP_CARGO_ORE",
+    "SHIP_MAX_CARGO",
+    "SHIP_TARGET_ASTEROID_ID",
+    "SHIP_IS_MINING",
+    "SHIP_IS_STRANDED",
+    "SHIP_SIGNAL_COUNTDOWN",
+    "SHIP_DISTANCE_TO",
+    "SHIP_CARGO_FREE_SPACE",
+    "SHIP_ENERGY_PERCENT",
     "WORLD_SHIP",
-    "WORLD_CLOSEST_ASTEROID_ANY",
+];
+const KEYS_STEP_23: &[&str] = &[
     "WORLD_ASTEROIDS",
+    "WORLD_CLOSEST_ASTEROID_ANY",
+    "ASTEROID_POSITION",
+    "ASTEROID_VELOCITY",
+    "ASTEROID_RESOURCE_TYPE",
+    "ASTEROID_REMAINING_ORE",
+    "ASTEROID_RADIUS",
+    "ASTEROID_DISTANCE_TO",
+    "ASTEROID_IS_DEPLETED",
+    "ASTEROID_RESOURCE_NAME",
+    "VEC2_NEW",
+    "VEC2_ZERO",
+    "VEC2_XY",
+    "VEC2_DISTANCE",
+];
+const KEYS_STEP_24: &[&str] = &[
+    "WORLD_BASE",
+    "WORLD_TICK",
+    "BASE_POSITION",
+    "BASE_SIGNAL_RADIUS",
+    "BASE_STORED_ENERGY",
+    "BASE_LEVEL",
+    "BASE_DRONE_SCANNER_LEVEL",
+    "BASE_BASE_SCANNER_LEVEL",
+    "BASE_RADAR_HORIZON_LEVEL",
+    "BASE_DISTANCE_TO",
+    "BASE_IS_IN_RANGE",
+    "BASE_DRONE_SCANNER_RANGE",
+    "BASE_BASE_SCANNER_RANGE",
+    "BASE_RADAR_HORIZON_RANGE",
+];
+const KEYS_STEP_25: &[&str] = &[
     "WORLD_OTHER_DRONES",
     "WORLD_OTHER_BASES",
-    "WORLD_TICK",
+    "OTHER_DRONE_SHIP_ID",
+    "OTHER_DRONE_TIER",
+    "OTHER_DRONE_POSITION",
+    "OTHER_DRONE_HEADING",
+    "OTHER_DRONE_SPEED",
+    "OTHER_DRONE_IS_MINING",
+    "OTHER_BASE_ID",
+    "OTHER_BASE_POSITION",
+    "OTHER_BASE_SIGNAL_RADIUS",
+    "OTHER_BASE_LEVEL",
+    "OTHER_BASE_SCANNER_LEVELS",
+    "CONTACT_ID",
+    "CONTACT_POSITION",
+];
+const KEYS_STEP_26: &[&str] = &[
+    "ACTIONS_FLY_TO",
+    "ACTIONS_STOP",
+    "UPGRADE_TRACK_BASE_ASTEROID",
+    "UPGRADE_TRACK_RADAR_HORIZON",
+    "UPGRADE_TRACK_NAME",
+    "RIDDLE_TASK_DISTANCE",
+    "RIDDLE_TASK_DENOISE",
+    "RIDDLE_SOLUTION_DISTANCE",
+    "RIDDLE_SOLUTION_DENOISE",
+];
+
+const KEYS_FREE_PLAY: &[&str] = &[
     "DRONE_TIER",
     "DRONE_CARGO",
     "DRONE_MOTION",
     "DRONE_TARGETS_AND_STATUS",
     "DRONE_SIGNAL_AND_STRANDED",
     "DRONE_DISTANCE_TO",
-    "BASE_STORED_ENERGY",
     "BASE_POSITION_AND_SIGNAL",
     "BASE_RESEARCH_LEVELS",
     "ASTEROID_POSITION_AND_DISTANCE",
@@ -229,10 +303,10 @@ const KEYS_FREE_PLAY: &[&str] = &[
 const EMPTY_KEYS: &[&str] = &[];
 
 // ==========================================
-// Static Steps Catalog (0..=22)
+// Static Steps Catalog (0..=27)
 // ==========================================
 
-pub static STEPS: [Step; 23] = [
+pub static STEPS: [Step; 28] = [
     // Step 0
     Step {
         index: 0,
@@ -240,7 +314,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ManualAdvance,
         title: "Willkommen an Bord, Commander!",
         short_title: "Registrierung",
-        admin_label: "0/22 Registrierung",
+        admin_label: "0/27 Registrierung",
         story: "Im Asteroidengürtel wimmelt es von automatischen Transportern und fremden Stationen. Um deine Schiffe auf den Radarsystemen der Mega-Station eindeutig zu identifizieren, benötigt deine Flotte deinen Pilotenausweis und eigene Signal-Farben.",
         subtasks: &[
             SubTask {
@@ -269,7 +343,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Der Jungfernflug (Manuelle Steuerung)",
         short_title: "Flug",
-        admin_label: "1/22 Flug",
+        admin_label: "1/27 Flug",
         story: "Dein Bauschiff (Tier 0) startet nah herangezoomt an der Mega-Station bei (0, 0). Bedienung der Karte: Mit dem Mausrad (Scrollen) zoomst du rein und raus, und durch Klicken und Halten mit der linken Maustaste verschiebst du die Karte. Wichtig: Du kannst deine Basis nur außerhalb des roten bzw. grünen Sicherheitskreises um die Mega-Station errichten!",
         subtasks: &[
             SubTask {
@@ -298,7 +372,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Das Fundament (Heimatbasis errichten)",
         short_title: "Basisbau",
-        admin_label: "2/22 Basisbau",
+        admin_label: "2/27 Basisbau",
         story: "Hervorragend gewählt, Commander! Du befindest dich außerhalb des grünen Sicherheitskreises der Mega-Station und hast genügend Erz im Scanradius. Durch die Aktivierung der Montage-Sequenz entfaltet sich dein Bauschiff zu deiner Heimatbasis.",
         subtasks: &[
             SubTask {
@@ -322,7 +396,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ManualAdvance,
         title: "Die Brücke öffnen (uhlaunch & Zed)",
         short_title: "Bot Start",
-        admin_label: "3/22 Bot Start",
+        admin_label: "3/27 Bot Start",
         story: "Deine Heimatbasis hat einen Bordcomputer. Du programmierst ihn in Rust und startest deinen Bot im Zed-Editor.",
         subtasks: &[
             SubTask {
@@ -351,7 +425,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Bot mit der Heimatbasis koppeln",
         short_title: "Bot-Kopplung",
-        admin_label: "4/22 Bot-Kopplung",
+        admin_label: "4/27 Bot-Kopplung",
         story: "Die Identität ist die Adresse deines Bots; mit ihr erlaubst du ihm die Steuerung deiner Basis. Ein Token ist dagegen ein geheimer Zugangsschlüssel: Gib ihn niemals als Identität ein oder an andere weiter. Beim ersten Start speichert der Bot seinen Token selbst in config.toml.",
         subtasks: &[
             SubTask {
@@ -380,7 +454,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #1: Deine erste Drohne",
         short_title: "🎁 Lootbox 1: Drohne",
-        admin_label: "5/22 🎁 Lootbox 1: Drohne",
+        admin_label: "5/27 🎁 Lootbox 1: Drohne",
         story: "Dein Bot ist verbunden! In der Heimatbasis warten die ersten Befehle auf dich: if let Some, world.first_drone(), println! und die Position deiner Drohne.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_5,
@@ -393,7 +467,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::CoordinateQuiz,
         title: "Wo ist deine Drohne?",
         short_title: "Drohne",
-        admin_label: "6/22 Drohne",
+        admin_label: "6/27 Drohne",
         story: "In main.rs wird tick etwa zehnmal pro Sekunde aufgerufen. world enthält den aktuellen Weltzustand, actions sammelt deine Befehle. Schreibe deinen Code in tick: Nur wenn eine Drohne vorhanden ist, kannst du ihre Position auslesen.",
         subtasks: &[
             SubTask {
@@ -422,7 +496,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #2: Asteroiden finden",
         short_title: "🎁 Lootbox 2: Asteroid",
-        admin_label: "7/22 🎁 Lootbox 2: Asteroid",
+        admin_label: "7/27 🎁 Lootbox 2: Asteroid",
         story: "Mit dem nächsten Befehl findest du bekannte Asteroiden, die noch Erz enthalten, und liest ihre Kennnummer aus.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_7,
@@ -435,7 +509,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::AsteroidIdQuiz,
         title: "Die Asteroiden-ID ermitteln",
         short_title: "Asteroid",
-        admin_label: "8/22 Asteroid",
+        admin_label: "8/27 Asteroid",
         story: "Deine Sensoren identifizieren Asteroiden in Reichweite der Basis oder deiner Drohnen. Jede so identifizierte Asteroiden-ID ist gültig; die Suche wählt davon einen passenden Asteroiden mit Erz.",
         subtasks: &[
             SubTask {
@@ -466,7 +540,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #3: Erz schürfen",
         short_title: "🎁 Lootbox 3: Mining",
-        admin_label: "9/22 🎁 Lootbox 3: Mining",
+        admin_label: "9/27 🎁 Lootbox 3: Mining",
         story: "Jetzt lernst du die Kennnummer deiner Drohne und den Befehl, mit dem sie einen Asteroiden abbaut.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_9,
@@ -479,7 +553,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Der erste Schürfzug",
         short_title: "Erstes Erz",
-        admin_label: "10/22 Erstes Erz",
+        admin_label: "10/27 Erstes Erz",
         story: "Deine Drohne und ein Asteroid mit Erz sind gefunden. Gib den Abbau-Befehl in tick: Die Drohne fliegt erst zum Ziel und schürft dort. Die Mission endet, sobald der Server erfolgreichen Abbau registriert.",
         subtasks: &[
             SubTask {
@@ -508,7 +582,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #4: Laderaum & Andocken",
         short_title: "🎁 Lootbox 4",
-        admin_label: "11/22 🎁 Lootbox 4",
+        admin_label: "11/27 🎁 Lootbox 4",
         story: "Erstes Erz im Frachtraum! In deiner Heimatbasis wartet eine Lootbox mit Befehlen zum Verzweigen und Andocken.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_11,
@@ -521,7 +595,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Frachtraum voll! Kurs Heimatbasis",
         short_title: "Lieferung",
-        admin_label: "12/22 Lieferung",
+        admin_label: "12/27 Lieferung",
         story: "Deine Drohne kann nur 50 Einheiten Erz tragen. Ist der Frachtraum voll, stoppt der Bohrer automatisch. Damit das Erz verarbeitet werden kann, muss die Drohne an der Heimatbasis andocken. Ziel: Sammle mindestens 50 Erz an deiner Basis!",
         subtasks: &[
             SubTask {
@@ -550,7 +624,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #5: Flotten-Konstruktion",
         short_title: "🎁 Lootbox 5",
-        admin_label: "13/22 🎁 Lootbox 5",
+        admin_label: "13/27 🎁 Lootbox 5",
         story: "Deine Lieferung war erfolgreich! Öffne die Lootbox in der Heimatbasis, um zu lernen, wie du Werte vergleichst, Bedingungen verknüpfst und neue Drohnen baust.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_13,
@@ -563,7 +637,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Flottenausbau (Zweite Drohne bauen)",
         short_title: "Drohne 2",
-        admin_label: "14/22 Drohne 2",
+        admin_label: "14/27 Drohne 2",
         story: "Mit 50 Einheiten Erz im Lager verfügt deine Basis über genügend Rohstoffe, um ein weiteres Schiff der Stufe 1 in Auftrag zu geben. Mehr Drohnen bedeuten schnellere Rohstoffförderung!",
         subtasks: &[
             SubTask {
@@ -587,7 +661,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #6: Schwarm-Schleife",
         short_title: "🎁 Lootbox 6",
-        admin_label: "15/22 🎁 Lootbox 6",
+        admin_label: "15/27 🎁 Lootbox 6",
         story: "Zwei Drohnen im Einsatz! In der Heimatbasis wartet die Schleife, mit der du die ganze Flotte steuerst.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_15,
@@ -600,7 +674,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Multitasking für Fortgeschrittene (Flottenschleife)",
         short_title: "Flottenloop",
-        admin_label: "16/22 Flottenloop",
+        admin_label: "16/27 Flottenloop",
         story: "Bisher hat dein Code nur die erste Drohne mit world.first_drone() gesteuert. In Rust nutzen wir eine for-Schleife, um jedem Schiff in world.fleet automatisch denselben Ablauf zuzuweisen.",
         subtasks: &[
             SubTask {
@@ -629,7 +703,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #7: Energiemanagement & Laden",
         short_title: "🎁 Lootbox 7: Energie",
-        admin_label: "17/22 🎁 Lootbox 7: Energie",
+        admin_label: "17/27 🎁 Lootbox 7: Energie",
         story: "Deine Flotte schürft fleißig! Doch Fliegen und Bohren verbrauchen Batterie-Energie. In der Heimatbasis wartet eine Lootbox, mit der deine Drohnen rechtzeitig vor leerer Batterie umkehren und an der Basis vollladen.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_17,
@@ -642,7 +716,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Rechtzeitig an die Steckdose (Energiemanagement)",
         short_title: "Energiemanagement",
-        admin_label: "18/22 Energiemanagement",
+        admin_label: "18/27 Energiemanagement",
         story: "Wenn eine Drohne das Erz an der Basis abliefert, ist ihr Frachtraum sofort wieder leer – ohne Zusatzprüfung fliegt sie ungeladen wieder los, bis ihr mitten im All der Strom ausgeht und nur noch der langsame Not-Generator tröpfchenweise hilft. Halte angedockte Drohnen an der Basis, bis ihre Batterie voll ist (1.0), und schicke Drohnen mit niedrigem Batteriestand (< 0.25) rechtzeitig zum Andocken!",
         subtasks: &[
             SubTask {
@@ -673,7 +747,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #8: Telemetrie & Algorithmen",
         short_title: "🎁 Lootbox 8: Forschung",
-        admin_label: "19/22 🎁 Lootbox 8: Forschung",
+        admin_label: "19/27 🎁 Lootbox 8: Forschung",
         story: "Deine Drohnen laden zuverlässig an der Basis auf! Öffne die Lootbox in der Heimatbasis für die Befehle aller vier Forschungsbäume.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_19,
@@ -686,7 +760,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Forschung: Vier Technologiebäume",
         short_title: "Forschung",
-        admin_label: "20/22 Forschung",
+        admin_label: "20/27 Forschung",
         story: "Deine Heimatbasis kann in vier Forschungsbäumen ausgebaut werden, und du darfst frei wählen, welchen du zuerst und in welcher Reihenfolge du sie erforschst: 1) Drohnen-Scanner (größere Scanreichweite der Drohnen, Rätsel: Zahlen sortieren), 2) Basen- & Asteroidenscan (größerer Scanbereich der Basis, Rätsel: Distanzen berechnen), 3) Radar-Horizont (Kontakte weiter erkennen, Rätsel: Störsignale filtern), 4) Energieproduktion (die Basis erzeugt und speichert mehr Energie; Rätsel: Energiebudget). Drohnen laden an der Basis auf und verbrauchen dabei deren Energie. Löse für diese Aufgabe ein Rätsel eines beliebigen Baums.",
         subtasks: &[
             SubTask {
@@ -719,21 +793,86 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #9: Schwere Flotte",
         short_title: "🎁 Lootbox 9: Tier 2",
-        admin_label: "21/22 🎁 Lootbox 9: Tier 2",
-        story: "Forschung abgeschlossen! Die letzte Lootbox verrät dir, wie du schwere Stufe-2-Drohnen baust.",
+        admin_label: "21/27 🎁 Lootbox 9: Tier 2",
+        story: "Forschung abgeschlossen! Diese Lootbox verrät dir, wie du schwere Stufe-2-Drohnen baust.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_21,
         reference_keys: EMPTY_KEYS,
     },
-    // Step 22: Free Play
+    // Step 22: Lootbox 10
     Step {
         index: 22,
+        kind: StepKind::LootBox { number: 10 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #10: Schiffs-Status",
+        short_title: "🎁 Lootbox 10: Schiffs-Status",
+        admin_label: "22/27 🎁 Lootbox 10: Schiffs-Status",
+        story: "Du kennst die Grundlagen. Diese Lootbox zeigt dir, wie du Energie, Fracht, Tempo, Ziele und weitere Zustände deiner Drohnen ausliest.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_22,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 23: Lootbox 11
+    Step {
+        index: 23,
+        kind: StepKind::LootBox { number: 11 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #11: Asteroiden & Vec2",
+        short_title: "🎁 Lootbox 11: Asteroiden",
+        admin_label: "23/27 🎁 Lootbox 11: Asteroiden",
+        story: "Lerne weitere Asteroiden-Felder und -Methoden kennen und arbeite mit Punkten und Entfernungen im Weltraum.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_23,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 24: Lootbox 12
+    Step {
+        index: 24,
+        kind: StepKind::LootBox { number: 12 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #12: Basis & Scanner",
+        short_title: "🎁 Lootbox 12: Basis",
+        admin_label: "24/27 🎁 Lootbox 12: Basis",
+        story: "Deine Heimatbasis weiß mehr, als du bisher abgefragt hast. Diese Karten erklären Lager, Ausbaustufen und Scanner-Reichweiten.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_24,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 25: Lootbox 13
+    Step {
+        index: 25,
+        kind: StepKind::LootBox { number: 13 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #13: Andere Flotten & Kontakte",
+        short_title: "🎁 Lootbox 13: Kontakte",
+        admin_label: "25/27 🎁 Lootbox 13: Kontakte",
+        story: "Du bist nicht allein! Finde heraus, welche Informationen du über fremde Drohnen, Basen und unbekannte Kontakte lesen kannst.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_25,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 26: Lootbox 14
+    Step {
+        index: 26,
+        kind: StepKind::LootBox { number: 14 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #14: Befehle & Forschung",
+        short_title: "🎁 Lootbox 14: Forschung",
+        admin_label: "26/27 🎁 Lootbox 14: Forschung",
+        story: "Die letzte Befehls-Lootbox enthält weitere Flugbefehle, Forschungszweige und Rätsel-Typen für deine Scanner.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_26,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 27: Free Play
+    Step {
+        index: 27,
         kind: StepKind::FreePlay,
         verification: VerificationMode::None,
         title: "Tutorial abgeschlossen – Freies Spiel!",
         short_title: "Sandbox 🚀",
-        admin_label: "22/22 Sandbox 🚀",
-        story: "Fantastische Arbeit, Commander! Du beherrschst alle Grundlagen der interstellaren Programmierung: Navigation, Abbau, Multitasking-Schleifen und algorithmische Forschung.",
+        admin_label: "27/27 Sandbox 🚀",
+        story: "Fantastische Arbeit, Commander! Du beherrschst jetzt die interstellare Programmierung: Navigation, Abbau, Flotten, Sensoren und algorithmische Forschung.",
         subtasks: &[
             SubTask {
                 num: "1",
@@ -757,10 +896,10 @@ pub static STEPS: [Step; 23] = [
 ];
 
 // ==========================================
-// Static Commands Catalog (54 Cards)
+// Static Commands Catalog (115 Cards)
 // ==========================================
 
-pub static COMMANDS: [Command; 54] = [
+pub static COMMANDS: [Command; 115] = [
     Command {
         key: "IF_LET_SOME",
         box_step: 5,
@@ -815,6 +954,17 @@ pub static COMMANDS: [Command; 54] = [
         what: "Ein normaler Platzhalter {} zeigt eine Kommazahl mit allen Stellen an. {:.0} rundet die angezeigte Zahl auf eine ganze Zahl. Die Zahl selbst bleibt unverändert, nur die Anzeige wird gerundet.",
         how: "Schreibe {:.0} statt {} in den Text von println!. Die Zahl hinter dem Punkt gibt an, wie viele Nachkommastellen erscheinen.",
         example: "println!(\"x = {:.0}\", drone.position.x);",
+    },
+    Command {
+        key: "PRINTLN_MACRO",
+        box_step: 5,
+        icon: "🖨️",
+        category: "Rust-Syntax",
+        title: "println!(\"...\", wert)",
+        summary: "Schreibt eine Zeile ins Terminal.",
+        what: "println! ist ein Makro (erkennbar am Ausrufezeichen) und gibt Text samt Zeilenumbruch aus. Jeder Platzhalter {} im Text wird der Reihe nach durch einen Wert hinter dem Text ersetzt. {:.0} zeigt eine Kommazahl ohne Nachkommastellen.",
+        how: "Setze den Text in Anführungszeichen, füge je Wert einen Platzhalter ein und liste die Werte nach einem Komma auf. Die Anzahl der Platzhalter muss zur Anzahl der Werte passen.",
+        example: "println!(\"Position: {:.0} / {:.0}\", drone.position.x, drone.position.y);",
     },
     Command {
         key: "WORLD_CLOSEST_ASTEROID",
@@ -947,6 +1097,17 @@ pub static COMMANDS: [Command; 54] = [
         what: "Gibt an der Heimatbasis den Bau einer Stufe-1-Drohne in Auftrag. Sie kostet 50 Erz sowie 100 Energie aus der Basis und trägt bis zu 50 Erz Fracht. Ist deine Flotte komplett leer (0 Schiffe), ist eine Notfall-Drohne kostenlos.",
         how: "Übergib die Stufe 1. Prüfe vorher, ob genug Erz in der Basis gelagert ist.",
         example: "if world.fleet.len() < 2 && world.base.stored_ore >= 50 {\n    actions.build_drone(1);\n}",
+    },
+    Command {
+        key: "COMPARE_AND",
+        box_step: 13,
+        icon: "⚖️",
+        category: "Rust-Syntax",
+        title: "<, >=, &&",
+        summary: "Vergleicht Zahlen und verknüpft Bedingungen.",
+        what: "Vergleiche wie <, >, <= und >= liefern wahr oder falsch. Mit && (und) müssen beide Bedingungen gleichzeitig wahr sein, damit der Block läuft.",
+        how: "Setze links und rechts eine Zahl oder ein Feld ein, z. B. world.fleet.len() < 2. Verbinde mehrere Prüfungen mit && in derselben if-Bedingung.",
+        example: "if world.fleet.len() < 2 && world.base.stored_ore >= 50 {\n    // beides trifft zu\n}",
     },
     Command {
         key: "FOR_IN_FLEET",
@@ -1114,118 +1275,19 @@ pub static COMMANDS: [Command; 54] = [
         example: "if world.base.stored_ore >= 150 && world.base.stored_energy >= 200.0 {\n    actions.build_drone(2);\n}",
     },
     Command {
-        key: "ACTIONS_FLY_TO",
-        box_step: 22,
-        icon: "🧭",
-        category: "Schiffs-Befehle",
-        title: "actions.fly_to(ship_id, target)",
-        summary: "Steuert eine Drohne direkt zu 2D-Koordinaten im Weltraum.",
-        what: "Befiehlt einem Schiff, zur angegebenen Vec2-Zielposition zu fliegen – nützlich zum Erkunden neuer Sektoren oder zum gezielten Positionieren von Drohnen.",
-        how: "Übergib die ship_id der Drohne und das Ziel als Vec2 (z. B. Vec2::new(x, y)).",
-        example: "actions.fly_to(drone.ship_id, Vec2::new(500.0, -300.0));",
-    },
-    Command {
-        key: "ACTIONS_STOP",
-        box_step: 22,
-        icon: "🛑",
-        category: "Schiffs-Befehle",
-        title: "actions.stop(ship_id)",
-        summary: "Stoppt eine Drohne sofort an ihrer aktuellen Position.",
-        what: "Bricht den aktuellen Flug- oder Schürfbefehl des Schiffs ab und setzt seine Geschwindigkeit sofort auf 0.",
-        how: "Übergib die ship_id des Schiffs, das anhalten soll.",
-        example: "actions.stop(drone.ship_id);",
-    },
-    Command {
-        key: "VEC2_NEW",
-        box_step: 22,
-        icon: "📐",
-        category: "Welt & Sensoren",
-        title: "Vec2::new(x, y) / Vec2::ZERO",
-        summary: "Erzeugt einen 2D-Koordinatenpunkt im Weltraum.",
-        what: "Vec2 speichert eine Position oder Richtung mit zwei f32-Kommazahlen x und y. Vec2::ZERO ist der Ursprungspunkt (0.0, 0.0) bei der Mega-Station.",
-        how: "Rufe Vec2::new(x, y) mit zwei Kommazahlen auf oder verwende Vec2::ZERO.",
-        example: "let target = Vec2::new(250.0, 400.0);\nlet center = Vec2::ZERO;",
-    },
-    Command {
-        key: "VEC2_DISTANCE",
-        box_step: 22,
-        icon: "📏",
-        category: "Welt & Sensoren",
-        title: "pos.distance(&other)",
-        summary: "Berechnet den Abstand zwischen zwei Punkten.",
-        what: "Liefert die direkte Entfernung (euklidische Distanz) zwischen zwei Vec2-Positionen als f32-Kommazahl.",
-        how: "Rufe .distance(&other) auf einem Vec2 auf und übergib die zweite Position als Referenz mit &.",
-        example: "let dist = drone.position.distance(&world.base.position);",
-    },
-    Command {
         key: "WORLD_SHIP",
         box_step: 22,
-        icon: "🔍",
+        icon: "🔎",
         category: "Welt & Sensoren",
         title: "world.ship(ship_id)",
-        summary: "Sucht ein eigenes Schiff gezielt anhand seiner ID.",
-        what: "Durchsucht world.fleet nach dem Schiff mit der angegebenen ship_id und gibt Some(&Ship) zurück, oder None, falls kein Schiff mit dieser ID existiert.",
-        how: "Übergib die gesuchte ship_id und packe das Ergebnis mit if let Some(ship) aus.",
-        example: "if let Some(ship) = world.ship(1) {\n    println!(\"Schiff #1 bei {:.0}, {:.0}\", ship.position.x, ship.position.y);\n}",
-    },
-    Command {
-        key: "WORLD_CLOSEST_ASTEROID_ANY",
-        box_step: 22,
-        icon: "🪨",
-        category: "Welt & Sensoren",
-        title: "world.closest_asteroid(pos)",
-        summary: "Findet den geometrisch nächsten Asteroiden (auch ohne Erz).",
-        what: "Liefert den am nächsten gelegenen sichtbaren Asteroiden unabhängig davon, ob er noch Erz enthält. Für den Abbau ist meistens world.closest_asteroid_with_ore(pos) besser geeignet.",
-        how: "Übergib eine Vec2-Position wie drone.position und packe das Option mit if let Some aus.",
-        example: "if let Some(ast) = world.closest_asteroid(drone.position) {\n    println!(\"Rest-Erz: {}\", ast.remaining_ore);\n}",
-    },
-    Command {
-        key: "WORLD_ASTEROIDS",
-        box_step: 22,
-        icon: "🌌",
-        category: "Welt & Sensoren",
-        title: "world.asteroids",
-        summary: "Liste aller aktuell von deinen Scannern erfassten Asteroiden.",
-        what: "Ein Slice (&[PerceivedAsteroid]) mit allen Asteroiden im Scanbereich deiner Basis und deiner Drohnen. Damit kannst du eigene Filter bauen, z. B. Drohnen auf verschiedene Asteroiden verteilen.",
-        how: "Iteriere mit for ast in world.asteroids oder nutze .iter().filter(...), um gezielt Asteroiden auszuwählen.",
-        example: "for ast in world.asteroids {\n    if ast.remaining_ore >= 100 {\n        // ergiebiger Asteroid\n    }\n}",
-    },
-    Command {
-        key: "WORLD_OTHER_DRONES",
-        box_step: 22,
-        icon: "👀",
-        category: "Welt & Sensoren",
-        title: "world.other_drones",
-        summary: "Liste aller sichtbaren fremden Drohnen im Sensorbereich.",
-        what: "Enthält alle fremden Schiffe (&[PerceivedDrone]), die deine Scanner aktuell erfassen. Jeder Eintrag bietet ship_id, owner, ship_tier, position, heading_rad, speed, is_mining und is_docked().",
-        how: "Gehe die Liste mit einer for-Schleife durch oder prüfe mit .len(), ob fremde Drohnen in der Nähe sind.",
-        example: "for other in world.other_drones {\n    println!(\"Fremde Drohne #{} bei {:.0},{:.0}\", other.ship_id, other.position.x, other.position.y);\n}",
-    },
-    Command {
-        key: "WORLD_OTHER_BASES",
-        box_step: 22,
-        icon: "🛰️",
-        category: "Welt & Sensoren",
-        title: "world.other_bases",
-        summary: "Liste aller sichtbaren fremden Heimatbasen.",
-        what: "Enthält alle fremden Raumstationen (&[PerceivedBase]) im Sensorbereich mit base_id, owner, position, signal_radius, level sowie deren Scanner-Stufen.",
-        how: "Iteriere über world.other_bases, um Nachbarstationen zu erkennen.",
-        example: "for base in world.other_bases {\n    println!(\"Fremde Basis #{} auf Stufe {}\", base.base_id, base.level);\n}",
-    },
-    Command {
-        key: "WORLD_TICK",
-        box_step: 22,
-        icon: "⏱️",
-        category: "Welt & Sensoren",
-        title: "world.tick",
-        summary: "Fortlaufende Nummer des aktuellen Aufrufs von tick.",
-        what: "Ein Zähler (u64), der bei jedem Aufruf deiner tick-Methode um 1 steigt (ca. 10 Ticks pro Sekunde). Praktisch, um Ausgaben oder Aktionen nur alle paar Sekunden auszuführen.",
-        how: "Prüfe z. B. mit dem Modulo-Operator world.tick % 50 == 0, ob gerade jeder 50. Tick erreicht ist.",
-        example: "if world.tick % 50 == 0 {\n    println!(\"Tick #{}: {} Schiffe aktiv\", world.tick, world.fleet.len());\n}",
+        summary: "Sucht ein Schiff deiner Flotte anhand der ID.",
+        what: "Liefert ein Option<&Ship>: Some(schiff), wenn es ein Schiff mit dieser ID in deiner Flotte gibt, sonst None.",
+        how: "Übergib die ship_id und packe das Ergebnis mit if let Some aus.",
+        example: "if let Some(schiff) = world.ship(drone.ship_id) {\n    // schiff.position verwenden\n}",
     },
     Command {
         key: "DRONE_TIER",
-        box_step: 22,
+        box_step: 27,
         icon: "⭐",
         category: "Schiffs-Status",
         title: "drone.ship_tier",
@@ -1236,7 +1298,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_CARGO",
-        box_step: 22,
+        box_step: 27,
         icon: "📦",
         category: "Schiffs-Status",
         title: "drone.cargo_ore / drone.max_cargo / drone.cargo_free_space()",
@@ -1247,7 +1309,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_MOTION",
-        box_step: 22,
+        box_step: 27,
         icon: "💨",
         category: "Schiffs-Status",
         title: "drone.velocity / drone.speed / drone.max_speed / drone.heading_rad",
@@ -1258,7 +1320,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_TARGETS_AND_STATUS",
-        box_step: 22,
+        box_step: 27,
         icon: "🎯",
         category: "Schiffs-Status",
         title: "drone.target_position / drone.target_asteroid_id / drone.is_mining",
@@ -1269,7 +1331,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_SIGNAL_AND_STRANDED",
-        box_step: 22,
+        box_step: 27,
         icon: "📶",
         category: "Schiffs-Status",
         title: "drone.is_stranded / drone.signal_countdown",
@@ -1280,7 +1342,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_DISTANCE_TO",
-        box_step: 22,
+        box_step: 27,
         icon: "📏",
         category: "Schiffs-Status",
         title: "drone.distance_to(&target)",
@@ -1290,19 +1352,8 @@ pub static COMMANDS: [Command; 54] = [
         example: "let dist_home = drone.distance_to(&world.base.position);",
     },
     Command {
-        key: "BASE_STORED_ENERGY",
-        box_step: 22,
-        icon: "⚡",
-        category: "Basis-Befehle",
-        title: "world.base.stored_energy",
-        summary: "Die aktuell in der Heimatbasis gespeicherte Energie.",
-        what: "Deine Basis produziert laufend Energie (abhängig von energy_production_level) und speichert sie. Angedockte Drohnen laden daraus ihre Batterien auf, und auch der Drohnenbau verbraucht Basis-Energie (100 bzw. 200).",
-        how: "Prüfe world.base.stored_energy vor dem Bau neuer Drohnen, damit genug Reserve zum Laden deiner Flotte bleibt.",
-        example: "if world.base.stored_ore >= 50 && world.base.stored_energy >= 150.0 {\n    actions.build_drone(1);\n}",
-    },
-    Command {
         key: "BASE_POSITION_AND_SIGNAL",
-        box_step: 22,
+        box_step: 27,
         icon: "📡",
         category: "Welt & Sensoren",
         title: "world.base.position / signal_radius / is_in_range(&pos) / distance_to(&pos)",
@@ -1313,7 +1364,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "BASE_RESEARCH_LEVELS",
-        box_step: 22,
+        box_step: 27,
         icon: "🔬",
         category: "Forschung",
         title: "world.base.*_level / *_progress / *_range()",
@@ -1324,7 +1375,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "ASTEROID_POSITION_AND_DISTANCE",
-        box_step: 22,
+        box_step: 27,
         icon: "☄️",
         category: "Welt & Sensoren",
         title: "asteroid.position / velocity / radius / distance_to(&pos)",
@@ -1335,7 +1386,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "ASTEROID_ORE_AND_TYPE",
-        box_step: 22,
+        box_step: 27,
         icon: "💎",
         category: "Welt & Sensoren",
         title: "asteroid.remaining_ore / is_depleted() / resource_type / resource_name()",
@@ -1346,7 +1397,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "SDK_DRONE_COSTS",
-        box_step: 22,
+        box_step: 27,
         icon: "🪙",
         category: "Basis-Befehle",
         title: "DRONE_TIER_1_COST / DRONE_TIER_2_COST",
@@ -1354,6 +1405,765 @@ pub static COMMANDS: [Command; 54] = [
         what: "Das space_bot_sdk stellt die Baukosten als feste Konstanten bereit: DRONE_TIER_1_COST (50 Erz) und DRONE_TIER_2_COST (150 Erz). So musst du keine losen Zahlen in deinen Code schreiben.",
         how: "Importiere die Konstanten mit use space_bot_sdk::{DRONE_TIER_1_COST, DRONE_TIER_2_COST}; und nutze sie im Vergleich.",
         example: "if world.base.stored_ore >= space_bot_sdk::DRONE_TIER_1_COST {\n    actions.build_drone(1);\n}",
+    },
+    Command {
+        key: "SHIP_TIER",
+        box_step: 22,
+        icon: "🏷️",
+        category: "Schiffs-Status",
+        title: "drone.ship_tier",
+        summary: "Die Stufe (Tier) der Drohne.",
+        what: "Eine Zahl, die angibt, wie schwer und leistungsfähig das Schiff ist. Stufe-1-Drohnen sind leicht, Stufe-2-Drohnen tragen mehr Fracht und haben eine größere Batterie.",
+        how: "Lies das Feld ohne Klammern aus und vergleiche es mit einer Zahl, z. B. um schwere Drohnen anders einzusetzen.",
+        example: "if drone.ship_tier >= 2 {\n    // schwere Drohne\n}",
+    },
+    Command {
+        key: "SHIP_VELOCITY",
+        box_step: 22,
+        icon: "🧭",
+        category: "Schiffs-Status",
+        title: "drone.velocity",
+        summary: "Geschwindigkeit und Richtung als Vec2.",
+        what: "Ein Vec2, das angibt, um wie viel sich die Position der Drohne pro Zeitschritt in x- und y-Richtung ändert.",
+        how: "Lies drone.velocity.x und drone.velocity.y aus. Für nur den Betrag der Geschwindigkeit nutze drone.speed.",
+        example: "println!(\"{:.1} / {:.1}\", drone.velocity.x, drone.velocity.y);",
+    },
+    Command {
+        key: "SHIP_TARGET_POSITION",
+        box_step: 22,
+        icon: "🎯",
+        category: "Schiffs-Status",
+        title: "drone.target_position",
+        summary: "Das aktuelle Flugziel der Drohne.",
+        what: "Ein Option<Vec2>: Some(ziel), solange die Drohne zu einem Ziel unterwegs ist, sonst None.",
+        how: "Packe das Feld mit if let Some aus, um das Ziel zu lesen. Bei None hat die Drohne gerade kein Ziel.",
+        example: "if let Some(ziel) = drone.target_position {\n    println!(\"Ziel: {:.0} / {:.0}\", ziel.x, ziel.y);\n}",
+    },
+    Command {
+        key: "SHIP_HEADING",
+        box_step: 22,
+        icon: "🧲",
+        category: "Schiffs-Status",
+        title: "drone.heading_rad",
+        summary: "Blickrichtung der Drohne in Radiant.",
+        what: "Der Winkel, in den die Drohne zeigt, als Kommazahl (f32) im Bogenmaß: 0 zeigt nach rechts, ein halber Kreis ist etwa 3,14.",
+        how: "Lies das Feld aus. Mit .to_degrees() rechnest du den Winkel in Grad um.",
+        example: "let grad = drone.heading_rad.to_degrees();",
+    },
+    Command {
+        key: "SHIP_SPEED",
+        box_step: 22,
+        icon: "💨",
+        category: "Schiffs-Status",
+        title: "drone.speed",
+        summary: "Die aktuelle Geschwindigkeit.",
+        what: "Eine Kommazahl (f32): wie schnell die Drohne gerade fliegt. Steht sie still, ist der Wert 0.",
+        how: "Vergleiche den Wert z. B. mit 0.0, um zu prüfen, ob die Drohne unterwegs ist.",
+        example: "if drone.speed > 0.0 {\n    // Drohne fliegt\n}",
+    },
+    Command {
+        key: "SHIP_MAX_SPEED",
+        box_step: 22,
+        icon: "🚀",
+        category: "Schiffs-Status",
+        title: "drone.max_speed",
+        summary: "Die höchste mögliche Geschwindigkeit.",
+        what: "Eine Kommazahl (f32) mit dem Tempolimit der Drohne. Es hängt von der Schiffsstufe ab.",
+        how: "Teile speed durch max_speed, um die Auslastung zu berechnen.",
+        example: "let anteil = drone.speed / drone.max_speed;",
+    },
+    Command {
+        key: "SHIP_ENERGY",
+        box_step: 22,
+        icon: "🔋",
+        category: "Schiffs-Status",
+        title: "drone.energy",
+        summary: "Der aktuelle Batteriestand.",
+        what: "Eine Kommazahl (f32) mit der Energie, die der Drohne noch bleibt. Ohne Energie strandet sie.",
+        how: "Vergleiche den Wert mit einer Schwelle und docke rechtzeitig an, um die Batterie aufzuladen.",
+        example: "if drone.energy < 20.0 {\n    actions.dock(drone.ship_id);\n}",
+    },
+    Command {
+        key: "SHIP_MAX_ENERGY",
+        box_step: 22,
+        icon: "⚡",
+        category: "Schiffs-Status",
+        title: "drone.max_energy",
+        summary: "Die Kapazität der Batterie.",
+        what: "Eine Kommazahl (f32) mit der größtmöglichen Energie der Drohne. Sie hängt von der Schiffsstufe ab.",
+        how: "Nutze sie zusammen mit drone.energy, oder greife gleich zu drone.energy_percent().",
+        example: "let frei = drone.max_energy - drone.energy;",
+    },
+    Command {
+        key: "SHIP_CARGO_ORE",
+        box_step: 22,
+        icon: "🪨",
+        category: "Schiffs-Status",
+        title: "drone.cargo_ore",
+        summary: "Das geladene Erz.",
+        what: "Eine ganze Zahl (u32): so viel Erz hat die Drohne gerade im Frachtraum.",
+        how: "Lies das Feld aus und vergleiche es z. B. mit 0, um zu prüfen, ob schon etwas geladen ist.",
+        example: "if drone.cargo_ore > 0 {\n    // Erz an Bord\n}",
+    },
+    Command {
+        key: "SHIP_MAX_CARGO",
+        box_step: 22,
+        icon: "📦",
+        category: "Schiffs-Status",
+        title: "drone.max_cargo",
+        summary: "Die Größe des Frachtraums.",
+        what: "Eine ganze Zahl (u32): so viel Erz passt maximal in die Drohne. Bei Stufe 1 sind es 50.",
+        how: "Vergleiche sie mit cargo_ore, oder nutze drone.cargo_is_full().",
+        example: "let platz = drone.max_cargo - drone.cargo_ore;",
+    },
+    Command {
+        key: "SHIP_TARGET_ASTEROID_ID",
+        box_step: 22,
+        icon: "☄️",
+        category: "Schiffs-Status",
+        title: "drone.target_asteroid_id",
+        summary: "Der Asteroid, den die Drohne gerade ansteuert.",
+        what: "Ein Option<u32>: Some(id), wenn die Drohne einem Schürfauftrag folgt, sonst None.",
+        how: "Packe das Feld mit if let Some aus. So vermeidest du, einer beschäftigten Drohne einen neuen Auftrag zu geben.",
+        example: "if let Some(id) = drone.target_asteroid_id {\n    println!(\"Ziel-Asteroid: {}\", id);\n}",
+    },
+    Command {
+        key: "SHIP_IS_MINING",
+        box_step: 22,
+        icon: "⛏️",
+        category: "Schiffs-Status",
+        title: "drone.is_mining",
+        summary: "Ob die Drohne gerade schürft.",
+        what: "Ein bool: true, solange die Drohne an einem Asteroiden Erz abbaut, sonst false.",
+        how: "Nutze das Feld direkt als Bedingung, z. B. um beschäftigte Drohnen zu überspringen.",
+        example: "if !drone.is_mining {\n    // Drohne ist frei\n}",
+    },
+    Command {
+        key: "SHIP_IS_STRANDED",
+        box_step: 22,
+        icon: "🆘",
+        category: "Schiffs-Status",
+        title: "drone.is_stranded",
+        summary: "Ob die Drohne gestrandet ist.",
+        what: "Ein bool: true, wenn der Drohne die Energie ausgegangen ist und sie nicht mehr fliegen kann.",
+        how: "Prüfe das Feld und warne dich selbst, bevor es dazu kommt, z. B. mit drone.energy.",
+        example: "if drone.is_stranded {\n    println!(\"Drohne {} ist gestrandet\", drone.ship_id);\n}",
+    },
+    Command {
+        key: "SHIP_SIGNAL_COUNTDOWN",
+        box_step: 22,
+        icon: "📡",
+        category: "Schiffs-Status",
+        title: "drone.signal_countdown",
+        summary: "Der Countdown des Notsignals.",
+        what: "Eine ganze Zahl (u16): läuft für gestrandete Drohnen herunter, bevor das Notsignal verloren geht.",
+        how: "Lies das Feld aus, wenn drone.is_stranded wahr ist.",
+        example: "if drone.is_stranded {\n    println!(\"Noch {}\", drone.signal_countdown);\n}",
+    },
+    Command {
+        key: "SHIP_DISTANCE_TO",
+        box_step: 22,
+        icon: "📏",
+        category: "Schiffs-Status",
+        title: "drone.distance_to(&pos)",
+        summary: "Der Abstand der Drohne zu einer Position.",
+        what: "Liefert die Entfernung als Kommazahl (f32) zwischen der Drohne und einem Punkt im Weltraum.",
+        how: "Übergib die Referenz auf eine Position mit &, z. B. &asteroid.position.",
+        example: "let weg = drone.distance_to(&asteroid.position);",
+    },
+    Command {
+        key: "SHIP_CARGO_FREE_SPACE",
+        box_step: 22,
+        icon: "🕳️",
+        category: "Schiffs-Status",
+        title: "drone.cargo_free_space()",
+        summary: "Wie viel Erz noch in den Frachtraum passt.",
+        what: "Liefert max_cargo minus cargo_ore als ganze Zahl (u32), niemals weniger als 0.",
+        how: "Rufe die Methode ohne Parameter auf und vergleiche das Ergebnis mit einer Zahl.",
+        example: "if drone.cargo_free_space() < 10 {\n    actions.dock(drone.ship_id);\n}",
+    },
+    Command {
+        key: "SHIP_ENERGY_PERCENT",
+        box_step: 22,
+        icon: "📶",
+        category: "Schiffs-Status",
+        title: "drone.energy_percent()",
+        summary: "Der Batteriestand als Anteil von 0.0 bis 1.0.",
+        what: "Teilt energy durch max_energy und begrenzt das Ergebnis auf 0.0 bis 1.0. So vergleichst du Drohnen verschiedener Stufen fair.",
+        how: "Rufe die Methode ohne Parameter auf. 0.2 bedeutet 20 Prozent.",
+        example: "if drone.energy_percent() < 0.2 {\n    actions.dock(drone.ship_id);\n}",
+    },
+    Command {
+        key: "VEC2_NEW",
+        box_step: 23,
+        icon: "🆕",
+        category: "Rust-Syntax",
+        title: "Vec2::new(x, y)",
+        summary: "Erzeugt einen Punkt aus zwei Kommazahlen.",
+        what: "Vec2 ist ein Punkt oder eine Richtung im Weltraum mit den Feldern x und y. Vec2::new baut einen neuen aus zwei f32-Zahlen.",
+        how: "Übergib zuerst x, dann y. Zahlen mit Komma schreibst du mit Punkt, z. B. 100.0.",
+        example: "let ziel = Vec2::new(100.0, -50.0);",
+    },
+    Command {
+        key: "VEC2_DISTANCE",
+        box_step: 23,
+        icon: "📐",
+        category: "Rust-Syntax",
+        title: "a.distance(&b)",
+        summary: "Der Abstand zwischen zwei Punkten.",
+        what: "Liefert die Luftlinie zwischen zwei Vec2 als Kommazahl (f32). Die anderen distance_to-Methoden nutzen sie intern.",
+        how: "Rufe sie auf einem Punkt auf und übergib den anderen mit &.",
+        example: "let d = drone.position.distance(&asteroid.position);",
+    },
+    Command {
+        key: "WORLD_CLOSEST_ASTEROID_ANY",
+        box_step: 23,
+        icon: "🛰️",
+        category: "Welt & Sensoren",
+        title: "world.closest_asteroid(pos)",
+        summary: "Findet den nächsten bekannten Asteroiden, auch ohne Erz.",
+        what: "Wie closest_asteroid_with_ore, aber ohne Rücksicht darauf, ob noch Erz vorhanden ist. Ohne bekannten Asteroiden ist das Ergebnis None.",
+        how: "Übergib die Suchposition und packe das Option mit if let Some aus.",
+        example: "if let Some(asteroid) = world.closest_asteroid(drone.position) {\n    // auch leere Asteroiden\n}",
+    },
+    Command {
+        key: "WORLD_ASTEROIDS",
+        box_step: 23,
+        icon: "🌌",
+        category: "Welt & Sensoren",
+        title: "world.asteroids",
+        summary: "Alle identifizierten Asteroiden.",
+        what: "Eine Liste aller Asteroiden, die deine Scanner erkannt haben. Sie kann leer sein.",
+        how: "Gehe sie mit einer for-Schleife durch oder frage mit .len() nach der Anzahl.",
+        example: "for asteroid in world.asteroids {\n    println!(\"{}\", asteroid.asteroid_id);\n}",
+    },
+    Command {
+        key: "ASTEROID_POSITION",
+        box_step: 23,
+        icon: "📍",
+        category: "Welt & Sensoren",
+        title: "asteroid.position",
+        summary: "Wo der Asteroid gerade ist.",
+        what: "Ein Vec2 mit den Koordinaten x und y des Asteroiden. Asteroiden treiben langsam, die Position ändert sich also.",
+        how: "Übergib die Position an Methoden wie drone.distance_to oder lies .x und .y aus.",
+        example: "let weg = drone.distance_to(&asteroid.position);",
+    },
+    Command {
+        key: "ASTEROID_VELOCITY",
+        box_step: 23,
+        icon: "🧭",
+        category: "Welt & Sensoren",
+        title: "asteroid.velocity",
+        summary: "Wohin der Asteroid treibt.",
+        what: "Ein Vec2 mit der Bewegung des Asteroiden pro Zeitschritt. So kannst du abschätzen, wo er später ist.",
+        how: "Lies asteroid.velocity.x und asteroid.velocity.y aus.",
+        example: "let vx = asteroid.velocity.x;",
+    },
+    Command {
+        key: "ASTEROID_RESOURCE_TYPE",
+        box_step: 23,
+        icon: "💎",
+        category: "Welt & Sensoren",
+        title: "asteroid.resource_type",
+        summary: "Die Rohstoffart als Zahl.",
+        what: "Eine kleine Zahl (u8): 1 steht für Eisen, 2 für Eis, 3 für Titan. Den lesbaren Namen liefert asteroid.resource_name().",
+        how: "Vergleiche die Zahl direkt, wenn du nach einem bestimmten Rohstoff suchst.",
+        example: "if asteroid.resource_type == 3 {\n    // Titan\n}",
+    },
+    Command {
+        key: "ASTEROID_REMAINING_ORE",
+        box_step: 23,
+        icon: "🪨",
+        category: "Welt & Sensoren",
+        title: "asteroid.remaining_ore",
+        summary: "Wie viel Erz noch im Asteroiden steckt.",
+        what: "Eine ganze Zahl (u32): die Menge, die noch abgebaut werden kann. Bei 0 ist der Asteroid leer.",
+        how: "Vergleiche sie mit dem freien Frachtplatz deiner Drohne, um lohnende Ziele zu finden.",
+        example: "if asteroid.remaining_ore >= drone.cargo_free_space() {\n    // reicht für eine volle Ladung\n}",
+    },
+    Command {
+        key: "ASTEROID_RADIUS",
+        box_step: 23,
+        icon: "⭕",
+        category: "Welt & Sensoren",
+        title: "asteroid.radius",
+        summary: "Die Größe des Asteroiden.",
+        what: "Eine Kommazahl (f32): der Radius des Asteroiden im Weltraum.",
+        how: "Lies das Feld aus, z. B. um große Asteroiden zu bevorzugen.",
+        example: "if asteroid.radius > 20.0 {\n    // großer Brocken\n}",
+    },
+    Command {
+        key: "ASTEROID_DISTANCE_TO",
+        box_step: 23,
+        icon: "📏",
+        category: "Welt & Sensoren",
+        title: "asteroid.distance_to(&pos)",
+        summary: "Der Abstand des Asteroiden zu einer Position.",
+        what: "Liefert die Entfernung als Kommazahl (f32) zwischen dem Asteroiden und einem Punkt.",
+        how: "Übergib die Referenz auf eine Position mit &, z. B. &world.base.position.",
+        example: "let weg = asteroid.distance_to(&world.base.position);",
+    },
+    Command {
+        key: "ASTEROID_IS_DEPLETED",
+        box_step: 23,
+        icon: "🕳️",
+        category: "Welt & Sensoren",
+        title: "asteroid.is_depleted()",
+        summary: "Prüft, ob der Asteroid leer ist.",
+        what: "Liefert true, wenn remaining_ore gleich 0 ist, sonst false.",
+        how: "Rufe die Methode ohne Parameter auf und nutze sie als Bedingung.",
+        example: "if !asteroid.is_depleted() {\n    actions.mine(drone.ship_id, asteroid.asteroid_id);\n}",
+    },
+    Command {
+        key: "ASTEROID_RESOURCE_NAME",
+        box_step: 23,
+        icon: "🏷️",
+        category: "Welt & Sensoren",
+        title: "asteroid.resource_name()",
+        summary: "Der lesbare Name des Rohstoffs.",
+        what: "Liefert einen Text wie \"Iron\", \"Ice\" oder \"Titanium\" statt der Zahl aus resource_type.",
+        how: "Rufe die Methode ohne Parameter auf und gib das Ergebnis z. B. mit println! aus.",
+        example: "println!(\"Rohstoff: {}\", asteroid.resource_name());",
+    },
+    Command {
+        key: "VEC2_ZERO",
+        box_step: 23,
+        icon: "0️⃣",
+        category: "Rust-Syntax",
+        title: "Vec2::ZERO",
+        summary: "Der Punkt (0, 0).",
+        what: "Eine Konstante für den Ursprung des Koordinatensystems, wo die Mega-Station liegt.",
+        how: "Schreibe sie ohne Klammern, z. B. als Ziel oder Vergleichswert.",
+        example: "let abstand = drone.distance_to(&Vec2::ZERO);",
+    },
+    Command {
+        key: "VEC2_XY",
+        box_step: 23,
+        icon: "↔️",
+        category: "Rust-Syntax",
+        title: "pos.x, pos.y",
+        summary: "Die beiden Koordinaten eines Punkts.",
+        what: "Jeder Vec2 hat die Felder x (waagerecht) und y (senkrecht) als Kommazahlen (f32).",
+        how: "Lies sie ohne Klammern aus, z. B. drone.position.x. Mit {:.0} im println! rundest du sie.",
+        example: "println!(\"{:.0} / {:.0}\", drone.position.x, drone.position.y);",
+    },
+    Command {
+        key: "WORLD_TICK",
+        box_step: 24,
+        icon: "⏱️",
+        category: "Welt & Sensoren",
+        title: "world.tick",
+        summary: "Der aktuelle Zeitschritt.",
+        what: "Eine ganze Zahl (u64), die mit jedem Zeitschritt des Servers hochzählt. Damit kannst du Abläufe über Zeit steuern.",
+        how: "Nutze den Rest einer Division (%), um etwas nur alle paar Schritte zu tun.",
+        example: "if world.tick % 100 == 0 {\n    println!(\"Schritt {}\", world.tick);\n}",
+    },
+    Command {
+        key: "BASE_STORED_ENERGY",
+        box_step: 24,
+        icon: "🔋",
+        category: "Basis-Status",
+        title: "world.base.stored_energy",
+        summary: "Die in der Basis gelagerte Energie.",
+        what: "Eine ganze Zahl (u32): Energie-Vorrat der Basis, aus dem angedockte Drohnen ihre Batterie laden.",
+        how: "Lies das Feld aus und vergleiche es mit einem Mindestwert.",
+        example: "if world.base.stored_energy > 0 {\n    // Aufladen möglich\n}",
+    },
+    Command {
+        key: "WORLD_BASE",
+        box_step: 24,
+        icon: "🏛️",
+        category: "Welt & Sensoren",
+        title: "world.base",
+        summary: "Deine Heimatbasis.",
+        what: "Die Basisstation mit allen Feldern und Methoden, die diese Karten beschreiben, z. B. stored_ore oder position.",
+        how: "Lies Felder direkt aus, z. B. world.base.level, und rufe Methoden mit Klammern auf.",
+        example: "let lager = world.base.stored_ore;",
+    },
+    Command {
+        key: "BASE_POSITION",
+        box_step: 24,
+        icon: "📍",
+        category: "Basis-Status",
+        title: "world.base.position",
+        summary: "Wo deine Basis liegt.",
+        what: "Ein Vec2 mit den Koordinaten der Heimatbasis.",
+        how: "Übergib die Position an distance_to-Methoden, z. B. um den Rückweg einer Drohne zu messen.",
+        example: "let heimweg = drone.distance_to(&world.base.position);",
+    },
+    Command {
+        key: "BASE_SIGNAL_RADIUS",
+        box_step: 24,
+        icon: "📡",
+        category: "Basis-Status",
+        title: "world.base.signal_radius",
+        summary: "Der Funk- und Schutzradius der Basis.",
+        what: "Eine Kommazahl (f32): innerhalb dieses Kreises ist Funkverkehr möglich und die Basis geschützt.",
+        how: "Vergleiche ihn mit einer Entfernung, oder nutze gleich world.base.is_in_range(&pos).",
+        example: "let reicht = d <= world.base.signal_radius;",
+    },
+    Command {
+        key: "BASE_LEVEL",
+        box_step: 24,
+        icon: "🏅",
+        category: "Basis-Status",
+        title: "world.base.level",
+        summary: "Die Ausbaustufe der Basis.",
+        what: "Eine kleine Zahl (u8) mit dem Level der Heimatbasis.",
+        how: "Lies das Feld aus und gib es z. B. mit println! aus.",
+        example: "println!(\"Basis-Level {}\", world.base.level);",
+    },
+    Command {
+        key: "BASE_DRONE_SCANNER_LEVEL",
+        box_step: 24,
+        icon: "🔭",
+        category: "Basis-Status",
+        title: "world.base.drone_scanner_level",
+        summary: "Die Stufe des Drohnen-Scanners.",
+        what: "Eine kleine Zahl (u8): Je höher, desto weiter sehen deine Drohnen. Du erhöhst sie mit dem Forschungszweig DroneScanner.",
+        how: "Lies das Feld aus, um zu prüfen, ob sich weitere Forschung lohnt.",
+        example: "if world.base.drone_scanner_level < 3 {\n    // weiter forschen\n}",
+    },
+    Command {
+        key: "BASE_BASE_SCANNER_LEVEL",
+        box_step: 24,
+        icon: "🛰️",
+        category: "Basis-Status",
+        title: "world.base.base_scanner_level",
+        summary: "Die Stufe des Basen- und Asteroidenscanners.",
+        what: "Eine kleine Zahl (u8): Je höher, desto weiter erkennt die Basis Asteroiden und fremde Basen. Forschungszweig: BaseAsteroidScanner.",
+        how: "Lies das Feld aus, um zu prüfen, ob sich weitere Forschung lohnt.",
+        example: "let stufe = world.base.base_scanner_level;",
+    },
+    Command {
+        key: "BASE_RADAR_HORIZON_LEVEL",
+        box_step: 24,
+        icon: "🌐",
+        category: "Basis-Status",
+        title: "world.base.radar_horizon_level",
+        summary: "Die Stufe des Radar-Horizonts.",
+        what: "Eine kleine Zahl (u8): Je höher, desto weiter siehst du unbekannte Kontakte. Forschungszweig: RadarHorizon.",
+        how: "Lies das Feld aus, um zu prüfen, ob sich weitere Forschung lohnt.",
+        example: "let stufe = world.base.radar_horizon_level;",
+    },
+    Command {
+        key: "BASE_DISTANCE_TO",
+        box_step: 24,
+        icon: "📏",
+        category: "Basis-Status",
+        title: "world.base.distance_to(&pos)",
+        summary: "Der Abstand der Basis zu einer Position.",
+        what: "Liefert die Entfernung als Kommazahl (f32) zwischen der Basis und einem Punkt.",
+        how: "Übergib die Referenz auf eine Position mit &.",
+        example: "let d = world.base.distance_to(&asteroid.position);",
+    },
+    Command {
+        key: "BASE_IS_IN_RANGE",
+        box_step: 24,
+        icon: "🧿",
+        category: "Basis-Status",
+        title: "world.base.is_in_range(&pos)",
+        summary: "Prüft, ob ein Punkt im Funkradius der Basis liegt.",
+        what: "Liefert true, wenn der Punkt höchstens signal_radius von der Basis entfernt ist.",
+        how: "Übergib die Referenz auf eine Position und nutze das Ergebnis als Bedingung.",
+        example: "if world.base.is_in_range(&drone.position) {\n    // Drohne ist in Funkreichweite\n}",
+    },
+    Command {
+        key: "BASE_DRONE_SCANNER_RANGE",
+        box_step: 24,
+        icon: "🔭",
+        category: "Basis-Status",
+        title: "world.base.drone_scanner_range()",
+        summary: "Die Reichweite der Drohnen-Scanner.",
+        what: "Liefert die Sichtweite deiner Drohnen als Kommazahl (f32): Stufe 1 sind 150, jede weitere Stufe bringt 50 dazu.",
+        how: "Rufe die Methode ohne Parameter auf und vergleiche sie mit Entfernungen.",
+        example: "let sicht = world.base.drone_scanner_range();",
+    },
+    Command {
+        key: "BASE_BASE_SCANNER_RANGE",
+        box_step: 24,
+        icon: "🛰️",
+        category: "Basis-Status",
+        title: "world.base.base_scanner_range()",
+        summary: "Die Reichweite des Basen- und Asteroidenscanners.",
+        what: "Liefert die Sichtweite der Basis für Asteroiden und fremde Basen als Kommazahl (f32): Stufe 1 sind 300, jede weitere Stufe bringt 100 dazu.",
+        how: "Rufe die Methode ohne Parameter auf und vergleiche sie mit Entfernungen.",
+        example: "let sicht = world.base.base_scanner_range();",
+    },
+    Command {
+        key: "BASE_RADAR_HORIZON_RANGE",
+        box_step: 24,
+        icon: "🌐",
+        category: "Basis-Status",
+        title: "world.base.radar_horizon_range()",
+        summary: "Die Reichweite des Radar-Horizonts.",
+        what: "Liefert die Sichtweite für unbekannte Kontakte als Kommazahl (f32): Stufe 1 sind 600, jede weitere Stufe bringt 150 dazu.",
+        how: "Rufe die Methode ohne Parameter auf und vergleiche sie mit Entfernungen.",
+        example: "let sicht = world.base.radar_horizon_range();",
+    },
+    Command {
+        key: "WORLD_OTHER_DRONES",
+        box_step: 25,
+        icon: "🛸",
+        category: "Welt & Sensoren",
+        title: "world.other_drones",
+        summary: "Fremde Drohnen in Sichtweite.",
+        what: "Eine Liste der Drohnen anderer Spieler, die deine Scanner erkennen. Sie kann leer sein.",
+        how: "Gehe sie mit einer for-Schleife durch. Jedes Element hat die Felder, die die folgenden Karten beschreiben.",
+        example: "for fremde in world.other_drones {\n    println!(\"{}\", fremde.ship_id);\n}",
+    },
+    Command {
+        key: "WORLD_OTHER_BASES",
+        box_step: 25,
+        icon: "🏰",
+        category: "Welt & Sensoren",
+        title: "world.other_bases",
+        summary: "Fremde Basen in Sichtweite.",
+        what: "Eine Liste der Basen anderer Spieler, die deine Scanner erkennen. Sie kann leer sein.",
+        how: "Gehe sie mit einer for-Schleife durch oder frage mit .len() nach der Anzahl.",
+        example: "if world.other_bases.len() > 0 {\n    // fremde Basis in der Nähe\n}",
+    },
+    Command {
+        key: "OTHER_DRONE_SHIP_ID",
+        box_step: 25,
+        icon: "🪪",
+        category: "Fremde Drohnen",
+        title: "other_drone.ship_id",
+        summary: "Die Nummer einer fremden Drohne.",
+        what: "Eine ganze Zahl (u32): die ID der Drohne im Spiel.",
+        how: "Lies das Feld aus einer Drohne aus world.other_drones.",
+        example: "println!(\"{}\", fremde.ship_id);",
+    },
+    Command {
+        key: "OTHER_DRONE_TIER",
+        box_step: 25,
+        icon: "🏷️",
+        category: "Fremde Drohnen",
+        title: "other_drone.ship_tier",
+        summary: "Die Stufe einer fremden Drohne.",
+        what: "Eine kleine Zahl (u8): zeigt, wie leistungsfähig die fremde Drohne ist.",
+        how: "Lies das Feld aus einer Drohne aus world.other_drones.",
+        example: "if fremde.ship_tier >= 2 {\n    // schwere Drohne\n}",
+    },
+    Command {
+        key: "OTHER_DRONE_POSITION",
+        box_step: 25,
+        icon: "📍",
+        category: "Fremde Drohnen",
+        title: "other_drone.position",
+        summary: "Wo eine fremde Drohne ist.",
+        what: "Ein Vec2 mit den Koordinaten der fremden Drohne.",
+        how: "Übergib die Position an distance_to-Methoden, um Abstand zu halten.",
+        example: "let d = drone.distance_to(&fremde.position);",
+    },
+    Command {
+        key: "OTHER_DRONE_HEADING",
+        box_step: 25,
+        icon: "🧲",
+        category: "Fremde Drohnen",
+        title: "other_drone.heading_rad",
+        summary: "Blickrichtung einer fremden Drohne in Radiant.",
+        what: "Eine Kommazahl (f32) im Bogenmaß, genau wie drone.heading_rad.",
+        how: "Lies das Feld aus. Mit .to_degrees() rechnest du in Grad um.",
+        example: "let grad = fremde.heading_rad.to_degrees();",
+    },
+    Command {
+        key: "OTHER_DRONE_SPEED",
+        box_step: 25,
+        icon: "💨",
+        category: "Fremde Drohnen",
+        title: "other_drone.speed",
+        summary: "Die Geschwindigkeit einer fremden Drohne.",
+        what: "Eine Kommazahl (f32): wie schnell die fremde Drohne fliegt.",
+        how: "Lies das Feld aus einer Drohne aus world.other_drones.",
+        example: "if fremde.speed > 0.0 {\n    // sie bewegt sich\n}",
+    },
+    Command {
+        key: "OTHER_DRONE_IS_MINING",
+        box_step: 25,
+        icon: "⛏️",
+        category: "Fremde Drohnen",
+        title: "other_drone.is_mining",
+        summary: "Ob eine fremde Drohne schürft.",
+        what: "Ein bool: true, wenn die fremde Drohne gerade Erz abbaut.",
+        how: "Nutze das Feld direkt als Bedingung.",
+        example: "if fremde.is_mining {\n    // sie konkurriert um Erz\n}",
+    },
+    Command {
+        key: "OTHER_BASE_ID",
+        box_step: 25,
+        icon: "🪪",
+        category: "Fremde Basen",
+        title: "other_base.base_id",
+        summary: "Die Nummer einer fremden Basis.",
+        what: "Eine ganze Zahl (u32): die ID der fremden Basis.",
+        how: "Lies das Feld aus einer Basis aus world.other_bases.",
+        example: "println!(\"{}\", fremde_basis.base_id);",
+    },
+    Command {
+        key: "OTHER_BASE_POSITION",
+        box_step: 25,
+        icon: "📍",
+        category: "Fremde Basen",
+        title: "other_base.position",
+        summary: "Wo eine fremde Basis liegt.",
+        what: "Ein Vec2 mit den Koordinaten der fremden Basis.",
+        how: "Übergib die Position an distance_to-Methoden.",
+        example: "let d = drone.distance_to(&fremde_basis.position);",
+    },
+    Command {
+        key: "OTHER_BASE_SIGNAL_RADIUS",
+        box_step: 25,
+        icon: "📡",
+        category: "Fremde Basen",
+        title: "other_base.signal_radius",
+        summary: "Der Funkradius einer fremden Basis.",
+        what: "Eine Kommazahl (f32): innerhalb dieses Kreises ist die fremde Basis geschützt.",
+        how: "Vergleiche ihn mit dem Abstand deiner Drohne.",
+        example: "if d > fremde_basis.signal_radius {\n    // außerhalb ihres Kreises\n}",
+    },
+    Command {
+        key: "OTHER_BASE_LEVEL",
+        box_step: 25,
+        icon: "🏅",
+        category: "Fremde Basen",
+        title: "other_base.level",
+        summary: "Die Ausbaustufe einer fremden Basis.",
+        what: "Eine kleine Zahl (u8) mit dem Level der fremden Basis.",
+        how: "Lies das Feld aus einer Basis aus world.other_bases.",
+        example: "println!(\"Level {}\", fremde_basis.level);",
+    },
+    Command {
+        key: "OTHER_BASE_SCANNER_LEVELS",
+        box_step: 25,
+        icon: "🔭",
+        category: "Fremde Basen",
+        title: "other_base.drone_scanner_level",
+        summary: "Die Scanner-Stufen einer fremden Basis.",
+        what: "Kleine Zahlen (u8): drone_scanner_level, base_scanner_level und radar_horizon_level zeigen, wie weit die fremde Basis sieht.",
+        how: "Lies die Felder einzeln aus einer Basis aus world.other_bases.",
+        example: "let s = fremde_basis.radar_horizon_level;",
+    },
+    Command {
+        key: "CONTACT_ID",
+        box_step: 25,
+        icon: "❓",
+        category: "Kontakte",
+        title: "contact.contact_id",
+        summary: "Die Nummer eines unbekannten Kontakts.",
+        what: "Eine ganze Zahl (u32): die ID eines Kontakts, den dein Radar entdeckt, aber noch nicht identifiziert hat.",
+        how: "Lies das Feld aus einem Kontakt aus der Liste unidentified_contacts des Radars.",
+        example: "println!(\"Kontakt {}\", kontakt.contact_id);",
+    },
+    Command {
+        key: "CONTACT_POSITION",
+        box_step: 25,
+        icon: "📍",
+        category: "Kontakte",
+        title: "contact.position",
+        summary: "Wo ein unbekannter Kontakt ist.",
+        what: "Ein Vec2 mit der Position eines unbekannten Kontakts. Mehr als die Position weißt du von ihm nicht.",
+        how: "Übergib die Position an distance_to-Methoden, um Abstand zu halten.",
+        example: "let d = drone.distance_to(&kontakt.position);",
+    },
+    Command {
+        key: "ACTIONS_FLY_TO",
+        box_step: 26,
+        icon: "🧭",
+        category: "Schiffs-Befehle",
+        title: "actions.fly_to(ship_id, pos)",
+        summary: "Schickt eine Drohne zu einem Punkt.",
+        what: "Beauftragt eine Drohne, zur angegebenen Position zu fliegen. Der Flug dauert, er geschieht nicht sofort.",
+        how: "Übergib die ship_id und dann eine Position als Vec2, z. B. Vec2::new(100.0, 50.0) oder asteroid.position.",
+        example: "actions.fly_to(drone.ship_id, Vec2::new(100.0, 50.0));",
+    },
+    Command {
+        key: "ACTIONS_STOP",
+        box_step: 26,
+        icon: "🛑",
+        category: "Schiffs-Befehle",
+        title: "actions.stop(ship_id)",
+        summary: "Hält eine Drohne an.",
+        what: "Bricht den aktuellen Flug- oder Schürfauftrag der Drohne ab. Sie bleibt dann stehen.",
+        how: "Übergib die ship_id der Drohne, die anhalten soll.",
+        example: "actions.stop(drone.ship_id);",
+    },
+    Command {
+        key: "UPGRADE_TRACK_BASE_ASTEROID",
+        box_step: 26,
+        icon: "🛰️",
+        category: "Forschung",
+        title: "UpgradeTrack::BaseAsteroidScanner",
+        summary: "Forschungszweig für den Basen- und Asteroidenscan.",
+        what: "Erhöht die Scan-Reichweite für Asteroiden und fremde Basen von 300 auf bis zu 700. Das Rätsel dazu ist eine Distanzberechnung.",
+        how: "Übergib den Zweig an actions.request_research.",
+        example: "actions.request_research(UpgradeTrack::BaseAsteroidScanner);",
+    },
+    Command {
+        key: "UPGRADE_TRACK_RADAR_HORIZON",
+        box_step: 26,
+        icon: "🌐",
+        category: "Forschung",
+        title: "UpgradeTrack::RadarHorizon",
+        summary: "Forschungszweig für den Radar-Horizont.",
+        what: "Erhöht die Reichweite für unbekannte Kontakte von 600 auf bis zu 1200. Das Rätsel dazu ist das Entfernen von Störsignalen.",
+        how: "Übergib den Zweig an actions.request_research.",
+        example: "actions.request_research(UpgradeTrack::RadarHorizon);",
+    },
+    Command {
+        key: "UPGRADE_TRACK_NAME",
+        box_step: 26,
+        icon: "🏷️",
+        category: "Forschung",
+        title: "track.name()",
+        summary: "Der lesbare Name eines Forschungszweigs.",
+        what: "Liefert einen deutschen Text wie \"Drohnen-Scanner\" für einen UpgradeTrack.",
+        how: "Rufe die Methode auf einem UpgradeTrack auf und gib das Ergebnis z. B. mit println! aus.",
+        example: "println!(\"{}\", UpgradeTrack::RadarHorizon.name());",
+    },
+    Command {
+        key: "RIDDLE_TASK_DISTANCE",
+        box_step: 26,
+        icon: "📐",
+        category: "Forschung",
+        title: "RiddleTask::Distance { base, targets }",
+        summary: "Das Rätsel des Basen- und Asteroidenscans.",
+        what: "Enthält den Punkt base und eine Liste targets mit Zielpunkten. Gesucht sind die Abstände von base zu jedem Ziel.",
+        how: "Packe es mit if let Some(RiddleTask::Distance { base, targets }) aus und berechne mit base.distance(&ziel) jeden Abstand.",
+        example: "if let Some(RiddleTask::Distance { base, targets }) = world.active_riddle {\n    // Abstände berechnen\n}",
+    },
+    Command {
+        key: "RIDDLE_TASK_DENOISE",
+        box_step: 26,
+        icon: "🔇",
+        category: "Forschung",
+        title: "RiddleTask::Denoise { readings, threshold }",
+        summary: "Das Rätsel des Radar-Horizonts.",
+        what: "Enthält eine Messreihe readings und einen Schwellenwert threshold. Werte über der Schwelle sind Störsignale und müssen entfernt werden.",
+        how: "Packe es mit if let Some(RiddleTask::Denoise { readings, threshold }) aus und behalte nur Werte unter der Schwelle.",
+        example: "if let Some(RiddleTask::Denoise { readings, threshold }) = world.active_riddle {\n    // Störsignale entfernen\n}",
+    },
+    Command {
+        key: "RIDDLE_SOLUTION_DISTANCE",
+        box_step: 26,
+        icon: "✅",
+        category: "Forschung",
+        title: "RiddleSolution::Distance(distances)",
+        summary: "Die Lösung des Distanz-Rätsels.",
+        what: "Verpackt die Liste der berechneten Abstände (f32) als Antwort auf RiddleTask::Distance.",
+        how: "Übergib sie an actions.solve_riddle.",
+        example: "actions.solve_riddle(RiddleSolution::Distance(distances));",
+    },
+    Command {
+        key: "RIDDLE_SOLUTION_DENOISE",
+        box_step: 26,
+        icon: "✅",
+        category: "Forschung",
+        title: "RiddleSolution::Denoise(cleaned)",
+        summary: "Die Lösung des Rausch-Rätsels.",
+        what: "Verpackt die bereinigte Messreihe (f32) als Antwort auf RiddleTask::Denoise.",
+        how: "Übergib sie an actions.solve_riddle.",
+        example: "actions.solve_riddle(RiddleSolution::Denoise(cleaned));",
     },
 ];
 
@@ -1374,8 +2184,8 @@ mod tests {
     }
 
     #[test]
-    fn all_commands_count_is_54() {
-        assert_eq!(COMMANDS.len(), 54);
+    fn all_commands_count_is_115() {
+        assert_eq!(COMMANDS.len(), 115);
     }
 
     #[test]
@@ -1389,10 +2199,12 @@ mod tests {
     fn all_unlocked_and_reference_keys_exist_in_command_catalog() {
         for s in &STEPS {
             for key in s.unlocked_keys {
-                assert!(
-                    command(key).is_some(),
-                    "Step {} unlocked non-existent key: {}",
-                    s.index,
+                let card = command(key).unwrap_or_else(|| {
+                    panic!("Step {} unlocked non-existent key: {}", s.index, key)
+                });
+                assert_eq!(
+                    card.box_step, s.index,
+                    "Card {} has a different box step than its unlock step",
                     key
                 );
             }
@@ -1405,11 +2217,18 @@ mod tests {
                 );
             }
         }
+        for card in &COMMANDS {
+            assert!(
+                STEPS.iter().any(|s| s.unlocked_keys.contains(&card.key)),
+                "Command card {} is never unlocked",
+                card.key
+            );
+        }
     }
 
     #[test]
-    fn loot_box_steps_match_constant_and_alternate() {
-        let box_indices: [u8; 9] = [
+    fn loot_box_steps_match_the_catalog() {
+        let box_indices: [u8; 14] = [
             STEPS[5].index,
             STEPS[7].index,
             STEPS[9].index,
@@ -1419,12 +2238,18 @@ mod tests {
             STEPS[17].index,
             STEPS[19].index,
             STEPS[21].index,
+            STEPS[22].index,
+            STEPS[23].index,
+            STEPS[24].index,
+            STEPS[25].index,
+            STEPS[26].index,
         ];
         assert_eq!(box_indices, LOOT_BOX_STEPS);
         for s in &LOOT_BOX_STEPS {
             assert!(is_loot_box_step(*s));
             assert!(STEPS[*s as usize].is_loot_box());
         }
+        assert!(STEPS[FINAL_STEP as usize].is_free_play());
     }
 
     #[test]
@@ -1445,15 +2270,16 @@ mod tests {
     #[test]
     fn catch_up_command_keys_accumulates_correctly() {
         // Step 6 catch-up: should include step 5 cards
-        let keys_6: [_; 5] = [
+        let keys_6: [_; 6] = [
             "IF_LET_SOME",
             "WORLD_FIRST_DRONE",
             "PRINTLN",
             "DRONE_POSITION",
             "FORMAT_NO_DECIMALS",
+            "PRINTLN_MACRO",
         ];
-        let caught_up_6: [_; 5] = {
-            let mut arr = [""; 5];
+        let caught_up_6: [_; 6] = {
+            let mut arr = [""; 6];
             for (slot, k) in arr.iter_mut().zip(STEPS[6].catch_up_command_keys()) {
                 *slot = k;
             }
