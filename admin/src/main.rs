@@ -418,7 +418,7 @@ fn SidebarOverlay(mut camera_target: Signal<Option<(f64, f64)>>) -> Element {
     let tutorial_step_label = |step: u8| -> &'static str {
         curriculum::step(step)
             .map(|s| s.admin_label)
-            .unwrap_or("22/22 Sandbox 🚀")
+            .unwrap_or("37/37 Sandbox 🚀")
     };
 
     rsx! {

@@ -6,25 +6,28 @@
 #![no_std]
 
 /// Maximum tutorial step index (Free Play).
-pub const FINAL_STEP: u8 = 22;
+pub const FINAL_STEP: u8 = 37;
 
 /// Tutorial steps at which a command loot box is waiting in the Heimatbasis.
-pub const LOOT_BOX_STEPS: [u8; 9] = [5, 7, 9, 11, 13, 15, 17, 19, 21];
+pub const LOOT_BOX_STEPS: [u8; 16] = [5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35];
 
 /// Returns `true` if a loot box is waiting at this tutorial step.
 pub const fn is_loot_box_step(step: u8) -> bool {
-    matches!(step, 5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21)
+    matches!(
+        step,
+        5 | 7 | 9 | 11 | 13 | 15 | 17 | 19 | 21 | 23 | 25 | 27 | 29 | 31 | 33 | 35
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepKind {
     /// Initial onboarding/setup (steps 0..=4).
     Onboarding,
-    /// Command lootbox in home base (odd steps 5..=21).
+    /// Command lootbox in home base (odd steps 5..=35).
     LootBox { number: u8 },
-    /// Coding quest exercising unlocked commands (even steps 6..=20).
+    /// Coding quest exercising unlocked commands (even steps 6..=36).
     Coding,
-    /// Tutorial complete; Free-Play sandbox and remaining SDK catalog unlocked (step 22).
+    /// Tutorial complete; Free-Play sandbox and remaining SDK catalog unlocked (step 37).
     FreePlay,
 }
 
@@ -32,13 +35,13 @@ pub enum StepKind {
 pub enum VerificationMode {
     /// Step advanced manually by learner (e.g. Step 0, Step 3).
     ManualAdvance,
-    /// Step advanced on claiming all loot box cards (odd steps 5..=21).
+    /// Step advanced on claiming all loot box cards (odd steps 5..=35).
     LootBoxClaim,
     /// Verified via interactive coordinate input (Step 6).
     CoordinateQuiz,
     /// Verified via interactive asteroid ID input (Step 8).
     AsteroidIdQuiz,
-    /// Verified by server-side game events (mining, docking, building, research).
+    /// Verified by server-side game events (mining, docking, building, navigation, research).
     ServerEvent,
     /// Sandbox free play; no progression verification.
     None,
@@ -129,7 +132,7 @@ pub const fn all_commands() -> &'static [Command] {
     &COMMANDS
 }
 
-/// Complete catalog of all 23 tutorial steps (0..=22).
+/// Complete catalog of all 38 tutorial steps (0..=37).
 pub const fn all_steps() -> &'static [Step] {
     &STEPS
 }
@@ -142,7 +145,7 @@ pub fn loot_box_commands(step_index: u8) -> &'static [&'static str] {
     }
 }
 
-/// Additional SDK commands unlocked automatically once reaching Free Play (step 22).
+/// Additional SDK commands unlocked automatically once reaching Free Play (step 37).
 pub fn free_play_commands() -> &'static [&'static str] {
     STEPS[FINAL_STEP as usize].unlocked_keys
 }
@@ -191,48 +194,51 @@ const KEYS_STEP_19: &[&str] = &[
     "WORLD_ACTIVE_RIDDLE",
     "OPTION_IS_NONE",
     "ACTIONS_REQUEST_RESEARCH",
+];
+const KEYS_STEP_21: &[&str] = &[
     "LET_BINDING",
     "CLONE_AND_SORT",
     "RIDDLE_SORT",
+    "ACTIONS_SOLVE_RIDDLE",
+];
+const KEYS_STEP_23: &[&str] = &[
+    "ACTIONS_BUILD_DRONE_2",
+    "BASE_STORED_ENERGY",
+    "SDK_DRONE_COSTS",
+];
+const KEYS_STEP_25: &[&str] = &["ACTIONS_FLY_TO", "VEC2_NEW", "BASE_POSITION_AND_SIGNAL"];
+const KEYS_STEP_27: &[&str] = &["ACTIONS_STOP", "DRONE_MOTION", "DRONE_DISTANCE_TO"];
+const KEYS_STEP_29: &[&str] = &[
+    "WORLD_ASTEROIDS",
+    "WORLD_CLOSEST_ASTEROID_ANY",
+    "ASTEROID_POSITION_AND_DISTANCE",
+    "ASTEROID_ORE_AND_TYPE",
+];
+const KEYS_STEP_31: &[&str] = &[
+    "WORLD_SHIP",
+    "DRONE_TIER",
+    "DRONE_CARGO",
+    "DRONE_TARGETS_AND_STATUS",
+];
+const KEYS_STEP_33: &[&str] = &["DRONE_SIGNAL_AND_STRANDED"];
+const KEYS_STEP_35: &[&str] = &["WORLD_OTHER_DRONES", "WORLD_OTHER_BASES"];
+
+const KEYS_FREE_PLAY: &[&str] = &[
+    "VEC2_DISTANCE",
+    "WORLD_TICK",
+    "BASE_RESEARCH_LEVELS",
     "RIDDLE_DISTANCE",
     "RIDDLE_DENOISE",
     "RIDDLE_ENERGY",
-    "ACTIONS_SOLVE_RIDDLE",
-];
-const KEYS_STEP_21: &[&str] = &["ACTIONS_BUILD_DRONE_2"];
-
-const KEYS_FREE_PLAY: &[&str] = &[
-    "ACTIONS_FLY_TO",
-    "ACTIONS_STOP",
-    "VEC2_NEW",
-    "VEC2_DISTANCE",
-    "WORLD_SHIP",
-    "WORLD_CLOSEST_ASTEROID_ANY",
-    "WORLD_ASTEROIDS",
-    "WORLD_OTHER_DRONES",
-    "WORLD_OTHER_BASES",
-    "WORLD_TICK",
-    "DRONE_TIER",
-    "DRONE_CARGO",
-    "DRONE_MOTION",
-    "DRONE_TARGETS_AND_STATUS",
-    "DRONE_SIGNAL_AND_STRANDED",
-    "DRONE_DISTANCE_TO",
-    "BASE_STORED_ENERGY",
-    "BASE_POSITION_AND_SIGNAL",
-    "BASE_RESEARCH_LEVELS",
-    "ASTEROID_POSITION_AND_DISTANCE",
-    "ASTEROID_ORE_AND_TYPE",
-    "SDK_DRONE_COSTS",
 ];
 
 const EMPTY_KEYS: &[&str] = &[];
 
 // ==========================================
-// Static Steps Catalog (0..=22)
+// Static Steps Catalog (0..=37)
 // ==========================================
 
-pub static STEPS: [Step; 23] = [
+pub static STEPS: [Step; 38] = [
     // Step 0
     Step {
         index: 0,
@@ -240,7 +246,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ManualAdvance,
         title: "Willkommen an Bord, Commander!",
         short_title: "Registrierung",
-        admin_label: "0/22 Registrierung",
+        admin_label: "0/37 Registrierung",
         story: "Im Asteroidengürtel wimmelt es von automatischen Transportern und fremden Stationen. Um deine Schiffe auf den Radarsystemen der Mega-Station eindeutig zu identifizieren, benötigt deine Flotte deinen Pilotenausweis und eigene Signal-Farben.",
         subtasks: &[
             SubTask {
@@ -269,7 +275,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Der Jungfernflug (Manuelle Steuerung)",
         short_title: "Flug",
-        admin_label: "1/22 Flug",
+        admin_label: "1/37 Flug",
         story: "Dein Bauschiff (Tier 0) startet nah herangezoomt an der Mega-Station bei (0, 0). Bedienung der Karte: Mit dem Mausrad (Scrollen) zoomst du rein und raus, und durch Klicken und Halten mit der linken Maustaste verschiebst du die Karte. Wichtig: Du kannst deine Basis nur außerhalb des roten bzw. grünen Sicherheitskreises um die Mega-Station errichten!",
         subtasks: &[
             SubTask {
@@ -298,7 +304,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Das Fundament (Heimatbasis errichten)",
         short_title: "Basisbau",
-        admin_label: "2/22 Basisbau",
+        admin_label: "2/37 Basisbau",
         story: "Hervorragend gewählt, Commander! Du befindest dich außerhalb des grünen Sicherheitskreises der Mega-Station und hast genügend Erz im Scanradius. Durch die Aktivierung der Montage-Sequenz entfaltet sich dein Bauschiff zu deiner Heimatbasis.",
         subtasks: &[
             SubTask {
@@ -322,7 +328,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ManualAdvance,
         title: "Die Brücke öffnen (uhlaunch & Zed)",
         short_title: "Bot Start",
-        admin_label: "3/22 Bot Start",
+        admin_label: "3/37 Bot Start",
         story: "Deine Heimatbasis hat einen Bordcomputer. Du programmierst ihn in Rust und startest deinen Bot im Zed-Editor.",
         subtasks: &[
             SubTask {
@@ -351,7 +357,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Bot mit der Heimatbasis koppeln",
         short_title: "Bot-Kopplung",
-        admin_label: "4/22 Bot-Kopplung",
+        admin_label: "4/37 Bot-Kopplung",
         story: "Die Identität ist die Adresse deines Bots; mit ihr erlaubst du ihm die Steuerung deiner Basis. Ein Token ist dagegen ein geheimer Zugangsschlüssel: Gib ihn niemals als Identität ein oder an andere weiter. Beim ersten Start speichert der Bot seinen Token selbst in config.toml.",
         subtasks: &[
             SubTask {
@@ -380,7 +386,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #1: Deine erste Drohne",
         short_title: "🎁 Lootbox 1: Drohne",
-        admin_label: "5/22 🎁 Lootbox 1: Drohne",
+        admin_label: "5/37 🎁 Lootbox 1: Drohne",
         story: "Dein Bot ist verbunden! In der Heimatbasis warten die ersten Befehle auf dich: if let Some, world.first_drone(), println! und die Position deiner Drohne.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_5,
@@ -393,7 +399,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::CoordinateQuiz,
         title: "Wo ist deine Drohne?",
         short_title: "Drohne",
-        admin_label: "6/22 Drohne",
+        admin_label: "6/37 Drohne",
         story: "In main.rs wird tick etwa zehnmal pro Sekunde aufgerufen. world enthält den aktuellen Weltzustand, actions sammelt deine Befehle. Schreibe deinen Code in tick: Nur wenn eine Drohne vorhanden ist, kannst du ihre Position auslesen.",
         subtasks: &[
             SubTask {
@@ -422,8 +428,8 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #2: Asteroiden finden",
         short_title: "🎁 Lootbox 2: Asteroid",
-        admin_label: "7/22 🎁 Lootbox 2: Asteroid",
-        story: "Mit dem nächsten Befehl findest du bekannte Asteroiden, die noch Erz enthalten, und liest ihre Kennnummer aus.",
+        admin_label: "7/37 🎁 Lootbox 2: Asteroid",
+        story: "Mit dem nächsten Befehl findest du bekannte Asteroiden, die noch Erz enthalten, und liest ihre Kennnummer(ID) aus.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_7,
         reference_keys: EMPTY_KEYS,
@@ -435,7 +441,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::AsteroidIdQuiz,
         title: "Die Asteroiden-ID ermitteln",
         short_title: "Asteroid",
-        admin_label: "8/22 Asteroid",
+        admin_label: "8/37 Asteroid",
         story: "Deine Sensoren identifizieren Asteroiden in Reichweite der Basis oder deiner Drohnen. Jede so identifizierte Asteroiden-ID ist gültig; die Suche wählt davon einen passenden Asteroiden mit Erz.",
         subtasks: &[
             SubTask {
@@ -466,7 +472,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #3: Erz schürfen",
         short_title: "🎁 Lootbox 3: Mining",
-        admin_label: "9/22 🎁 Lootbox 3: Mining",
+        admin_label: "9/37 🎁 Lootbox 3: Mining",
         story: "Jetzt lernst du die Kennnummer deiner Drohne und den Befehl, mit dem sie einen Asteroiden abbaut.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_9,
@@ -479,7 +485,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Der erste Schürfzug",
         short_title: "Erstes Erz",
-        admin_label: "10/22 Erstes Erz",
+        admin_label: "10/37 Erstes Erz",
         story: "Deine Drohne und ein Asteroid mit Erz sind gefunden. Gib den Abbau-Befehl in tick: Die Drohne fliegt erst zum Ziel und schürft dort. Die Mission endet, sobald der Server erfolgreichen Abbau registriert.",
         subtasks: &[
             SubTask {
@@ -508,8 +514,8 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #4: Laderaum & Andocken",
         short_title: "🎁 Lootbox 4",
-        admin_label: "11/22 🎁 Lootbox 4",
-        story: "Erstes Erz im Frachtraum! In deiner Heimatbasis wartet eine Lootbox mit Befehlen zum Verzweigen und Andocken.",
+        admin_label: "11/37 🎁 Lootbox 4",
+        story: "Erstes Erz im Frachtraum! In deiner Heimatbasis wartet eine Lootbox mit Befehlen zur Fallunterscheidung, Andocken und Ausladen.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_11,
         reference_keys: EMPTY_KEYS,
@@ -521,7 +527,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Frachtraum voll! Kurs Heimatbasis",
         short_title: "Lieferung",
-        admin_label: "12/22 Lieferung",
+        admin_label: "12/37 Lieferung",
         story: "Deine Drohne kann nur 50 Einheiten Erz tragen. Ist der Frachtraum voll, stoppt der Bohrer automatisch. Damit das Erz verarbeitet werden kann, muss die Drohne an der Heimatbasis andocken. Ziel: Sammle mindestens 50 Erz an deiner Basis!",
         subtasks: &[
             SubTask {
@@ -550,7 +556,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #5: Flotten-Konstruktion",
         short_title: "🎁 Lootbox 5",
-        admin_label: "13/22 🎁 Lootbox 5",
+        admin_label: "13/37 🎁 Lootbox 5",
         story: "Deine Lieferung war erfolgreich! Öffne die Lootbox in der Heimatbasis, um zu lernen, wie du Werte vergleichst, Bedingungen verknüpfst und neue Drohnen baust.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_13,
@@ -563,7 +569,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Flottenausbau (Zweite Drohne bauen)",
         short_title: "Drohne 2",
-        admin_label: "14/22 Drohne 2",
+        admin_label: "14/37 Drohne 2",
         story: "Mit 50 Einheiten Erz im Lager verfügt deine Basis über genügend Rohstoffe, um ein weiteres Schiff der Stufe 1 in Auftrag zu geben. Mehr Drohnen bedeuten schnellere Rohstoffförderung!",
         subtasks: &[
             SubTask {
@@ -587,7 +593,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #6: Schwarm-Schleife",
         short_title: "🎁 Lootbox 6",
-        admin_label: "15/22 🎁 Lootbox 6",
+        admin_label: "15/37 🎁 Lootbox 6",
         story: "Zwei Drohnen im Einsatz! In der Heimatbasis wartet die Schleife, mit der du die ganze Flotte steuerst.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_15,
@@ -600,7 +606,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Multitasking für Fortgeschrittene (Flottenschleife)",
         short_title: "Flottenloop",
-        admin_label: "16/22 Flottenloop",
+        admin_label: "16/37 Flottenloop",
         story: "Bisher hat dein Code nur die erste Drohne mit world.first_drone() gesteuert. In Rust nutzen wir eine for-Schleife, um jedem Schiff in world.fleet automatisch denselben Ablauf zuzuweisen.",
         subtasks: &[
             SubTask {
@@ -629,7 +635,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::LootBoxClaim,
         title: "🎁 Befehls-Lootbox #7: Energiemanagement & Laden",
         short_title: "🎁 Lootbox 7: Energie",
-        admin_label: "17/22 🎁 Lootbox 7: Energie",
+        admin_label: "17/37 🎁 Lootbox 7: Energie",
         story: "Deine Flotte schürft fleißig! Doch Fliegen und Bohren verbrauchen Batterie-Energie. In der Heimatbasis wartet eine Lootbox, mit der deine Drohnen rechtzeitig vor leerer Batterie umkehren und an der Basis vollladen.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_17,
@@ -642,7 +648,7 @@ pub static STEPS: [Step; 23] = [
         verification: VerificationMode::ServerEvent,
         title: "Rechtzeitig an die Steckdose (Energiemanagement)",
         short_title: "Energiemanagement",
-        admin_label: "18/22 Energiemanagement",
+        admin_label: "18/37 Energiemanagement",
         story: "Wenn eine Drohne das Erz an der Basis abliefert, ist ihr Frachtraum sofort wieder leer – ohne Zusatzprüfung fliegt sie ungeladen wieder los, bis ihr mitten im All der Strom ausgeht und nur noch der langsame Not-Generator tröpfchenweise hilft. Halte angedockte Drohnen an der Basis, bis ihre Batterie voll ist (1.0), und schicke Drohnen mit niedrigem Batteriestand (< 0.25) rechtzeitig zum Andocken!",
         subtasks: &[
             SubTask {
@@ -671,42 +677,33 @@ pub static STEPS: [Step; 23] = [
         index: 19,
         kind: StepKind::LootBox { number: 8 },
         verification: VerificationMode::LootBoxClaim,
-        title: "🎁 Befehls-Lootbox #8: Telemetrie & Algorithmen",
+        title: "🎁 Befehls-Lootbox #8: Forschungsauftrag",
         short_title: "🎁 Lootbox 8: Forschung",
-        admin_label: "19/22 🎁 Lootbox 8: Forschung",
-        story: "Deine Drohnen laden zuverlässig an der Basis auf! Öffne die Lootbox in der Heimatbasis für die Befehle aller vier Forschungsbäume.",
+        admin_label: "19/37 🎁 Lootbox 8: Forschung",
+        story: "Deine Drohnen laden zuverlässig an der Basis auf! Jetzt lernst du, wann ein Forschungsrätsel aktiv ist und wie du einen neuen Auftrag anforderst.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_19,
         reference_keys: EMPTY_KEYS,
     },
-    // Step 20: Coding Mission 8
+    // Step 20: Request a research task
     Step {
         index: 20,
         kind: StepKind::Coding,
         verification: VerificationMode::ServerEvent,
-        title: "Forschung: Vier Technologiebäume",
-        short_title: "Forschung",
-        admin_label: "20/22 Forschung",
-        story: "Deine Heimatbasis kann in vier Forschungsbäumen ausgebaut werden, und du darfst frei wählen, welchen du zuerst und in welcher Reihenfolge du sie erforschst: 1) Drohnen-Scanner (größere Scanreichweite der Drohnen, Rätsel: Zahlen sortieren), 2) Basen- & Asteroidenscan (größerer Scanbereich der Basis, Rätsel: Distanzen berechnen), 3) Radar-Horizont (Kontakte weiter erkennen, Rätsel: Störsignale filtern), 4) Energieproduktion (die Basis erzeugt und speichert mehr Energie; Rätsel: Energiebudget). Drohnen laden an der Basis auf und verbrauchen dabei deren Energie. Löse für diese Aufgabe ein Rätsel eines beliebigen Baums.",
+        title: "Forschungsauftrag anfordern",
+        short_title: "Forschungsauftrag",
+        admin_label: "20/37 Forschungsauftrag",
+        story: "Die Heimatbasis kann einen Auftrag für den Basen- und Asteroidenscanner anfordern. Fordere genau dann einen Auftrag an, wenn noch keiner aktiv ist. Der Server bestätigt den Auftrag und schaltet danach die nächste Mission frei.",
         subtasks: &[
             SubTask {
                 num: "1",
-                text: "Wähle einen beliebigen Forschungsbaum und fordere ein Rätsel an, falls noch keines aktiv ist:",
-                code_hint: Some(
-                    "if world.active_riddle.is_none() { actions.request_research(UpgradeTrack::DroneScanner); } // oder BaseAsteroidScanner, RadarHorizon, EnergyProduction",
-                ),
+                text: "Prüfe, ob gerade kein Forschungsrätsel aktiv ist:",
+                code_hint: Some("if world.active_riddle.is_none() { ... }"),
             },
             SubTask {
                 num: "2",
-                text: "Prüfe auf ein aktives Rätsel und berechne die Lösung passend zum gewählten Baum (z. B. Sort: sortieren, Energy: kleinste Verbraucher zuerst addieren, bis das Budget erreicht ist):",
-                code_hint: Some(
-                    "if let Some(RiddleTask::Sort { numbers }) = world.active_riddle { let mut sorted = numbers.clone(); sorted.sort(); ... }",
-                ),
-            },
-            SubTask {
-                num: "3",
-                text: "Reiche die Lösung innerhalb des if-Blocks mit actions.solve_riddle(...) ein:",
-                code_hint: Some("actions.solve_riddle(RiddleSolution::Sort(sorted));"),
+                text: "Fordere im if-Block einen Auftrag für den Basen- und Asteroidenscanner an:",
+                code_hint: Some("actions.request_research(UpgradeTrack::BaseAsteroidScanner);"),
             },
         ],
         unlocked_keys: EMPTY_KEYS,
@@ -717,37 +714,367 @@ pub static STEPS: [Step; 23] = [
         index: 21,
         kind: StepKind::LootBox { number: 9 },
         verification: VerificationMode::LootBoxClaim,
-        title: "🎁 Befehls-Lootbox #9: Schwere Flotte",
-        short_title: "🎁 Lootbox 9: Tier 2",
-        admin_label: "21/22 🎁 Lootbox 9: Tier 2",
-        story: "Forschung abgeschlossen! Die letzte Lootbox verrät dir, wie du schwere Stufe-2-Drohnen baust.",
+        title: "🎁 Befehls-Lootbox #9: Sortier-Rätsel",
+        short_title: "🎁 Lootbox 9: Sortieren",
+        admin_label: "21/37 🎁 Lootbox 9: Sortieren",
+        story: "Der Forschungsauftrag ist da! Diese Lootbox zeigt dir, wie du die Messwerte für den Basen- und Asteroidenscanner ordnest und das Ergebnis einreichst.",
         subtasks: LOOT_BOX_SUBTASKS,
         unlocked_keys: KEYS_STEP_21,
         reference_keys: EMPTY_KEYS,
     },
-    // Step 22: Free Play
+    // Step 22: Solve a sorting riddle
     Step {
         index: 22,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Messwerte für den Asteroiden-Scanner sortieren",
+        short_title: "Sortier-Rätsel",
+        admin_label: "22/37 Sortier-Rätsel",
+        story: "Der Asteroiden-Scanner liefert eine Liste unsortierter Messwerte. Erstelle eine veränderbare Kopie, sortiere sie aufsteigend und reiche sie ein. Der Server prüft deine Lösung.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Packe das Sortier-Rätsel aus und kopiere die Messwerte in eine veränderbare Liste:",
+                code_hint: Some(
+                    "if let Some(RiddleTask::Sort { numbers }) = world.active_riddle {\n    let mut sorted = numbers.clone();\n    ...\n}",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Sortiere die Kopie vom kleinsten zum größten Wert:",
+                code_hint: Some("sorted.sort();"),
+            },
+            SubTask {
+                num: "3",
+                text: "Reiche die sortierte Liste im if-Block ein:",
+                code_hint: Some("actions.solve_riddle(RiddleSolution::Sort(sorted));"),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_21,
+    },
+    // Step 23: Lootbox 10
+    Step {
+        index: 23,
+        kind: StepKind::LootBox { number: 10 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #10: Schwere Drohne",
+        short_title: "🎁 Lootbox 10: Tier 2",
+        admin_label: "23/37 🎁 Lootbox 10: Tier 2",
+        story: "Deine Forschung ist angelaufen! Jetzt lernst du, wie du die Vorräte der Basis prüfst und eine schwere Stufe-2-Drohne in Auftrag gibst.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_23,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 24: Build a tier-2 drone
+    Step {
+        index: 24,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Eine schwere Drohne bauen",
+        short_title: "Drohne Tier 2",
+        admin_label: "24/37 Drohne Tier 2",
+        story: "Eine schwere Drohne trägt dreimal so viel Erz, kostet aber mehr Erz und Energie. Prüfe beides, bevor du den Bauauftrag erteilst.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Prüfe, ob genug Erz und mindestens 200 Energie in der Basis liegen:",
+                code_hint: Some(
+                    "if world.base.stored_ore >= space_bot_sdk::DRONE_TIER_2_COST && world.base.stored_energy >= 200.0 { ... }",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Gib innerhalb des if-Blocks den Auftrag für eine Stufe-2-Drohne:",
+                code_hint: Some("actions.build_drone(2);"),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_23,
+    },
+    // Step 25: Lootbox 11
+    Step {
+        index: 25,
+        kind: StepKind::LootBox { number: 11 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #11: Kurs setzen",
+        short_title: "🎁 Lootbox 11: Navigation",
+        admin_label: "25/37 🎁 Lootbox 11: Navigation",
+        story: "Deine Flotte wächst! In dieser Lootbox findest du die Befehle, mit denen du eine Drohne zu einem berechneten Ziel im Raum schickst.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_25,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 26: Fly to a safe destination
+    Step {
+        index: 26,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Eine Drohne auf Kurs schicken",
+        short_title: "Kurs setzen",
+        admin_label: "26/37 Kurs setzen",
+        story: "Schicke eine Drohne zu einem Punkt 300 Meter rechts von deiner Basis. Der Server bestätigt den Flugauftrag, wenn das Ziel dort und innerhalb der Funkreichweite liegt.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Berechne einen Zielpunkt 300 Meter rechts von deiner Basis:",
+                code_hint: Some(
+                    "let target = Vec2::new(world.base.position.x + 300.0, world.base.position.y);",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Schicke deine erste Drohne zu diesem Ziel:",
+                code_hint: Some("actions.fly_to(drone.ship_id, target);"),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_25,
+    },
+    // Step 27: Lootbox 12
+    Step {
+        index: 27,
+        kind: StepKind::LootBox { number: 12 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #12: Flugstatus & Anhalten",
+        short_title: "🎁 Lootbox 12: Flugstatus",
+        admin_label: "27/37 🎁 Lootbox 12: Flugstatus",
+        story: "Deine Drohne ist unterwegs. Diese Karten zeigen dir, woran du ihren Flug erkennst und wie du sie gezielt anhältst.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_27,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 28: Stop a drone at its destination
+    Step {
+        index: 28,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Am Ziel anhalten",
+        short_title: "Drohne anhalten",
+        admin_label: "28/37 Drohne anhalten",
+        story: "Lass deine Drohne den Kurs fortsetzen und halte sie an, sobald sie den Zielpunkt erreicht hat. Der Server prüft, ob sie am Ziel gestoppt wurde.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Berechne denselben Zielpunkt wie in der vorherigen Mission:",
+                code_hint: Some(
+                    "let target = Vec2::new(world.base.position.x + 300.0, world.base.position.y);",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Wenn die Drohne steht und weniger als 30 Meter vom Ziel entfernt ist, halte sie an:",
+                code_hint: Some(
+                    "if drone.speed == 0.0 && drone.distance_to(&target) < 30.0 {\n    actions.stop(drone.ship_id);\n}",
+                ),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_27,
+    },
+    // Step 29: Lootbox 13
+    Step {
+        index: 29,
+        kind: StepKind::LootBox { number: 13 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #13: Asteroiden erkunden",
+        short_title: "🎁 Lootbox 13: Asteroiden",
+        admin_label: "29/37 🎁 Lootbox 13: Asteroiden",
+        story: "Der Kurs sitzt! Jetzt lernst du, welche Asteroiden deine Scanner bereits erfasst haben und welche davon noch Erz enthalten.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_29,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 30: Inspect and mine a known asteroid
+    Step {
+        index: 30,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Einen bekannten Asteroiden auswählen",
+        short_title: "Asteroiden-Scan",
+        admin_label: "30/37 Asteroiden-Scan",
+        story: "Zeige die bekannten Asteroiden mit ihrer Rohstoffart, Erzmenge und Entfernung an. Schicke danach eine Drohne zum nächsten bekannten Asteroiden mit Erz. Der Server bestätigt den Schritt, sobald tatsächlich Erz abgebaut wird.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Gehe die von deinen Scannern erfassten Asteroiden durch und zeige ihre Daten an:",
+                code_hint: Some(
+                    "for asteroid in world.asteroids {\n    println!(\"{}: {} Erz, {:.0} m entfernt\", asteroid.resource_name(), asteroid.remaining_ore, asteroid.distance_to(&drone.position));\n}",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Finde den nächsten bekannten Asteroiden, der noch Erz enthält:",
+                code_hint: Some(
+                    "if let Some(asteroid) = world.closest_asteroid_with_ore(drone.position) { ... }",
+                ),
+            },
+            SubTask {
+                num: "3",
+                text: "Befiehl der Drohne im if-Block, diesen Asteroiden abzubauen:",
+                code_hint: Some("actions.mine(drone.ship_id, asteroid.asteroid_id);"),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_29,
+    },
+    // Step 31: Lootbox 14
+    Step {
+        index: 31,
+        kind: StepKind::LootBox { number: 14 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #14: Flotten-Status",
+        short_title: "🎁 Lootbox 14: Flotte",
+        admin_label: "31/37 🎁 Lootbox 14: Flotte",
+        story: "Deine Drohne baut wieder Erz ab. In dieser Lootbox lernst du, ein bestimmtes Schiff zu finden und seinen Auftrag und Frachtraum zu prüfen.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_31,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 32: Inspect a ship and return a full drone
+    Step {
+        index: 32,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Ein volles Schiff zurückrufen",
+        short_title: "Flotten-Status",
+        admin_label: "32/37 Flotten-Status",
+        story: "Suche die Drohne anhand ihrer Kennnummer. Prüfe ihre Stufe, ihr aktuelles Ziel und ihren Frachtraum. Wenn der Frachtraum voll ist, schicke sie zurück zur Basis.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Finde das aktuelle Schiff in deiner Flotte anhand seiner Kennnummer:",
+                code_hint: Some("if let Some(ship) = world.ship(drone.ship_id) { ... }"),
+            },
+            SubTask {
+                num: "2",
+                text: "Zeige Stufe und aktuelles Ziel an:",
+                code_hint: Some(
+                    "println!(\"Stufe {}: Ziel gesetzt = {}\", ship.ship_tier, ship.target_asteroid_id.is_some());",
+                ),
+            },
+            SubTask {
+                num: "3",
+                text: "Wenn der Frachtraum voll ist, docke das Schiff an der Basis an:",
+                code_hint: Some("if ship.cargo_is_full() { actions.dock(ship.ship_id); }"),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_31,
+    },
+    // Step 33: Lootbox 15
+    Step {
+        index: 33,
+        kind: StepKind::LootBox { number: 15 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #15: Funkpuffer",
+        short_title: "🎁 Lootbox 15: Sicherheit",
+        admin_label: "33/37 🎁 Lootbox 15: Sicherheit",
+        story: "Deine Drohne kann Erz sicher zur Basis bringen. Jetzt lernst du, den verbleibenden Funkpuffer zu beobachten, damit kein Schiff im All strandet.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_33,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 34: Return before losing signal or energy
+    Step {
+        index: 34,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Vor dem Stranden umkehren",
+        short_title: "Funkpuffer",
+        admin_label: "34/37 Funkpuffer",
+        story: "Schicke eine Drohne zurück, sobald ihr Funkpuffer knapp wird oder ihre Batterie unter 25 Prozent fällt. Der Server bestätigt den Schritt, wenn der Rückkehrbefehl bei niedrigem Puffer oder Batteriestand eingeht.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Prüfe zuerst, ob der Funkpuffer knapp ist:",
+                code_hint: Some("if drone.signal_countdown < 10 { ... }"),
+            },
+            SubTask {
+                num: "2",
+                text: "Falls nicht, prüfe mit else if, ob weniger als 25 Prozent Batterie übrig sind:",
+                code_hint: Some("else if drone.energy_percent() < 0.25 { ... }"),
+            },
+            SubTask {
+                num: "3",
+                text: "Schicke die Drohne in beiden Fällen zur Heimatbasis:",
+                code_hint: Some("actions.dock(drone.ship_id);"),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_33,
+    },
+    // Step 35: Lootbox 16
+    Step {
+        index: 35,
+        kind: StepKind::LootBox { number: 16 },
+        verification: VerificationMode::LootBoxClaim,
+        title: "🎁 Befehls-Lootbox #16: Die Nachbarschaft beobachten",
+        short_title: "🎁 Lootbox 16: Nachbarschaft",
+        admin_label: "35/37 🎁 Lootbox 16: Nachbarschaft",
+        story: "Deine Flotte ist sicher unterwegs. Diese Karten zeigen dir, welche fremden Drohnen und Heimatbasen deine Sensoren in der Nähe erkennen.",
+        subtasks: LOOT_BOX_SUBTASKS,
+        unlocked_keys: KEYS_STEP_35,
+        reference_keys: EMPTY_KEYS,
+    },
+    // Step 36: Observe neighboring players
+    Step {
+        index: 36,
+        kind: StepKind::Coding,
+        verification: VerificationMode::ServerEvent,
+        title: "Fremde Schiffe im Sensorbereich",
+        short_title: "Nachbarschaft",
+        admin_label: "36/37 Nachbarschaft",
+        story: "Zeige fremde Drohnen und Heimatbasen im Sensorbereich an. Danach führe deine eigene Erzlieferung fort. Der Server schaltet Freies Spiel frei, sobald deine Flotte Erz zur Basis geliefert hat. Die Listen können leer sein, wenn gerade keine fremden Schiffe in Reichweite sind.",
+        subtasks: &[
+            SubTask {
+                num: "1",
+                text: "Zeige die Kennnummern und Positionen sichtbarer fremder Drohnen an:",
+                code_hint: Some(
+                    "for other in world.other_drones {\n    println!(\"Fremde Drohne #{} bei {:.0}, {:.0}\", other.ship_id, other.position.x, other.position.y);\n}",
+                ),
+            },
+            SubTask {
+                num: "2",
+                text: "Zeige danach die Kennnummern und Positionen fremder Basen an:",
+                code_hint: Some(
+                    "for base in world.other_bases {\n    println!(\"Fremde Basis #{} bei {:.0}, {:.0}\", base.base_id, base.position.x, base.position.y);\n}",
+                ),
+            },
+            SubTask {
+                num: "3",
+                text: "Lass deine Flotte weiter Erz abbauen und an der Heimatbasis abliefern.",
+                code_hint: Some(
+                    "if drone.cargo_is_full() { actions.dock(drone.ship_id); } else if let Some(asteroid) = world.closest_asteroid_with_ore(drone.position) { actions.mine(drone.ship_id, asteroid.asteroid_id); }",
+                ),
+            },
+        ],
+        unlocked_keys: EMPTY_KEYS,
+        reference_keys: KEYS_STEP_35,
+    },
+    // Step 37: Free Play
+    Step {
+        index: 37,
         kind: StepKind::FreePlay,
         verification: VerificationMode::None,
         title: "Tutorial abgeschlossen – Freies Spiel!",
         short_title: "Sandbox 🚀",
-        admin_label: "22/22 Sandbox 🚀",
-        story: "Fantastische Arbeit, Commander! Du beherrschst alle Grundlagen der interstellaren Programmierung: Navigation, Abbau, Multitasking-Schleifen und algorithmische Forschung.",
+        admin_label: "37/37 Sandbox 🚀",
+        story: "Fantastische Arbeit, Commander! Du kannst Forschungsaufträge lösen, Drohnen gezielt steuern, Asteroiden auswählen und deine Flotte sicher führen. Die übrigen Karten der Befehls-Ruhmeshalle helfen dir bei eigenen Ideen.",
         subtasks: &[
             SubTask {
                 num: "1",
-                text: "Baue schwere Stufe-2-Drohnen mit 3-facher Frachtkapazität.",
-                code_hint: Some("actions.build_drone(2);"),
+                text: "Probiere die noch gesperrten Nachschlagekarten in der Befehls-Ruhmeshalle aus.",
+                code_hint: None,
             },
             SubTask {
                 num: "2",
-                text: "Verteile deine Drohnen gezielt auf unterschiedliche Asteroiden.",
+                text: "Baue deine Flotte aus und optimiere deine Erzlieferungen.",
                 code_hint: None,
             },
             SubTask {
                 num: "3",
-                text: "Erforsche den Radar-Horizont und führe die Rangliste auf dem Klassenbeamer an!",
+                text: "Erforsche die verschiedenen Forschungszweige und führe die Rangliste an!",
                 code_hint: None,
             },
         ],
@@ -999,9 +1326,9 @@ pub static COMMANDS: [Command; 54] = [
         category: "Forschung",
         title: "world.active_riddle",
         summary: "Das aktuell aktive Forschungsrätsel.",
-        what: "Enthält das Rätsel, das du angefordert hast, als Option – oder None, wenn gerade keins aktiv ist. Je nach gewähltem Forschungsbaum steckt darin eine Variante von RiddleTask (Sort, Distance, Denoise oder Energy).",
-        how: "Prüfe mit world.active_riddle.is_none(), ob du ein neues Rätsel anfordern kannst, und packe ein vorhandenes Rätsel mit if let Some(...) = world.active_riddle aus.",
-        example: "if let Some(RiddleTask::Sort { numbers }) = world.active_riddle {\n    // numbers ist die Zahlenreihe\n}",
+        what: "Enthält das Rätsel, das du angefordert hast, als Option – oder None, wenn gerade keins aktiv ist. So kann dein Bot erkennen, ob er einen neuen Auftrag anfordern oder ein vorhandenes Rätsel bearbeiten soll.",
+        how: "Prüfe mit world.active_riddle.is_none(), ob du ein neues Rätsel anfordern kannst. Die genaue Rätselart lernst du auf der dazugehörigen Karte.",
+        example: "if world.active_riddle.is_none() {\n    // noch kein Rätsel aktiv\n}",
     },
     Command {
         key: "OPTION_IS_NONE",
@@ -1012,7 +1339,7 @@ pub static COMMANDS: [Command; 54] = [
         summary: "Prüft, ob ein Option-Wert fehlt oder vorhanden ist.",
         what: "Wenn du ein Option nicht sofort auspacken willst, sondern nur wissen möchtest, ob es leer ist, liefert .is_none() den Wert true bei None. Umgekehrt liefert .is_some() den Wert true, wenn Some(...) darin steckt.",
         how: "Hänge .is_none() oder .is_some() mit Punkt und leeren Klammern an ein Option-Feld wie world.active_riddle an.",
-        example: "if world.active_riddle.is_none() {\n    actions.request_research(UpgradeTrack::DroneScanner);\n}",
+        example: "if world.active_riddle.is_none() {\n    actions.request_research(UpgradeTrack::BaseAsteroidScanner);\n}",
     },
     Command {
         key: "ACTIONS_REQUEST_RESEARCH",
@@ -1023,11 +1350,11 @@ pub static COMMANDS: [Command; 54] = [
         summary: "Fordert ein Forschungsrätsel für einen der vier Technologiebäume an.",
         what: "Startet ein Forschungsrätsel an der Heimatbasis (kostet Erz je nach Stufe). Du kannst frei zwischen vier Zweigen wählen: UpgradeTrack::DroneScanner (Drohnen-Scan), UpgradeTrack::BaseAsteroidScanner (Basis-Scan), UpgradeTrack::RadarHorizon (Radar-Horizont) und UpgradeTrack::EnergyProduction (Energieproduktion).",
         how: "Übergib die gewünschte UpgradeTrack-Variante, wenn world.active_riddle.is_none() wahr ist.",
-        example: "if world.active_riddle.is_none() {\n    actions.request_research(UpgradeTrack::DroneScanner);\n}",
+        example: "if world.active_riddle.is_none() {\n    actions.request_research(UpgradeTrack::BaseAsteroidScanner);\n}",
     },
     Command {
         key: "LET_BINDING",
-        box_step: 19,
+        box_step: 21,
         icon: "📝",
         category: "Rust-Syntax",
         title: "let x = ...; / let mut x = ...;",
@@ -1038,7 +1365,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "CLONE_AND_SORT",
-        box_step: 19,
+        box_step: 21,
         icon: "📑",
         category: "Rust-Syntax",
         title: "let mut sorted = numbers.clone(); sorted.sort();",
@@ -1049,29 +1376,29 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "RIDDLE_SORT",
-        box_step: 19,
+        box_step: 21,
         icon: "🔢",
         category: "Forschung",
         title: "RiddleTask::Sort { numbers } / RiddleSolution::Sort(sorted)",
-        summary: "Rätsel für Zweig 1 (Drohnen-Scanner): Zahlenreihe aufsteigend sortieren.",
-        what: "Beim Forschungszweig UpgradeTrack::DroneScanner erhältst du eine unsortierte Liste ganzer Zahlen (numbers: &Vec<i64>). Als Lösung reichst du dieselben Zahlen aufsteigend sortiert als RiddleSolution::Sort(...) ein.",
+        summary: "Rätsel für Zweig 2 (Basen- und Asteroidenscanner): Zahlenreihe aufsteigend sortieren.",
+        what: "Beim Forschungszweig UpgradeTrack::BaseAsteroidScanner erhältst du eine unsortierte Liste ganzer Zahlen (numbers: &Vec<i64>). Als Lösung reichst du dieselben Zahlen aufsteigend sortiert als RiddleSolution::Sort(...) ein.",
         how: "Packe RiddleTask::Sort { numbers } mit if let Some aus, klone und sortiere numbers und übergib RiddleSolution::Sort(sorted) an actions.solve_riddle.",
         example: "if let Some(RiddleTask::Sort { numbers }) = world.active_riddle {\n    let mut sorted = numbers.clone();\n    sorted.sort();\n    actions.solve_riddle(RiddleSolution::Sort(sorted));\n}",
     },
     Command {
         key: "RIDDLE_DISTANCE",
-        box_step: 19,
+        box_step: 37,
         icon: "📐",
         category: "Forschung",
         title: "RiddleTask::Distance { base, targets } / RiddleSolution::Distance(d)",
-        summary: "Rätsel für Zweig 2 (Basen- & Asteroidenscan): Abstände berechnen.",
-        what: "Beim Zweig UpgradeTrack::BaseAsteroidScanner bekommst du die Position base (Vec2) und eine Liste von Zielpunkten targets (&Vec<Vec2>). Für jeden Zielpunkt berechnest du den Abstand zu base.",
+        summary: "Rätsel für Zweig 1 (Drohnen-Scanner): Abstände zu Zielpunkten berechnen.",
+        what: "Beim Zweig UpgradeTrack::DroneScanner bekommst du die Position base (Vec2) und eine Liste von Zielpunkten targets (&Vec<Vec2>). Für jeden Zielpunkt berechnest du den Abstand zu base.",
         how: "Gehe targets durch, berechne für jeden Punkt base.distance(t) und sammle die Ergebnisse in einem Vec<f32>, den du mit RiddleSolution::Distance(...) einreichst.",
         example: "if let Some(RiddleTask::Distance { base, targets }) = world.active_riddle {\n    let dists = targets.iter().map(|t| base.distance(t)).collect();\n    actions.solve_riddle(RiddleSolution::Distance(dists));\n}",
     },
     Command {
         key: "RIDDLE_DENOISE",
-        box_step: 19,
+        box_step: 37,
         icon: "📡",
         category: "Forschung",
         title: "RiddleTask::Denoise { readings, threshold } / RiddleSolution::Denoise(c)",
@@ -1082,7 +1409,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "RIDDLE_ENERGY",
-        box_step: 19,
+        box_step: 37,
         icon: "⚡",
         category: "Forschung",
         title: "RiddleTask::Energy { consumers, budget } / RiddleSolution::Energy(n)",
@@ -1093,7 +1420,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "ACTIONS_SOLVE_RIDDLE",
-        box_step: 19,
+        box_step: 21,
         icon: "✅",
         category: "Forschung",
         title: "actions.solve_riddle(solution)",
@@ -1104,18 +1431,18 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "ACTIONS_BUILD_DRONE_2",
-        box_step: 21,
+        box_step: 23,
         icon: "🚀",
         category: "Basis-Befehle",
         title: "actions.build_drone(2)",
         summary: "Baut eine schwere Stufe-2-Drohne für 150 Erz und 200 Energie.",
         what: "Gibt eine schwere Stufe-2-Drohne in Auftrag. Sie kostet 150 Erz sowie 200 Energie aus der Basis, hat dreifache Frachtkapazität (150 Erz), höhere Geschwindigkeit (150 px/s) und eine doppelt so große Batterie (200 Energie).",
         how: "Übergib die Stufe 2 und achte darauf, dass genug Erz und Energie in der Basis gelagert sind.",
-        example: "if world.base.stored_ore >= 150 && world.base.stored_energy >= 200.0 {\n    actions.build_drone(2);\n}",
+        example: "if world.base.stored_ore >= space_bot_sdk::DRONE_TIER_2_COST && world.base.stored_energy >= 200.0 {\n    actions.build_drone(2);\n}",
     },
     Command {
         key: "ACTIONS_FLY_TO",
-        box_step: 22,
+        box_step: 25,
         icon: "🧭",
         category: "Schiffs-Befehle",
         title: "actions.fly_to(ship_id, target)",
@@ -1126,7 +1453,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "ACTIONS_STOP",
-        box_step: 22,
+        box_step: 27,
         icon: "🛑",
         category: "Schiffs-Befehle",
         title: "actions.stop(ship_id)",
@@ -1137,7 +1464,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "VEC2_NEW",
-        box_step: 22,
+        box_step: 25,
         icon: "📐",
         category: "Welt & Sensoren",
         title: "Vec2::new(x, y) / Vec2::ZERO",
@@ -1148,7 +1475,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "VEC2_DISTANCE",
-        box_step: 22,
+        box_step: 37,
         icon: "📏",
         category: "Welt & Sensoren",
         title: "pos.distance(&other)",
@@ -1159,7 +1486,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "WORLD_SHIP",
-        box_step: 22,
+        box_step: 31,
         icon: "🔍",
         category: "Welt & Sensoren",
         title: "world.ship(ship_id)",
@@ -1170,7 +1497,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "WORLD_CLOSEST_ASTEROID_ANY",
-        box_step: 22,
+        box_step: 29,
         icon: "🪨",
         category: "Welt & Sensoren",
         title: "world.closest_asteroid(pos)",
@@ -1181,7 +1508,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "WORLD_ASTEROIDS",
-        box_step: 22,
+        box_step: 29,
         icon: "🌌",
         category: "Welt & Sensoren",
         title: "world.asteroids",
@@ -1192,7 +1519,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "WORLD_OTHER_DRONES",
-        box_step: 22,
+        box_step: 35,
         icon: "👀",
         category: "Welt & Sensoren",
         title: "world.other_drones",
@@ -1203,7 +1530,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "WORLD_OTHER_BASES",
-        box_step: 22,
+        box_step: 35,
         icon: "🛰️",
         category: "Welt & Sensoren",
         title: "world.other_bases",
@@ -1214,7 +1541,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "WORLD_TICK",
-        box_step: 22,
+        box_step: 37,
         icon: "⏱️",
         category: "Welt & Sensoren",
         title: "world.tick",
@@ -1225,7 +1552,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_TIER",
-        box_step: 22,
+        box_step: 31,
         icon: "⭐",
         category: "Schiffs-Status",
         title: "drone.ship_tier",
@@ -1236,7 +1563,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_CARGO",
-        box_step: 22,
+        box_step: 31,
         icon: "📦",
         category: "Schiffs-Status",
         title: "drone.cargo_ore / drone.max_cargo / drone.cargo_free_space()",
@@ -1247,7 +1574,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_MOTION",
-        box_step: 22,
+        box_step: 27,
         icon: "💨",
         category: "Schiffs-Status",
         title: "drone.velocity / drone.speed / drone.max_speed / drone.heading_rad",
@@ -1258,7 +1585,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_TARGETS_AND_STATUS",
-        box_step: 22,
+        box_step: 31,
         icon: "🎯",
         category: "Schiffs-Status",
         title: "drone.target_position / drone.target_asteroid_id / drone.is_mining",
@@ -1269,7 +1596,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_SIGNAL_AND_STRANDED",
-        box_step: 22,
+        box_step: 33,
         icon: "📶",
         category: "Schiffs-Status",
         title: "drone.is_stranded / drone.signal_countdown",
@@ -1280,7 +1607,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "DRONE_DISTANCE_TO",
-        box_step: 22,
+        box_step: 27,
         icon: "📏",
         category: "Schiffs-Status",
         title: "drone.distance_to(&target)",
@@ -1291,7 +1618,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "BASE_STORED_ENERGY",
-        box_step: 22,
+        box_step: 23,
         icon: "⚡",
         category: "Basis-Befehle",
         title: "world.base.stored_energy",
@@ -1302,7 +1629,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "BASE_POSITION_AND_SIGNAL",
-        box_step: 22,
+        box_step: 25,
         icon: "📡",
         category: "Welt & Sensoren",
         title: "world.base.position / signal_radius / is_in_range(&pos) / distance_to(&pos)",
@@ -1313,7 +1640,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "BASE_RESEARCH_LEVELS",
-        box_step: 22,
+        box_step: 37,
         icon: "🔬",
         category: "Forschung",
         title: "world.base.*_level / *_progress / *_range()",
@@ -1324,7 +1651,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "ASTEROID_POSITION_AND_DISTANCE",
-        box_step: 22,
+        box_step: 29,
         icon: "☄️",
         category: "Welt & Sensoren",
         title: "asteroid.position / velocity / radius / distance_to(&pos)",
@@ -1335,7 +1662,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "ASTEROID_ORE_AND_TYPE",
-        box_step: 22,
+        box_step: 29,
         icon: "💎",
         category: "Welt & Sensoren",
         title: "asteroid.remaining_ore / is_depleted() / resource_type / resource_name()",
@@ -1346,7 +1673,7 @@ pub static COMMANDS: [Command; 54] = [
     },
     Command {
         key: "SDK_DRONE_COSTS",
-        box_step: 22,
+        box_step: 23,
         icon: "🪙",
         category: "Basis-Befehle",
         title: "DRONE_TIER_1_COST / DRONE_TIER_2_COST",
@@ -1409,7 +1736,7 @@ mod tests {
 
     #[test]
     fn loot_box_steps_match_constant_and_alternate() {
-        let box_indices: [u8; 9] = [
+        let box_indices: [u8; 16] = [
             STEPS[5].index,
             STEPS[7].index,
             STEPS[9].index,
@@ -1419,6 +1746,13 @@ mod tests {
             STEPS[17].index,
             STEPS[19].index,
             STEPS[21].index,
+            STEPS[23].index,
+            STEPS[25].index,
+            STEPS[27].index,
+            STEPS[29].index,
+            STEPS[31].index,
+            STEPS[33].index,
+            STEPS[35].index,
         ];
         assert_eq!(box_indices, LOOT_BOX_STEPS);
         for s in &LOOT_BOX_STEPS {
@@ -1429,7 +1763,7 @@ mod tests {
 
     #[test]
     fn coding_steps_reference_preceding_loot_box_keys() {
-        for s in [6, 8, 10, 12, 14, 16, 18, 20] {
+        for s in [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36] {
             let coding_step = &STEPS[s];
             let preceding_box = &STEPS[s - 1];
             assert_eq!(

@@ -62,40 +62,58 @@ mod tests {
                     "WORLD_ACTIVE_RIDDLE",
                     "OPTION_IS_NONE",
                     "ACTIONS_REQUEST_RESEARCH",
+                ],
+            ),
+            (
+                21,
+                &[
                     "LET_BINDING",
                     "CLONE_AND_SORT",
                     "RIDDLE_SORT",
-                    "RIDDLE_DISTANCE",
-                    "RIDDLE_DENOISE",
-                    "RIDDLE_ENERGY",
                     "ACTIONS_SOLVE_RIDDLE",
                 ],
             ),
-            (21, &["ACTIONS_BUILD_DRONE_2"]),
+            (
+                23,
+                &[
+                    "ACTIONS_BUILD_DRONE_2",
+                    "BASE_STORED_ENERGY",
+                    "SDK_DRONE_COSTS",
+                ],
+            ),
+            (
+                25,
+                &["ACTIONS_FLY_TO", "VEC2_NEW", "BASE_POSITION_AND_SIGNAL"],
+            ),
+            (27, &["ACTIONS_STOP", "DRONE_MOTION", "DRONE_DISTANCE_TO"]),
+            (
+                29,
+                &[
+                    "WORLD_ASTEROIDS",
+                    "WORLD_CLOSEST_ASTEROID_ANY",
+                    "ASTEROID_POSITION_AND_DISTANCE",
+                    "ASTEROID_ORE_AND_TYPE",
+                ],
+            ),
+            (
+                31,
+                &[
+                    "WORLD_SHIP",
+                    "DRONE_TIER",
+                    "DRONE_CARGO",
+                    "DRONE_TARGETS_AND_STATUS",
+                ],
+            ),
+            (33, &["DRONE_SIGNAL_AND_STRANDED"]),
+            (35, &["WORLD_OTHER_DRONES", "WORLD_OTHER_BASES"]),
         ];
         let expected_free_play: &[&str] = &[
-            "ACTIONS_FLY_TO",
-            "ACTIONS_STOP",
-            "VEC2_NEW",
             "VEC2_DISTANCE",
-            "WORLD_SHIP",
-            "WORLD_CLOSEST_ASTEROID_ANY",
-            "WORLD_ASTEROIDS",
-            "WORLD_OTHER_DRONES",
-            "WORLD_OTHER_BASES",
             "WORLD_TICK",
-            "DRONE_TIER",
-            "DRONE_CARGO",
-            "DRONE_MOTION",
-            "DRONE_TARGETS_AND_STATUS",
-            "DRONE_SIGNAL_AND_STRANDED",
-            "DRONE_DISTANCE_TO",
-            "BASE_STORED_ENERGY",
-            "BASE_POSITION_AND_SIGNAL",
             "BASE_RESEARCH_LEVELS",
-            "ASTEROID_POSITION_AND_DISTANCE",
-            "ASTEROID_ORE_AND_TYPE",
-            "SDK_DRONE_COSTS",
+            "RIDDLE_DISTANCE",
+            "RIDDLE_DENOISE",
+            "RIDDLE_ENERGY",
         ];
         assert_eq!(
             LOOT_BOX_STEPS.as_slice(),
@@ -112,7 +130,7 @@ mod tests {
             assert!(is_loot_box_step(*step));
             assert!(!is_loot_box_step(*step + 1));
         }
-        let free_play_keys: Vec<_> = commands_for_box(22).iter().map(|c| c.key).collect();
+        let free_play_keys: Vec<_> = commands_for_box(37).iter().map(|c| c.key).collect();
         assert_eq!(free_play_keys, expected_free_play);
         assert!(commands_for_coding_step(0).is_empty());
     }

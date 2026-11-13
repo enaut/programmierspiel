@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 /// Die vier verfügbaren Upgrade-Zweige für die Heimatbasis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpgradeTrack {
-    /// 1: Erhöht die Drohnenscan-Reichweite (150m bis 350m). Rätsel: Listen sortieren.
+    /// 1: Erhöht die Drohnenscan-Reichweite (150m bis 350m). Rätsel: Distanzberechnung.
     DroneScanner = 1,
-    /// 2: Erhöht den Scanbereich für Asteroiden & Basen (300m bis 700m). Rätsel: Distanzberechnung.
+    /// 2: Erhöht den Scanbereich für Asteroiden & Basen (300m bis 700m). Rätsel: Listen sortieren.
     BaseAsteroidScanner = 2,
     /// 3: Erhöht den Radar-Horizont für Kontakte (600m bis 1200m). Rätsel: Spikes filtern (Denoising).
     RadarHorizon = 3,
@@ -43,26 +43,26 @@ impl UpgradeTrack {
 // Rätsel-Datenstrukturen
 // ==========================================
 
-/// Aufgabenstellung für Track 1: Telemetrie-Zahlen sortieren
+/// Aufgabenstellung für Track 2: Telemetrie-Zahlen sortieren
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SortPayload {
     pub numbers: Vec<i64>,
 }
 
-/// Lösung für Track 1
+/// Lösung für Track 2
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SortSolution {
     pub sorted: Vec<i64>,
 }
 
-/// Aufgabenstellung für Track 2: Distanzen von der Basis zu Zielpunkten berechnen
+/// Aufgabenstellung für Track 1: Distanzen von der Basis zu Zielpunkten berechnen
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DistancePayload {
     pub base: [f32; 2],
     pub targets: Vec<[f32; 2]>,
 }
 
-/// Lösung für Track 2
+/// Lösung für Track 1
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DistanceSolution {
     pub distances: Vec<f32>,
@@ -97,10 +97,10 @@ pub struct EnergySolution {
 /// Stark typisierte Aufgabenstellung eines Forschungsrätsels.
 #[derive(Debug, Clone)]
 pub enum RiddleTask {
-    /// Track 1: Drohnen-Scanner (Zahlenreihe aufsteigend sortieren)
-    Sort { numbers: Vec<i64> },
-    /// Track 2: Basen- und Asteroidenscanner (Distanzen von Basis zu Zielkoordinaten berechnen)
+    /// Track 1: Drohnen-Scanner (Distanzen von Basis zu Zielkoordinaten berechnen)
     Distance { base: Vec2, targets: Vec<Vec2> },
+    /// Track 2: Basen- und Asteroidenscanner (Zahlenreihe aufsteigend sortieren)
+    Sort { numbers: Vec<i64> },
     /// Track 3: Radar-Horizont (Störsignale über Schwellenwert entfernen)
     Denoise { readings: Vec<f32>, threshold: f32 },
     /// Track 4: Energieproduktion (Anzahl Verbraucher bestimmen, die ins Budget passen)
@@ -111,12 +111,6 @@ impl RiddleTask {
     pub fn from_public_riddle(riddle: &PublicRiddle) -> Option<Self> {
         match riddle.track {
             1 => {
-                let payload: SortPayload = serde_json::from_str(&riddle.payload).ok()?;
-                Some(Self::Sort {
-                    numbers: payload.numbers,
-                })
-            }
-            2 => {
                 let payload: DistancePayload = serde_json::from_str(&riddle.payload).ok()?;
                 Some(Self::Distance {
                     base: Vec2::new(payload.base[0], payload.base[1]),
@@ -125,6 +119,12 @@ impl RiddleTask {
                         .into_iter()
                         .map(|t| Vec2::new(t[0], t[1]))
                         .collect(),
+                })
+            }
+            2 => {
+                let payload: SortPayload = serde_json::from_str(&riddle.payload).ok()?;
+                Some(Self::Sort {
+                    numbers: payload.numbers,
                 })
             }
             3 => {
@@ -179,10 +179,54 @@ impl RiddleSolution {
 
     pub fn track(&self) -> u8 {
         match self {
-            Self::Sort(_) => 1,
-            Self::Distance(_) => 2,
+            Self::Sort(_) => 2,
+            Self::Distance(_) => 1,
             Self::Denoise(_) => 3,
             Self::Energy(_) => 4,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn public_riddle(track: u8, payload: &str) -> PublicRiddle {
+        PublicRiddle {
+            puzzle_id: 1,
+            track,
+            target_level: 2,
+            payload: payload.to_string(),
+        }
+    }
+
+    #[test]
+    fn track_1_decodes_distance_riddle() {
+        let payload = serde_json::to_string(&DistancePayload {
+            base: [10.0, 20.0],
+            targets: vec![[13.0, 24.0]],
+        })
+        .unwrap();
+
+        let task = RiddleTask::from_public_riddle(&public_riddle(1, &payload)).unwrap();
+        assert!(matches!(
+            task,
+            RiddleTask::Distance { base, targets }
+                if base.x == 10.0 && base.y == 20.0
+                    && targets.len() == 1 && targets[0].x == 13.0 && targets[0].y == 24.0
+        ));
+        assert_eq!(RiddleSolution::Distance(vec![5.0]).track(), 1);
+    }
+
+    #[test]
+    fn track_2_decodes_sort_riddle() {
+        let payload = serde_json::to_string(&SortPayload {
+            numbers: vec![3, 1, 2],
+        })
+        .unwrap();
+
+        let task = RiddleTask::from_public_riddle(&public_riddle(2, &payload)).unwrap();
+        assert!(matches!(task, RiddleTask::Sort { numbers } if numbers == vec![3, 1, 2]));
+        assert_eq!(RiddleSolution::Sort(vec![1, 2, 3]).track(), 2);
     }
 }
