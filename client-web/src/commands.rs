@@ -57,48 +57,67 @@ mod tests {
                 ],
             ),
             (15, &["FOR_IN_FLEET"]),
-            (17, &["DRONE_IS_DOCKED", "DRONE_ENERGY", "ELSE_IF"]),
+            (
+                17,
+                &[
+                    "DRONE_IS_DOCKED",
+                    "SHIP_ENERGY",
+                    "SHIP_MAX_ENERGY",
+                    "SHIP_ENERGY_PERCENT",
+                    "ELSE_IF",
+                ],
+            ),
             (
                 19,
                 &[
                     "WORLD_ACTIVE_RIDDLE",
                     "OPTION_IS_NONE",
                     "ACTIONS_REQUEST_RESEARCH",
+                ],
+            ),
+            (
+                21,
+                &[
                     "LET_BINDING",
                     "CLONE_AND_SORT",
                     "RIDDLE_SORT",
-                    "RIDDLE_DISTANCE",
-                    "RIDDLE_DENOISE",
-                    "RIDDLE_ENERGY",
                     "ACTIONS_SOLVE_RIDDLE",
-                ],
-            ),
-            (21, &["ACTIONS_BUILD_DRONE_2"]),
-            (
-                22,
-                &[
-                    "SHIP_TIER",
-                    "SHIP_VELOCITY",
-                    "SHIP_TARGET_POSITION",
-                    "SHIP_HEADING",
-                    "SHIP_SPEED",
-                    "SHIP_MAX_SPEED",
-                    "SHIP_ENERGY",
-                    "SHIP_MAX_ENERGY",
-                    "SHIP_CARGO_ORE",
-                    "SHIP_MAX_CARGO",
-                    "SHIP_TARGET_ASTEROID_ID",
-                    "SHIP_IS_MINING",
-                    "SHIP_IS_STRANDED",
-                    "SHIP_SIGNAL_COUNTDOWN",
-                    "SHIP_DISTANCE_TO",
-                    "SHIP_CARGO_FREE_SPACE",
-                    "SHIP_ENERGY_PERCENT",
-                    "WORLD_SHIP",
                 ],
             ),
             (
                 23,
+                &[
+                    "WORLD_BASE",
+                    "ACTIONS_BUILD_DRONE_2",
+                    "BASE_STORED_ENERGY",
+                    "SDK_DRONE_COSTS",
+                ],
+            ),
+            (
+                25,
+                &[
+                    "ACTIONS_FLY_TO",
+                    "VEC2_NEW",
+                    "BASE_POSITION",
+                    "BASE_SIGNAL_RADIUS",
+                    "BASE_DISTANCE_TO",
+                    "BASE_IS_IN_RANGE",
+                ],
+            ),
+            (
+                27,
+                &[
+                    "ACTIONS_STOP",
+                    "SHIP_VELOCITY",
+                    "SHIP_SPEED",
+                    "SHIP_MAX_SPEED",
+                    "SHIP_HEADING",
+                    "SHIP_TARGET_POSITION",
+                    "SHIP_DISTANCE_TO",
+                ],
+            ),
+            (
+                29,
                 &[
                     "WORLD_ASTEROIDS",
                     "WORLD_CLOSEST_ASTEROID_ANY",
@@ -110,78 +129,63 @@ mod tests {
                     "ASTEROID_DISTANCE_TO",
                     "ASTEROID_IS_DEPLETED",
                     "ASTEROID_RESOURCE_NAME",
-                    "VEC2_NEW",
-                    "VEC2_ZERO",
-                    "VEC2_XY",
                     "VEC2_DISTANCE",
                 ],
             ),
             (
-                24,
+                31,
                 &[
-                    "WORLD_BASE",
-                    "WORLD_TICK",
-                    "BASE_POSITION",
-                    "BASE_SIGNAL_RADIUS",
-                    "BASE_STORED_ENERGY",
-                    "BASE_LEVEL",
-                    "BASE_DRONE_SCANNER_LEVEL",
-                    "BASE_BASE_SCANNER_LEVEL",
-                    "BASE_RADAR_HORIZON_LEVEL",
-                    "BASE_DISTANCE_TO",
-                    "BASE_IS_IN_RANGE",
-                    "BASE_DRONE_SCANNER_RANGE",
-                    "BASE_BASE_SCANNER_RANGE",
-                    "BASE_RADAR_HORIZON_RANGE",
+                    "WORLD_SHIP",
+                    "DRONE_TIER",
+                    "SHIP_CARGO_ORE",
+                    "SHIP_MAX_CARGO",
+                    "SHIP_CARGO_FREE_SPACE",
+                    "SHIP_TARGET_ASTEROID_ID",
+                    "SHIP_IS_MINING",
                 ],
             ),
+            (33, &["SHIP_IS_STRANDED", "SHIP_SIGNAL_COUNTDOWN"]),
             (
-                25,
+                35,
                 &[
                     "WORLD_OTHER_DRONES",
-                    "WORLD_OTHER_BASES",
                     "OTHER_DRONE_SHIP_ID",
                     "OTHER_DRONE_TIER",
                     "OTHER_DRONE_POSITION",
                     "OTHER_DRONE_HEADING",
                     "OTHER_DRONE_SPEED",
                     "OTHER_DRONE_IS_MINING",
+                    "WORLD_OTHER_BASES",
                     "OTHER_BASE_ID",
                     "OTHER_BASE_POSITION",
                     "OTHER_BASE_SIGNAL_RADIUS",
                     "OTHER_BASE_LEVEL",
                     "OTHER_BASE_SCANNER_LEVELS",
-                    "CONTACT_ID",
-                    "CONTACT_POSITION",
-                ],
-            ),
-            (
-                26,
-                &[
-                    "ACTIONS_FLY_TO",
-                    "ACTIONS_STOP",
-                    "UPGRADE_TRACK_BASE_ASTEROID",
-                    "UPGRADE_TRACK_RADAR_HORIZON",
-                    "UPGRADE_TRACK_NAME",
-                    "RIDDLE_TASK_DISTANCE",
-                    "RIDDLE_TASK_DENOISE",
-                    "RIDDLE_SOLUTION_DISTANCE",
-                    "RIDDLE_SOLUTION_DENOISE",
                 ],
             ),
         ];
         let expected_free_play: &[&str] = &[
-            "DRONE_TIER",
-            "DRONE_CARGO",
-            "DRONE_MOTION",
-            "DRONE_TARGETS_AND_STATUS",
-            "DRONE_SIGNAL_AND_STRANDED",
-            "DRONE_DISTANCE_TO",
-            "BASE_POSITION_AND_SIGNAL",
+            "VEC2_ZERO",
+            "VEC2_XY",
+            "WORLD_TICK",
+            "BASE_LEVEL",
+            "BASE_DRONE_SCANNER_LEVEL",
+            "BASE_BASE_SCANNER_LEVEL",
+            "BASE_RADAR_HORIZON_LEVEL",
+            "BASE_DRONE_SCANNER_RANGE",
+            "BASE_BASE_SCANNER_RANGE",
+            "BASE_RADAR_HORIZON_RANGE",
             "BASE_RESEARCH_LEVELS",
-            "ASTEROID_POSITION_AND_DISTANCE",
-            "ASTEROID_ORE_AND_TYPE",
-            "SDK_DRONE_COSTS",
+            "RIDDLE_DISTANCE",
+            "RIDDLE_DENOISE",
+            "RIDDLE_ENERGY",
+            "UPGRADE_TRACK_BASE_ASTEROID",
+            "UPGRADE_TRACK_RADAR_HORIZON",
+            "UPGRADE_TRACK_NAME",
+            "RIDDLE_TASK_DISTANCE",
+            "RIDDLE_TASK_DENOISE",
+            "RIDDLE_SOLUTION_DISTANCE",
+            "RIDDLE_SOLUTION_DENOISE",
         ];
         assert_eq!(
             LOOT_BOX_STEPS.as_slice(),
@@ -190,13 +194,11 @@ mod tests {
         for (step, keys) in expected {
             let box_keys: Vec<_> = commands_for_box(*step).iter().map(|c| c.key).collect();
             assert_eq!(box_keys, *keys);
-            if *step <= 19 {
-                let coding_keys: Vec<_> = commands_for_coding_step(*step + 1)
-                    .iter()
-                    .map(|c| c.key)
-                    .collect();
-                assert_eq!(coding_keys, *keys);
-            }
+            let coding_keys: Vec<_> = commands_for_coding_step(*step + 1)
+                .iter()
+                .map(|c| c.key)
+                .collect();
+            assert_eq!(coding_keys, *keys);
             assert!(is_loot_box_step(*step));
         }
         let free_play_keys: Vec<_> = commands_for_box(curriculum::FINAL_STEP)

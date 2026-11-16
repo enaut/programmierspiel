@@ -18,7 +18,7 @@ pub enum TutorialEvent {
     BridgeConfirmed,
     /// AI agent bound to home base station (Step 4 -> 5)
     BaseAgentConnected,
-    /// Command card claimed from a lootbox.
+    /// Command card claimed from lootbox (odd steps 5..=35)
     LootBoxClaimed { remaining_in_box: usize },
     /// Student submitted drone coordinates (Step 6 -> 7)
     SubmitCoordinates { x: i32, y: i32 },
@@ -26,17 +26,34 @@ pub enum TutorialEvent {
     SubmitAsteroidId { asteroid_id: u32 },
     /// Drone mined ore from asteroid (Step 10 -> 11)
     OreMined { amount: u32 },
-    /// Ore delivered to home base station (Step 12 -> 13, Step 16 -> 17)
+    /// Ore delivered to the home base (Steps 12, 16, and 36).
     OreDelivered {
         base_stored_ore: u32,
         fleet_size: usize,
+        delivered_ore: u32,
     },
-    /// New ship constructed at home base (Step 14 -> 15)
+    /// New ship constructed at home base (Steps 14 -> 15 and 24 -> 25).
     ShipBuilt { tier: u8 },
-    /// Drone battery recharged at base dock (Step 18 -> 19)
+    /// Drone battery recharged at the base dock (Step 18 -> 19).
     DroneRecharged { energy: f32, max_energy: f32 },
-    /// Telemetry research riddle solved (Step 20 -> 21)
-    RiddleSolved,
+    /// A research request was accepted by the server.
+    ResearchRequested { track: u8 },
+    /// A research riddle was solved successfully.
+    RiddleSolved { track: u8 },
+    /// A flight command was accepted for a safe, non-trivial distance.
+    FlightCommanded {
+        target_is_tutorial_destination: bool,
+        target_within_signal: bool,
+    },
+    /// A drone was stopped close to the tutorial destination.
+    StopCommanded { distance_to_target: f32 },
+    /// A dock command was issued with cargo or battery/signal at the tutorial threshold.
+    DroneDocked {
+        cargo_ore: u32,
+        max_cargo: u32,
+        energy_percent: f32,
+        signal_countdown: u16,
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -147,9 +164,12 @@ pub fn evaluate_transition(
             }
         }
 
-        // Step 10 -> 11: First ore mined
+        // Step 10 -> 11 and Step 30 -> 31: Ore mined from a known asteroid
         (10, TutorialEvent::OreMined { amount }) if *amount > 0 => {
             TransitionOutcome::advance(10, 11)
+        }
+        (30, TutorialEvent::OreMined { amount }) if *amount > 0 => {
+            TransitionOutcome::advance(30, 31)
         }
 
         // Step 12 -> 13: Ore delivery to base >= 50
@@ -167,16 +187,64 @@ pub fn evaluate_transition(
         (16, TutorialEvent::OreDelivered { fleet_size, .. }) if *fleet_size >= 2 => {
             TransitionOutcome::advance(16, 17)
         }
+        // Step 36 -> 37: Continue mining and deliver some ore
+        (36, TutorialEvent::OreDelivered { delivered_ore, .. }) if *delivered_ore > 0 => {
+            TransitionOutcome::advance(36, 37)
+        }
+
+        // Step 24 -> 25: Build the required tier-2 drone
+        (24, TutorialEvent::ShipBuilt { tier: 2 }) => TransitionOutcome::advance(24, 25),
 
         // Step 18 -> 19: Drone recharged to full
         (18, TutorialEvent::DroneRecharged { energy, max_energy }) if *energy >= *max_energy => {
             TransitionOutcome::advance(18, 19)
         }
 
-        // Step 20 -> 21: Riddle solved
-        (20, TutorialEvent::RiddleSolved) => TransitionOutcome::advance(20, 21),
+        // Step 20 -> 21: Research request accepted for the asteroid scanner
+        (20, TutorialEvent::ResearchRequested { track: 2 }) => TransitionOutcome::advance(20, 21),
 
-        // Lootbox claims advance after the final unclaimed card is collected.
+        // Step 22 -> 23: Sorting riddle solved for the asteroid scanner
+        (22, TutorialEvent::RiddleSolved { track: 2 }) => TransitionOutcome::advance(22, 23),
+
+        // Step 26 -> 27: Fly to the tutorial destination within base signal
+        (
+            26,
+            TutorialEvent::FlightCommanded {
+                target_is_tutorial_destination: true,
+                target_within_signal: true,
+            },
+        ) => TransitionOutcome::advance(26, 27),
+
+        // Step 28 -> 29: Stop within 30m of the navigation target
+        (28, TutorialEvent::StopCommanded { distance_to_target })
+            if *distance_to_target <= 30.0 =>
+        {
+            TransitionOutcome::advance(28, 29)
+        }
+
+        // Step 32 -> 33: Return a full cargo hold
+        (
+            32,
+            TutorialEvent::DroneDocked {
+                cargo_ore,
+                max_cargo,
+                ..
+            },
+        ) if *cargo_ore >= *max_cargo && *max_cargo > 0 => TransitionOutcome::advance(32, 33),
+
+        // Step 34 -> 35: Return before the signal or battery becomes critical
+        (
+            34,
+            TutorialEvent::DroneDocked {
+                energy_percent,
+                signal_countdown,
+                ..
+            },
+        ) if *energy_percent <= 0.25 || *signal_countdown <= 10 => {
+            TransitionOutcome::advance(34, 35)
+        }
+
+        // Odd steps 5..=35: Lootbox claims
         (step, TutorialEvent::LootBoxClaimed { remaining_in_box })
             if curriculum::is_loot_box_step(step) && *remaining_in_box <= 1 =>
         {
@@ -383,7 +451,8 @@ mod tests {
                 12,
                 &TutorialEvent::OreDelivered {
                     base_stored_ore: 49,
-                    fleet_size: 1
+                    fleet_size: 1,
+                    delivered_ore: 1,
                 },
                 &snap_low_ore
             ),
@@ -395,7 +464,8 @@ mod tests {
                 12,
                 &TutorialEvent::OreDelivered {
                     base_stored_ore: 50,
-                    fleet_size: 1
+                    fleet_size: 1,
+                    delivered_ore: 1,
                 },
                 &snap_low_ore
             ),
@@ -413,7 +483,8 @@ mod tests {
                 16,
                 &TutorialEvent::OreDelivered {
                     base_stored_ore: 100,
-                    fleet_size: 1
+                    fleet_size: 1,
+                    delivered_ore: 1,
                 },
                 &snap_low_ore
             ),
@@ -425,7 +496,8 @@ mod tests {
                 16,
                 &TutorialEvent::OreDelivered {
                     base_stored_ore: 100,
-                    fleet_size: 2
+                    fleet_size: 2,
+                    delivered_ore: 1,
                 },
                 &snap_low_ore
             ),
@@ -439,43 +511,167 @@ mod tests {
     }
 
     #[test]
-    fn final_loot_box_26_unlocks_free_play() {
+    fn new_coding_missions_require_their_server_side_conditions() {
+        let snap = TutorialSnapshot::default();
+
+        assert_eq!(
+            evaluate_transition(20, &TutorialEvent::ResearchRequested { track: 1 }, &snap),
+            TransitionOutcome::NoChange
+        );
+        assert_eq!(
+            evaluate_transition(20, &TutorialEvent::ResearchRequested { track: 2 }, &snap),
+            TransitionOutcome::advance(20, 21)
+        );
+        assert_eq!(
+            evaluate_transition(22, &TutorialEvent::RiddleSolved { track: 1 }, &snap),
+            TransitionOutcome::NoChange
+        );
+        assert_eq!(
+            evaluate_transition(22, &TutorialEvent::RiddleSolved { track: 2 }, &snap),
+            TransitionOutcome::advance(22, 23)
+        );
+        assert_eq!(
+            evaluate_transition(24, &TutorialEvent::ShipBuilt { tier: 2 }, &snap),
+            TransitionOutcome::advance(24, 25)
+        );
+        assert_eq!(
+            evaluate_transition(
+                26,
+                &TutorialEvent::FlightCommanded {
+                    target_is_tutorial_destination: true,
+                    target_within_signal: false,
+                },
+                &snap
+            ),
+            TransitionOutcome::NoChange
+        );
+        assert_eq!(
+            evaluate_transition(
+                26,
+                &TutorialEvent::FlightCommanded {
+                    target_is_tutorial_destination: true,
+                    target_within_signal: true,
+                },
+                &snap
+            ),
+            TransitionOutcome::advance(26, 27)
+        );
+        assert_eq!(
+            evaluate_transition(
+                26,
+                &TutorialEvent::FlightCommanded {
+                    target_is_tutorial_destination: false,
+                    target_within_signal: true,
+                },
+                &snap
+            ),
+            TransitionOutcome::NoChange
+        );
+        assert_eq!(
+            evaluate_transition(
+                28,
+                &TutorialEvent::StopCommanded {
+                    distance_to_target: 31.0
+                },
+                &snap
+            ),
+            TransitionOutcome::NoChange
+        );
+        assert_eq!(
+            evaluate_transition(
+                28,
+                &TutorialEvent::StopCommanded {
+                    distance_to_target: 30.0
+                },
+                &snap
+            ),
+            TransitionOutcome::advance(28, 29)
+        );
+        assert_eq!(
+            evaluate_transition(30, &TutorialEvent::OreMined { amount: 1 }, &snap),
+            TransitionOutcome::advance(30, 31)
+        );
+        assert_eq!(
+            evaluate_transition(
+                32,
+                &TutorialEvent::DroneDocked {
+                    cargo_ore: 49,
+                    max_cargo: 50,
+                    energy_percent: 1.0,
+                    signal_countdown: 30,
+                },
+                &snap
+            ),
+            TransitionOutcome::NoChange
+        );
+        assert_eq!(
+            evaluate_transition(
+                32,
+                &TutorialEvent::DroneDocked {
+                    cargo_ore: 50,
+                    max_cargo: 50,
+                    energy_percent: 1.0,
+                    signal_countdown: 30,
+                },
+                &snap
+            ),
+            TransitionOutcome::advance(32, 33)
+        );
+        assert_eq!(
+            evaluate_transition(
+                34,
+                &TutorialEvent::DroneDocked {
+                    cargo_ore: 0,
+                    max_cargo: 50,
+                    energy_percent: 0.24,
+                    signal_countdown: 20,
+                },
+                &snap
+            ),
+            TransitionOutcome::advance(34, 35)
+        );
+    }
+
+    #[test]
+    fn final_loot_box_35_leads_to_free_play_at_step_37() {
         let snap = TutorialSnapshot::default();
         assert_eq!(
             evaluate_transition(
-                22,
+                35,
                 &TutorialEvent::LootBoxClaimed {
                     remaining_in_box: 1
                 },
                 &snap
             ),
             TransitionOutcome::Advance {
-                from_step: 22,
-                to_step: 23,
+                from_step: 35,
+                to_step: 36,
                 is_completed: false,
                 free_play_unlocked: false,
             }
         );
         assert_eq!(
             evaluate_transition(
-                26,
-                &TutorialEvent::LootBoxClaimed {
-                    remaining_in_box: 1
+                36,
+                &TutorialEvent::OreDelivered {
+                    base_stored_ore: 1,
+                    fleet_size: 1,
+                    delivered_ore: 1,
                 },
                 &snap
             ),
             TransitionOutcome::Advance {
-                from_step: 26,
-                to_step: 27,
+                from_step: 36,
+                to_step: 37,
                 is_completed: true,
                 free_play_unlocked: true,
             }
         );
 
-        // Step 27 is terminal
+        // Step 37 is terminal
         assert_eq!(
             evaluate_transition(
-                27,
+                37,
                 &TutorialEvent::LootBoxClaimed {
                     remaining_in_box: 0
                 },

@@ -8,7 +8,7 @@ pub mod tutorial;
 use ::dioxus::prelude::*;
 use ::dioxus::signals::SyncSignal;
 use commands::{CommandHallModal, LootBoxRevealModal, is_loot_box_step};
-use curriculum::FINAL_STEP;
+
 use module_bindings::advance_tutorial_step_reducer::advance_tutorial_step;
 use module_bindings::build_ship_reducer::build_ship;
 use module_bindings::command_ship_reducer::command_ship;
@@ -563,8 +563,8 @@ fn CockpitApp() -> Element {
                     .collect()
             })
             .unwrap_or_default();
-        if my_step >= FINAL_STEP {
-            for cmd in commands::commands_for_box(FINAL_STEP) {
+        if my_step >= curriculum::FINAL_STEP {
+            for cmd in commands::commands_for_box(curriculum::FINAL_STEP) {
                 if !list.iter().any(|k| k == cmd.key) {
                     list.push(cmd.key.to_string());
                 }
@@ -1563,22 +1563,26 @@ fn BaseDashboardScreen(
     let p_sec_hue = player.secondary_color_hue;
     let base_pos = base.position.clone();
     let energy_display_level = base.energy_production_level.min(4) + 1;
-    let cost_t4 =
+    let step_t4 =
         base.energy_production_level as u32 * 100 + base.energy_production_progress as u32 + 1;
+    let cost_t4 = (step_t4 + 3) / 4;
     let cost_t4_text = if base.energy_production_level >= 4 {
         "Maximalstufe erreicht".to_string()
     } else {
         format!("Kosten: {} Erz", cost_t4)
     };
-    let cost_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
+    let step_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
         + base.drone_scanner_progress as u32
         + 1;
-    let cost_t2 = (base.base_scanner_level.saturating_sub(1) as u32) * 100
+    let step_t2 = (base.base_scanner_level.saturating_sub(1) as u32) * 100
         + base.base_scanner_progress as u32
         + 1;
-    let cost_t3 = (base.radar_horizon_level.saturating_sub(1) as u32) * 100
+    let step_t3 = (base.radar_horizon_level.saturating_sub(1) as u32) * 100
         + base.radar_horizon_progress as u32
         + 1;
+    let cost_t1 = (step_t1 + 3) / 4;
+    let cost_t2 = (step_t2 + 3) / 4;
+    let cost_t3 = (step_t3 + 3) / 4;
 
     let cost_t1_text = if base.drone_scanner_level >= 5 {
         "Maximalstufe erreicht".to_string()
@@ -1607,7 +1611,7 @@ fn BaseDashboardScreen(
     ) = if let Some(ref r) = current_riddle {
         match r.track {
             1 => (
-                "Drohnen-Scan (Sortieren)",
+                "Drohnen-Scan (Distanzberechnung)",
                 "🛸",
                 base.drone_scanner_level,
                 base.drone_scanner_progress,
@@ -1615,7 +1619,7 @@ fn BaseDashboardScreen(
                 "linear-gradient(90deg, #0284c7, #00e5ff)",
             ),
             2 => (
-                "Basen & Asteroiden",
+                "Basen- & Asteroiden-Scan (Sortieren)",
                 "☄️",
                 base.base_scanner_level,
                 base.base_scanner_progress,
@@ -1688,7 +1692,7 @@ fn BaseDashboardScreen(
             )
         } else if p2 > p1 {
             (
-                "Basen & Asteroiden",
+                "Basen- & Asteroiden-Scan (Sortieren)",
                 "☄️",
                 base.base_scanner_level,
                 base.base_scanner_progress,
@@ -1697,7 +1701,7 @@ fn BaseDashboardScreen(
             )
         } else {
             (
-                "Drohnen-Scan (Sortieren)",
+                "Drohnen-Scan (Distanzberechnung)",
                 "🛸",
                 base.drone_scanner_level,
                 base.drone_scanner_progress,
@@ -2589,10 +2593,10 @@ fn research_attempt_status(status: u8, module_burnout: bool) -> &'static str {
 fn research_explanation(track: u8) -> &'static str {
     match track {
         1 => {
-            "Sortiere alle Eingabewerte aufsteigend. Jeder Wert muss erhalten bleiben, einschließlich Duplikaten."
+            "Berechne für jedes Ziel den euklidischen Abstand zum Basisstandort: Quadratwurzel aus der Summe der quadrierten X- und Y-Differenzen. Runde die Ergebnisse auf zwei Nachkommastellen."
         }
         2 => {
-            "Berechne für jedes Ziel den euklidischen Abstand zum Basisstandort: Quadratwurzel aus der Summe der quadrierten X- und Y-Differenzen. Runde die Ergebnisse auf zwei Nachkommastellen."
+            "Sortiere alle Eingabewerte aufsteigend. Jeder Wert muss erhalten bleiben, einschließlich Duplikaten."
         }
         3 => {
             "Entferne isolierte Signalspitzen, deren Abweichung von benachbarten Messwerten den angegebenen Schwellenwert überschreitet. Die übrigen Messwerte bleiben in ihrer Reihenfolge."
@@ -2850,15 +2854,18 @@ fn HeimatbasisModal(
     let energy_capacity = 500 + 200 * base.energy_production_level.min(4) as u32;
     let energy_production = 2.4 + 2.4 * base.energy_production_level.min(4) as f32;
 
-    let cost_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
+    let step_t1 = (base.drone_scanner_level.saturating_sub(1) as u32) * 100
         + base.drone_scanner_progress as u32
         + 1;
-    let cost_t2 = (base.base_scanner_level.saturating_sub(1) as u32) * 100
+    let step_t2 = (base.base_scanner_level.saturating_sub(1) as u32) * 100
         + base.base_scanner_progress as u32
         + 1;
-    let cost_t3 = (base.radar_horizon_level.saturating_sub(1) as u32) * 100
+    let step_t3 = (base.radar_horizon_level.saturating_sub(1) as u32) * 100
         + base.radar_horizon_progress as u32
         + 1;
+    let cost_t1 = (step_t1 + 3) / 4;
+    let cost_t2 = (step_t2 + 3) / 4;
+    let cost_t3 = (step_t3 + 3) / 4;
 
     let cost_t1_text = if base.drone_scanner_level >= 5 {
         "Maximalstufe erreicht".to_string()
@@ -2875,8 +2882,9 @@ fn HeimatbasisModal(
     } else {
         format!("Kosten: {} Erz", cost_t3)
     };
-    let cost_t4 =
+    let step_t4 =
         base.energy_production_level as u32 * 100 + base.energy_production_progress as u32 + 1;
+    let cost_t4 = (step_t4 + 3) / 4;
     let cost_t4_text = if base.energy_production_level >= 4 {
         "Maximalstufe erreicht".to_string()
     } else {
@@ -3104,7 +3112,7 @@ fn HeimatbasisModal(
                         } else {
                             ResearchTrackCard {
                                 track: 1,
-                                title: "🛸 Drohnen-Scan (Sortieren)".to_string(),
+                                title: "🛸 Drohnen-Scan (Distanzberechnung)".to_string(),
                                 level: base.drone_scanner_level,
                                 effect_text: format!("{} px", 150 + (base.drone_scanner_level.saturating_sub(1) as u32 * 50)),
                                 progress: base.drone_scanner_progress,
@@ -3119,7 +3127,7 @@ fn HeimatbasisModal(
                             }
                             ResearchTrackCard {
                                 track: 2,
-                                title: "☄️ Basen- & Asteroiden (Distanz)".to_string(),
+                                title: "☄️ Basen- & Asteroiden-Scan (Sortieren)".to_string(),
                                 level: base.base_scanner_level,
                                 effect_text: format!("{} px", 300 + (base.base_scanner_level.saturating_sub(1) as u32 * 100)),
                                 progress: base.base_scanner_progress,

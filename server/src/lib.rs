@@ -882,9 +882,12 @@ pub fn build_ship(ctx: &ReducerContext, tier: u8) -> Result<(), String> {
             "Zusätzliche Drohne gebaut und Flotte erweitert",
             "🛸",
         );
-        if tier == 1 {
-            advance_tutorial(ctx, owner, 14, 15);
-        }
+        tutorial::apply_event(
+            ctx,
+            owner,
+            &tutorial::TutorialEvent::ShipBuilt { tier },
+            &tutorial::TutorialSnapshot::default(),
+        );
     }
 
     ctx.db.game_event().insert(GameEvent {
@@ -984,6 +987,7 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
         }
     }
 
+    let mut tutorial_event = None;
     match cmd {
         ShipCommand::FlyTo { target } => {
             if !target.x.is_finite() || !target.y.is_finite() {
@@ -995,11 +999,39 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
             if target.x.abs() > max_x || target.y.abs() > max_y {
                 return Err("Target position is outside world boundaries".to_string());
             }
+            let (target_is_tutorial_destination, target_within_signal) = ctx
+                .db
+                .base_station()
+                .owner()
+                .find(&owner)
+                .map(|base| {
+                    let expected_target = Vec2::new(base.position.x + 300.0, base.position.y);
+                    (
+                        (target.x - expected_target.x).abs() <= 1.0
+                            && (target.y - expected_target.y).abs() <= 1.0,
+                        base.position.distance(&target) <= base.signal_radius,
+                    )
+                })
+                .unwrap_or((false, false));
+            tutorial_event = Some(tutorial::TutorialEvent::FlightCommanded {
+                target_is_tutorial_destination,
+                target_within_signal,
+            });
             ship.target_position = Some(target);
             ship.is_mining = false;
             ship.target_asteroid_id = None;
         }
         ShipCommand::Stop => {
+            let tutorial_target = ctx
+                .db
+                .base_station()
+                .owner()
+                .find(&owner)
+                .map(|base| Vec2::new(base.position.x + 300.0, base.position.y));
+            let distance_to_target = tutorial_target
+                .map(|target| ship.position.distance(&target))
+                .unwrap_or(f32::INFINITY);
+            tutorial_event = Some(tutorial::TutorialEvent::StopCommanded { distance_to_target });
             ship.target_position = None;
             ship.velocity = Vec2::ZERO;
             ship.speed = 0.0;
@@ -1038,6 +1070,17 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
                 .owner()
                 .find(&owner)
                 .ok_or("Base station not found to dock at")?;
+            let energy_percent = if ship.max_energy > 0.0 {
+                ship.energy / ship.max_energy
+            } else {
+                0.0
+            };
+            tutorial_event = Some(tutorial::TutorialEvent::DroneDocked {
+                cargo_ore: ship.cargo_ore,
+                max_cargo: ship.max_cargo,
+                energy_percent,
+                signal_countdown: ship.signal_countdown,
+            });
 
             ship.target_position = Some(base.position);
             ship.is_mining = false;
@@ -1054,6 +1097,9 @@ pub fn command_ship(ctx: &ReducerContext, ship_id: u32, cmd: ShipCommand) -> Res
     ship.is_docked = is_ship_docked(&ship, base_pos);
 
     ctx.db.ship().ship_id().update(ship);
+    if let Some(event) = tutorial_event {
+        tutorial::apply_event(ctx, owner, &event, &tutorial::TutorialSnapshot::default());
+    }
     Ok(())
 }
 
@@ -1078,13 +1124,11 @@ pub fn base_energy_capacity(energy_level: u8) -> f32 {
     500.0 + 200.0 * energy_level.min(MAX_ENERGY_PRODUCTION_LEVEL) as f32
 }
 
-/// Calculates ore cost for conducting research on a riddle:
-/// Stufe 1: 1..100 Erz
-/// Stufe 2: 101..200 Erz
-/// Stufe 3: 201..300 Erz
-/// Stufe 4: 301..400 Erz
+/// Calculates the whole-ore cost for the next research step.
+/// Each cumulative step costs 0.25 ore, rounded up to a whole ore.
 pub fn calculate_riddle_cost(level: u8, progress: u8) -> u32 {
-    (level.saturating_sub(1) as u32) * 100 + (progress as u32) + 1
+    let step = (level.saturating_sub(1) as u32) * 100 + progress as u32 + 1;
+    (step + 3) / 4
 }
 
 fn current_research_cost(base: &BaseStation, track: u8) -> u32 {
@@ -1258,6 +1302,12 @@ pub fn request_riddle(ctx: &ReducerContext, track: u8) -> Result<(), String> {
         ),
         timestamp: ctx.timestamp,
     });
+    tutorial::apply_event(
+        ctx,
+        owner,
+        &tutorial::TutorialEvent::ResearchRequested { track },
+        &tutorial::TutorialSnapshot::default(),
+    );
 
     Ok(())
 }
@@ -1319,7 +1369,12 @@ pub fn submit_riddle_solution(
             "🧪",
         );
 
-        advance_tutorial(ctx, owner, 20, 21);
+        tutorial::apply_event(
+            ctx,
+            owner,
+            &tutorial::TutorialEvent::RiddleSolved { track },
+            &tutorial::TutorialSnapshot::default(),
+        );
 
         let (level, progress) = match track {
             1 => (
@@ -1693,9 +1748,10 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                     if base.position.distance(&ship.position) < 40.0 {
                         // Offload cargo
                         if ship.cargo_ore > 0 {
-                            base.stored_ore += ship.cargo_ore;
+                            let delivered_ore = ship.cargo_ore;
+                            base.stored_ore += delivered_ore;
                             if let Some(mut player) = ctx.db.player().identity().find(&ship.owner) {
-                                player.score += ship.cargo_ore as u64 * 10;
+                                player.score += delivered_ore as u64 * 10;
                                 ctx.db.player().identity().update(player);
                             }
                             ship.cargo_ore = 0;
@@ -1707,13 +1763,17 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                                 "Erstes Erz abgebaut und erfolgreich an die Heimatbasis geliefert",
                                 "⛏️",
                             );
-                            if base.stored_ore >= 50 {
-                                advance_tutorial(ctx, ship.owner, 12, 13);
-                            }
                             let fleet_count = ctx.db.ship().owner().filter(&ship.owner).count();
-                            if fleet_count >= 2 {
-                                advance_tutorial(ctx, ship.owner, 16, 17);
-                            }
+                            tutorial::apply_event(
+                                ctx,
+                                ship.owner,
+                                &tutorial::TutorialEvent::OreDelivered {
+                                    base_stored_ore: base.stored_ore,
+                                    fleet_size: fleet_count,
+                                    delivered_ore,
+                                },
+                                &tutorial::TutorialSnapshot::default(),
+                            );
                         }
                         ctx.db.base_station().owner().update(base);
                     }
@@ -1781,7 +1841,15 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                         base.stored_energy -= drawn;
                         ctx.db.base_station().owner().update(base);
                         if ship.energy >= ship.max_energy {
-                            advance_tutorial(ctx, ship.owner, 18, 19);
+                            tutorial::apply_event(
+                                ctx,
+                                ship.owner,
+                                &tutorial::TutorialEvent::DroneRecharged {
+                                    energy: ship.energy,
+                                    max_energy: ship.max_energy,
+                                },
+                                &tutorial::TutorialSnapshot::default(),
+                            );
                         }
                     }
                 }
@@ -1804,7 +1872,12 @@ pub fn game_tick(ctx: &ReducerContext, _schedule: TickSchedule) -> Result<(), St
                         let amount = 1.min(asteroid.remaining_ore);
                         if amount > 0 && ship.cargo_ore + amount <= ship.max_cargo {
                             ship.cargo_ore += amount;
-                            advance_tutorial(ctx, ship.owner, 10, 11);
+                            tutorial::apply_event(
+                                ctx,
+                                ship.owner,
+                                &tutorial::TutorialEvent::OreMined { amount },
+                                &tutorial::TutorialSnapshot::default(),
+                            );
                             asteroid.remaining_ore = asteroid.remaining_ore.saturating_sub(amount);
                             ship.energy -= 1.0;
                             strand_ship_if_energy_insufficient(&mut ship);
@@ -2920,48 +2993,67 @@ mod tests {
                 ],
             ),
             (15, &["FOR_IN_FLEET"]),
-            (17, &["DRONE_IS_DOCKED", "DRONE_ENERGY", "ELSE_IF"]),
+            (
+                17,
+                &[
+                    "DRONE_IS_DOCKED",
+                    "SHIP_ENERGY",
+                    "SHIP_MAX_ENERGY",
+                    "SHIP_ENERGY_PERCENT",
+                    "ELSE_IF",
+                ],
+            ),
             (
                 19,
                 &[
                     "WORLD_ACTIVE_RIDDLE",
                     "OPTION_IS_NONE",
                     "ACTIONS_REQUEST_RESEARCH",
+                ],
+            ),
+            (
+                21,
+                &[
                     "LET_BINDING",
                     "CLONE_AND_SORT",
                     "RIDDLE_SORT",
-                    "RIDDLE_DISTANCE",
-                    "RIDDLE_DENOISE",
-                    "RIDDLE_ENERGY",
                     "ACTIONS_SOLVE_RIDDLE",
-                ],
-            ),
-            (21, &["ACTIONS_BUILD_DRONE_2"]),
-            (
-                22,
-                &[
-                    "SHIP_TIER",
-                    "SHIP_VELOCITY",
-                    "SHIP_TARGET_POSITION",
-                    "SHIP_HEADING",
-                    "SHIP_SPEED",
-                    "SHIP_MAX_SPEED",
-                    "SHIP_ENERGY",
-                    "SHIP_MAX_ENERGY",
-                    "SHIP_CARGO_ORE",
-                    "SHIP_MAX_CARGO",
-                    "SHIP_TARGET_ASTEROID_ID",
-                    "SHIP_IS_MINING",
-                    "SHIP_IS_STRANDED",
-                    "SHIP_SIGNAL_COUNTDOWN",
-                    "SHIP_DISTANCE_TO",
-                    "SHIP_CARGO_FREE_SPACE",
-                    "SHIP_ENERGY_PERCENT",
-                    "WORLD_SHIP",
                 ],
             ),
             (
                 23,
+                &[
+                    "WORLD_BASE",
+                    "ACTIONS_BUILD_DRONE_2",
+                    "BASE_STORED_ENERGY",
+                    "SDK_DRONE_COSTS",
+                ],
+            ),
+            (
+                25,
+                &[
+                    "ACTIONS_FLY_TO",
+                    "VEC2_NEW",
+                    "BASE_POSITION",
+                    "BASE_SIGNAL_RADIUS",
+                    "BASE_DISTANCE_TO",
+                    "BASE_IS_IN_RANGE",
+                ],
+            ),
+            (
+                27,
+                &[
+                    "ACTIONS_STOP",
+                    "SHIP_VELOCITY",
+                    "SHIP_SPEED",
+                    "SHIP_MAX_SPEED",
+                    "SHIP_HEADING",
+                    "SHIP_TARGET_POSITION",
+                    "SHIP_DISTANCE_TO",
+                ],
+            ),
+            (
+                29,
                 &[
                     "WORLD_ASTEROIDS",
                     "WORLD_CLOSEST_ASTEROID_ANY",
@@ -2973,63 +3065,38 @@ mod tests {
                     "ASTEROID_DISTANCE_TO",
                     "ASTEROID_IS_DEPLETED",
                     "ASTEROID_RESOURCE_NAME",
-                    "VEC2_NEW",
-                    "VEC2_ZERO",
-                    "VEC2_XY",
                     "VEC2_DISTANCE",
                 ],
             ),
             (
-                24,
+                31,
                 &[
-                    "WORLD_BASE",
-                    "WORLD_TICK",
-                    "BASE_POSITION",
-                    "BASE_SIGNAL_RADIUS",
-                    "BASE_STORED_ENERGY",
-                    "BASE_LEVEL",
-                    "BASE_DRONE_SCANNER_LEVEL",
-                    "BASE_BASE_SCANNER_LEVEL",
-                    "BASE_RADAR_HORIZON_LEVEL",
-                    "BASE_DISTANCE_TO",
-                    "BASE_IS_IN_RANGE",
-                    "BASE_DRONE_SCANNER_RANGE",
-                    "BASE_BASE_SCANNER_RANGE",
-                    "BASE_RADAR_HORIZON_RANGE",
+                    "WORLD_SHIP",
+                    "DRONE_TIER",
+                    "SHIP_CARGO_ORE",
+                    "SHIP_MAX_CARGO",
+                    "SHIP_CARGO_FREE_SPACE",
+                    "SHIP_TARGET_ASTEROID_ID",
+                    "SHIP_IS_MINING",
                 ],
             ),
+            (33, &["SHIP_IS_STRANDED", "SHIP_SIGNAL_COUNTDOWN"]),
             (
-                25,
+                35,
                 &[
                     "WORLD_OTHER_DRONES",
-                    "WORLD_OTHER_BASES",
                     "OTHER_DRONE_SHIP_ID",
                     "OTHER_DRONE_TIER",
                     "OTHER_DRONE_POSITION",
                     "OTHER_DRONE_HEADING",
                     "OTHER_DRONE_SPEED",
                     "OTHER_DRONE_IS_MINING",
+                    "WORLD_OTHER_BASES",
                     "OTHER_BASE_ID",
                     "OTHER_BASE_POSITION",
                     "OTHER_BASE_SIGNAL_RADIUS",
                     "OTHER_BASE_LEVEL",
                     "OTHER_BASE_SCANNER_LEVELS",
-                    "CONTACT_ID",
-                    "CONTACT_POSITION",
-                ],
-            ),
-            (
-                26,
-                &[
-                    "ACTIONS_FLY_TO",
-                    "ACTIONS_STOP",
-                    "UPGRADE_TRACK_BASE_ASTEROID",
-                    "UPGRADE_TRACK_RADAR_HORIZON",
-                    "UPGRADE_TRACK_NAME",
-                    "RIDDLE_TASK_DISTANCE",
-                    "RIDDLE_TASK_DENOISE",
-                    "RIDDLE_SOLUTION_DISTANCE",
-                    "RIDDLE_SOLUTION_DENOISE",
                 ],
             ),
         ];
@@ -3158,23 +3225,22 @@ mod tests {
 
     #[test]
     fn test_calculate_riddle_cost() {
-        // Level 1: 1..100
+        // Steps 1..4 round up to 1 ore; step 5 costs 2 ore.
         assert_eq!(calculate_riddle_cost(1, 0), 1);
-        assert_eq!(calculate_riddle_cost(1, 1), 2);
-        assert_eq!(calculate_riddle_cost(1, 99), 100);
+        assert_eq!(calculate_riddle_cost(1, 1), 1);
+        assert_eq!(calculate_riddle_cost(1, 3), 1);
+        assert_eq!(calculate_riddle_cost(1, 4), 2);
 
-        // Level 2: 101..200
-        assert_eq!(calculate_riddle_cost(2, 0), 101);
-        assert_eq!(calculate_riddle_cost(2, 1), 102);
-        assert_eq!(calculate_riddle_cost(2, 99), 200);
-
-        // Level 3: 201..300
-        assert_eq!(calculate_riddle_cost(3, 0), 201);
-        assert_eq!(calculate_riddle_cost(3, 99), 300);
-
-        // Level 4: 301..400
-        assert_eq!(calculate_riddle_cost(4, 0), 301);
-        assert_eq!(calculate_riddle_cost(4, 99), 400);
+        // Cost increases at each fourth step and remains continuous across levels.
+        assert_eq!(calculate_riddle_cost(1, 99), 25); // Step 100
+        assert_eq!(calculate_riddle_cost(2, 0), 26); // Step 101
+        assert_eq!(calculate_riddle_cost(2, 3), 26); // Step 104
+        assert_eq!(calculate_riddle_cost(2, 4), 27); // Step 105
+        assert_eq!(calculate_riddle_cost(2, 99), 50); // Step 200
+        assert_eq!(calculate_riddle_cost(3, 0), 51); // Step 201
+        assert_eq!(calculate_riddle_cost(3, 99), 75); // Step 300
+        assert_eq!(calculate_riddle_cost(4, 0), 76); // Step 301
+        assert_eq!(calculate_riddle_cost(4, 99), 100); // Step 400
 
         // Edge case: Level 0 (saturating_sub prevents underflow)
         assert_eq!(calculate_riddle_cost(0, 0), 1);

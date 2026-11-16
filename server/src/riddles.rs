@@ -50,29 +50,7 @@ pub fn generate_riddle(track: u8, target_level: u8, base_pos: Vec2, seed: u64) -
 
     match track {
         1 => {
-            // Track 1: Drone Scanner — Sorting Lists
-            // Difficulty scales with target level
-            let count = match target_level {
-                2 => 15,
-                3 => 30,
-                4 => 60,
-                _ => 100,
-            };
-
-            let mut numbers = Vec::with_capacity(count);
-            for _ in 0..count {
-                numbers.push(rng.next_i64_range(-1000, 1000));
-            }
-
-            let mut sorted = numbers.clone();
-            sorted.sort();
-
-            let payload = serde_json::to_string(&SortPayload { numbers }).unwrap_or_default();
-            let solution = serde_json::to_string(&SortSolution { sorted }).unwrap_or_default();
-            (payload, solution)
-        }
-        2 => {
-            // Track 2: Base & Asteroid Range — Calculating Distances
+            // Track 1: Drone Scanner — Calculating Distances
             let count = match target_level {
                 2 => 5,
                 3 => 10,
@@ -102,6 +80,28 @@ pub fn generate_riddle(track: u8, target_level: u8, base_pos: Vec2, seed: u64) -
             .unwrap_or_default();
             let solution =
                 serde_json::to_string(&DistanceSolution { distances }).unwrap_or_default();
+            (payload, solution)
+        }
+        2 => {
+            // Track 2: Base & Asteroid Scanner — Sorting Lists
+            // Difficulty scales with target level
+            let count = match target_level {
+                2 => 15,
+                3 => 30,
+                4 => 60,
+                _ => 100,
+            };
+
+            let mut numbers = Vec::with_capacity(count);
+            for _ in 0..count {
+                numbers.push(rng.next_i64_range(-1000, 1000));
+            }
+
+            let mut sorted = numbers.clone();
+            sorted.sort();
+
+            let payload = serde_json::to_string(&SortPayload { numbers }).unwrap_or_default();
+            let solution = serde_json::to_string(&SortSolution { sorted }).unwrap_or_default();
             (payload, solution)
         }
         3 => {
@@ -196,27 +196,7 @@ pub fn verify_solution(
 
     match track {
         1 => {
-            // Track 1: Sort
-            // Accept either {"sorted": [...]} or direct [...]
-            let student_list: Option<Vec<i64>> =
-                serde_json::from_str::<SortSolution>(student_trimmed)
-                    .map(|s| s.sorted)
-                    .or_else(|_| serde_json::from_str::<Vec<i64>>(student_trimmed))
-                    .ok();
-
-            let expected_list: Option<Vec<i64>> =
-                serde_json::from_str::<SortSolution>(expected_json)
-                    .map(|s| s.sorted)
-                    .or_else(|_| serde_json::from_str::<Vec<i64>>(expected_json))
-                    .ok();
-
-            match (student_list, expected_list) {
-                (Some(s), Some(e)) => s == e,
-                _ => false,
-            }
-        }
-        2 => {
-            // Track 2: Distances
+            // Track 1: Distances
             // Accept either {"distances": [...]} or direct [...]
             let student_list: Option<Vec<f32>> =
                 serde_json::from_str::<DistanceSolution>(student_trimmed)
@@ -242,6 +222,26 @@ pub fn verify_solution(
                     }
                     true
                 }
+                _ => false,
+            }
+        }
+        2 => {
+            // Track 2: Sort
+            // Accept either {"sorted": [...]} or direct [...]
+            let student_list: Option<Vec<i64>> =
+                serde_json::from_str::<SortSolution>(student_trimmed)
+                    .map(|s| s.sorted)
+                    .or_else(|_| serde_json::from_str::<Vec<i64>>(student_trimmed))
+                    .ok();
+
+            let expected_list: Option<Vec<i64>> =
+                serde_json::from_str::<SortSolution>(expected_json)
+                    .map(|s| s.sorted)
+                    .or_else(|_| serde_json::from_str::<Vec<i64>>(expected_json))
+                    .ok();
+
+            match (student_list, expected_list) {
+                (Some(s), Some(e)) => s == e,
                 _ => false,
             }
         }
@@ -298,17 +298,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_track_1_sort() {
+    fn test_track_1_distances() {
         let (payload, expected) = generate_riddle(1, 2, Vec2::new(100.0, 100.0), 12345);
-        let parsed_payload: SortPayload = serde_json::from_str(&payload).unwrap();
-        assert_eq!(parsed_payload.numbers.len(), 15);
+        let parsed_payload: DistancePayload = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed_payload.targets.len(), 5);
 
         // Verification with valid solution
         assert!(verify_solution(1, &payload, &expected, &expected));
 
         // Verification with direct array
-        let expected_sol: SortSolution = serde_json::from_str(&expected).unwrap();
-        let direct_json = serde_json::to_string(&expected_sol.sorted).unwrap();
+        let expected_sol: DistanceSolution = serde_json::from_str(&expected).unwrap();
+        let direct_json = serde_json::to_string(&expected_sol.distances).unwrap();
         assert!(verify_solution(1, &payload, &expected, &direct_json));
 
         // Incorrect solution fails
@@ -316,25 +316,30 @@ mod tests {
             1,
             &payload,
             &expected,
-            "{\"sorted\": [1, 2, 3]}"
+            "{\"distances\": [0.0]}"
         ));
     }
 
     #[test]
-    fn test_track_2_distances() {
+    fn test_track_2_sort() {
         let (payload, expected) = generate_riddle(2, 2, Vec2::new(100.0, 100.0), 54321);
-        let parsed_payload: DistancePayload = serde_json::from_str(&payload).unwrap();
-        assert_eq!(parsed_payload.targets.len(), 5);
+        let parsed_payload: SortPayload = serde_json::from_str(&payload).unwrap();
+        assert_eq!(parsed_payload.numbers.len(), 15);
 
         // Verification with valid solution
         assert!(verify_solution(2, &payload, &expected, &expected));
+
+        // Verification with direct array
+        let expected_sol: SortSolution = serde_json::from_str(&expected).unwrap();
+        let direct_json = serde_json::to_string(&expected_sol.sorted).unwrap();
+        assert!(verify_solution(2, &payload, &expected, &direct_json));
 
         // Incorrect solution fails
         assert!(!verify_solution(
             2,
             &payload,
             &expected,
-            "{\"distances\": [0.0]}"
+            "{\"sorted\": [1, 2, 3]}"
         ));
     }
 
